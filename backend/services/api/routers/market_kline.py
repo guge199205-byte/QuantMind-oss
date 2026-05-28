@@ -52,7 +52,7 @@ async def _try_stock_daily_latest(symbol: str, start: Optional[date], end: Optio
     """A 股快路径：从 stock_daily_latest 直接拉。"""
     try:
         from sqlalchemy import text
-        from backend.shared.database_pool import get_session
+        from backend.shared.database_manager_v2 import get_session
     except Exception:
         return None
     try:
