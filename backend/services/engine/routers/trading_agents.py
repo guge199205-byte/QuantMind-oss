@@ -87,6 +87,7 @@ async def start_analysis(req: AnalyzeRequest):
         trade_date=req.trade_date,
         config=config,
         tracker=tracker,
+        analysis_id=analysis_id,
     )
     _threads[analysis_id] = thread
 
@@ -144,7 +145,80 @@ async def get_report(analysis_id: str):
 
 
 async def _load_report_from_disk(analysis_id: str) -> dict:
-    """Try to load a report from disk storage."""
+    """Try to load a report from database or disk storage."""
+    # Try database first
+    try:
+        import os
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+
+        db_url = os.getenv("DATABASE_URL", "").strip()
+        if not db_url:
+            host = os.getenv("DB_HOST", "localhost")
+            port = os.getenv("DB_PORT", "5432")
+            user = os.getenv("DB_USER", "quantmind")
+            password = os.getenv("DB_PASSWORD", "quantmind2026")
+            db_name = os.getenv("DB_NAME", "quantmind")
+            db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+        elif "asyncpg" in db_url:
+            db_url = db_url.replace("asyncpg", "psycopg2")
+
+        engine = create_engine(db_url, pool_size=2, max_overflow=2)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        row = session.execute(
+            text("""
+                SELECT ticker, trade_date, signal, llm_provider, deep_think_llm, quick_think_llm,
+                       stage_reports, final_state, stats, elapsed_seconds, error, created_at
+                FROM qm_trading_agents_history
+                WHERE analysis_id = :aid
+            """),
+            {"aid": analysis_id},
+        ).fetchone()
+
+        session.close()
+        engine.dispose()
+
+        if row:
+            stage_reports = {}
+            final_state = {}
+            stats = {}
+            try:
+                stage_reports = json.loads(row[6]) if row[6] else {}
+            except Exception:
+                pass
+            try:
+                final_state = json.loads(row[7]) if row[7] else {}
+            except Exception:
+                pass
+            try:
+                stats = json.loads(row[8]) if row[8] else {}
+            except Exception:
+                pass
+
+            return {
+                "code": 200,
+                "data": {
+                    "analysis_id": analysis_id,
+                    "ticker": row[0],
+                    "trade_date": str(row[1]) if row[1] else "",
+                    "signal": row[2] or "",
+                    "llm_provider": row[3] or "",
+                    "deep_think_llm": row[4] or "",
+                    "quick_think_llm": row[5] or "",
+                    "stage_reports": stage_reports,
+                    "final_state": final_state,
+                    "stats": stats,
+                    "elapsed": row[9] or 0,
+                    "error": row[10],
+                    "created_at": str(row[11]) if row[11] else "",
+                },
+            }
+    except Exception as e:
+        logger.warning("Failed to load report from database: %s", e)
+
+    # Fallback: try disk
     for path in _RESULTS_DIR.rglob("*.json"):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -159,13 +233,70 @@ async def _load_report_from_disk(analysis_id: str) -> dict:
 async def list_history(
     limit: int = Query(20, ge=1, le=100),
 ):
-    """List recent analysis history."""
-    _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    """List recent analysis history from database + in-memory."""
     history = []
 
-    # From in-memory trackers
+    # From database
+    try:
+        import os
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+
+        db_url = os.getenv("DATABASE_URL", "").strip()
+        if not db_url:
+            host = os.getenv("DB_HOST", "localhost")
+            port = os.getenv("DB_PORT", "5432")
+            user = os.getenv("DB_USER", "quantmind")
+            password = os.getenv("DB_PASSWORD", "quantmind2026")
+            db_name = os.getenv("DB_NAME", "quantmind")
+            db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+        elif "asyncpg" in db_url:
+            db_url = db_url.replace("asyncpg", "psycopg2")
+
+        engine = create_engine(db_url, pool_size=2, max_overflow=2)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        rows = session.execute(
+            text("""
+                SELECT analysis_id, ticker, trade_date, signal,
+                       llm_provider, deep_think_llm, quick_think_llm,
+                       stats, elapsed_seconds, error, created_at
+                FROM qm_trading_agents_history
+                ORDER BY created_at DESC
+                LIMIT :lim
+            """),
+            {"lim": limit},
+        ).fetchall()
+
+        for r in rows:
+            stats = {}
+            try:
+                stats = json.loads(r[7]) if r[7] else {}
+            except Exception:
+                pass
+            history.append({
+                "analysis_id": r[0],
+                "ticker": r[1],
+                "trade_date": str(r[2]) if r[2] else "",
+                "signal": r[3] or "",
+                "llm_provider": r[4] or "",
+                "model": r[5] or r[6] or "",
+                "stats": stats,
+                "elapsed": r[8] or 0,
+                "error": r[9],
+                "created_at": str(r[10]) if r[10] else "",
+                "source": "database",
+            })
+
+        session.close()
+        engine.dispose()
+    except Exception as e:
+        logger.warning("Failed to read history from database: %s", e)
+
+    # Also include in-memory trackers not yet persisted
     for aid, tracker in _trackers.items():
-        if tracker.is_complete:
+        if tracker.is_complete and not any(h["analysis_id"] == aid for h in history):
             history.append({
                 "analysis_id": aid,
                 "ticker": tracker.ticker,
@@ -174,21 +305,6 @@ async def list_history(
                 "elapsed": tracker.elapsed,
                 "source": "memory",
             })
-
-    # From disk
-    for path in sorted(_RESULTS_DIR.rglob("*.json"), reverse=True):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            history.append({
-                "analysis_id": data.get("analysis_id", path.stem),
-                "ticker": data.get("ticker", ""),
-                "trade_date": data.get("trade_date", ""),
-                "signal": data.get("signal", ""),
-                "elapsed": data.get("elapsed", 0),
-                "source": "disk",
-            })
-        except Exception:
-            continue
 
     return {"code": 200, "data": {"history": history[:limit], "total": len(history)}}
 
@@ -237,3 +353,21 @@ async def get_config():
         })
 
     return {"code": 200, "data": {"providers": providers}}
+
+
+@router.get("/download/{analysis_id}")
+async def download_report(analysis_id: str):
+    """Download analysis report as JSON file."""
+    report = await _load_report_from_disk(analysis_id)
+    data = report.get("data", {})
+
+    from fastapi.responses import Response
+
+    content = json.dumps(data, ensure_ascii=False, indent=2)
+    filename = f"trading_agents_{data.get('ticker', 'unknown')}_{data.get('trade_date', '')}_{analysis_id}.json"
+
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

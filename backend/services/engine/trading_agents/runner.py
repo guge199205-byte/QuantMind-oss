@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
+from datetime import datetime
 from typing import Any
 
 from backend.services.engine.trading_agents.progress import (
@@ -14,6 +16,95 @@ from backend.services.engine.trading_agents.progress import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _save_to_database(
+    analysis_id: str,
+    ticker: str,
+    trade_date: str,
+    signal: str,
+    config: dict,
+    tracker: ProgressTracker,
+    final_state: dict[str, Any],
+    error: str | None = None,
+) -> None:
+    """Persist analysis results to PostgreSQL (sync, called from worker thread)."""
+    try:
+        import os
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+
+        db_url = os.getenv("DATABASE_URL", "").strip()
+        if not db_url:
+            host = os.getenv("DB_HOST", "localhost")
+            port = os.getenv("DB_PORT", "5432")
+            user = os.getenv("DB_USER", "quantmind")
+            password = os.getenv("DB_PASSWORD", "quantmind2026")
+            db_name = os.getenv("DB_NAME", "quantmind")
+            db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+        elif "asyncpg" in db_url:
+            db_url = db_url.replace("asyncpg", "psycopg2")
+
+        engine = create_engine(db_url, pool_size=2, max_overflow=2)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        # Sanitize final_state: remove non-serializable objects
+        clean_final = {}
+        for k, v in (final_state or {}).items():
+            try:
+                json.dumps(v, ensure_ascii=False)
+                clean_final[k] = v
+            except (TypeError, ValueError):
+                clean_final[k] = str(v)[:2000] if v else None
+
+        session.execute(
+            text("""
+                INSERT INTO qm_trading_agents_history
+                    (analysis_id, ticker, trade_date, signal,
+                     llm_provider, deep_think_llm, quick_think_llm,
+                     stage_reports, final_state, stats, elapsed_seconds, error,
+                     created_at, updated_at)
+                VALUES
+                    (:aid, :ticker, :td, :signal,
+                     :provider, :deep, :quick,
+                     :reports, :final, :stats, :elapsed, :error,
+                     NOW(), NOW())
+                ON CONFLICT (analysis_id) DO UPDATE SET
+                    signal = EXCLUDED.signal,
+                    stage_reports = EXCLUDED.stage_reports,
+                    final_state = EXCLUDED.final_state,
+                    stats = EXCLUDED.stats,
+                    elapsed_seconds = EXCLUDED.elapsed_seconds,
+                    error = EXCLUDED.error,
+                    updated_at = NOW()
+            """),
+            {
+                "aid": analysis_id,
+                "ticker": ticker,
+                "td": trade_date,
+                "signal": signal or "",
+                "provider": config.get("llm_provider", ""),
+                "deep": config.get("deep_think_llm", ""),
+                "quick": config.get("quick_think_llm", ""),
+                "reports": json.dumps(tracker.stage_reports, ensure_ascii=False),
+                "final": json.dumps(clean_final, ensure_ascii=False),
+                "stats": json.dumps({
+                    "llm_calls": tracker.llm_calls,
+                    "tool_calls": tracker.tool_calls,
+                    "tokens_in": tracker.tokens_in,
+                    "tokens_out": tracker.tokens_out,
+                }, ensure_ascii=False),
+                "elapsed": tracker.elapsed,
+                "error": error,
+            },
+        )
+        session.commit()
+        session.close()
+        engine.dispose()
+        logger.info("Saved analysis %s to database", analysis_id)
+    except Exception as e:
+        logger.warning("Failed to save analysis to database: %s", e)
 
 _REPORT_KEY_TO_STAGE = {s["report_key"]: s["id"] for s in PIPELINE_STAGES}
 
@@ -72,7 +163,7 @@ def _infer_active_stage(tracker: ProgressTracker) -> None:
             return
 
 
-def _run(ticker: str, trade_date: str, config: dict, tracker: ProgressTracker) -> None:
+def _run(ticker: str, trade_date: str, config: dict, tracker: ProgressTracker, analysis_id: str = "") -> None:
     """Execute the full pipeline in the current thread."""
     try:
         from cli.stats_handler import StatsCallbackHandler
@@ -114,12 +205,17 @@ def _run(ticker: str, trade_date: str, config: dict, tracker: ProgressTracker) -
 
     tracker.mark_complete(last_chunk, signal)
 
+    # Persist to database
+    if analysis_id:
+        _save_to_database(analysis_id, ticker, trade_date, signal, config, tracker, last_chunk)
+
 
 def run_analysis_in_thread(
     ticker: str,
     trade_date: str,
     config: dict,
     tracker: ProgressTracker,
+    analysis_id: str = "",
 ) -> threading.Thread:
     """Launch the pipeline in a daemon thread. Returns the thread handle."""
     tracker.ticker = ticker
@@ -129,10 +225,16 @@ def run_analysis_in_thread(
 
     def _target() -> None:
         try:
-            _run(ticker, trade_date, config, tracker)
+            _run(ticker, trade_date, config, tracker, analysis_id=analysis_id)
         except Exception as exc:
             logger.exception("TradingAgents pipeline failed for %s", ticker)
             tracker.mark_error(str(exc))
+            # Save error state to database
+            if analysis_id:
+                _save_to_database(
+                    analysis_id, ticker, trade_date, "", config, tracker, {},
+                    error=str(exc),
+                )
 
     t = threading.Thread(target=_target, daemon=True)
     t.start()
