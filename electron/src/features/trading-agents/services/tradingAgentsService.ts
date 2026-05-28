@@ -52,3 +52,7 @@ export async function stopAnalysis(analysisId: string): Promise<{ message: strin
 export async function getConfig(): Promise<{ providers: LLMProvider[] }> {
   return request('/config');
 }
+
+export function getDownloadUrl(analysisId: string): string {
+  return `${ENGINE_BASE}/download/${analysisId}`;
+}
