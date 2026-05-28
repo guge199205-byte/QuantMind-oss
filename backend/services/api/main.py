@@ -19,11 +19,16 @@ from backend.services.api.routers.admin import admin_router
 from backend.services.api.routers.ai_ide_proxy import router as ai_ide_proxy_router
 from backend.services.api.routers.community.router import router as community_router
 from backend.services.api.routers.qwenpaw_proxy import router as qwenpaw_proxy_router
+from backend.services.api.routers.qwenpaw_ui_proxy import router as qwenpaw_ui_proxy_router
+from backend.services.api.routers.dashboard_proxy import router as dashboard_proxy_router
+from backend.services.api.routers.data_gateway_proxy import router as data_gateway_proxy_router
+from backend.services.api.routers.data_dashboard import router as data_dashboard_router
 from backend.services.api.routers.news import router as news_router
 from backend.services.api.routers.engine_proxy import router as engine_proxy_router
 from backend.services.api.routers.files import router as files_router
 from backend.services.api.routers.model_training import router as model_training_router
 from backend.services.api.routers.research import router as research_router
+from backend.services.api.routers.market_kline import router as market_kline_router
 from backend.services.api.routers.stocks_search import router as stocks_search_router
 from backend.services.api.routers.trade_proxy import router as trade_proxy_router
 from backend.services.api.routers.public_sync import router as public_sync_router
@@ -77,6 +82,33 @@ async def lifespan(app: FastAPI):
         # from backend.services.api.routers.research import ensure_research_tables
         # await ensure_research_tables()
 
+        # Pre-initialize data platform aggregator in main thread
+        # (register_all uses signal.signal which only works in main thread)
+        try:
+            from backend.services.engine.data_platform.adapters import register_all
+            from backend.services.engine.data_platform.aggregator import (
+                FieldAggregator, FieldRoutingTable,
+            )
+            from backend.services.engine.data_platform.cleaner import DataCleaner
+            from backend.services.engine.data_platform.monitor import get_monitor
+            from backend.services.engine.data_platform.registry import get_registry
+
+            register_all()
+            _agg = FieldAggregator(
+                registry=get_registry(),
+                routing=FieldRoutingTable(),
+                monitor=get_monitor(),
+                cleaner=DataCleaner(),
+            )
+            # Store in module-level cache for both routers
+            import backend.services.api.routers.data_dashboard as dd_mod
+            import backend.services.api.routers.market_kline as mk_mod
+            dd_mod._AGG_CACHE = _agg
+            mk_mod._AGG_CACHE = _agg
+            logger.info("✅ Data platform aggregator pre-initialized")
+        except Exception as agg_err:
+            logger.warning(f"⚠️ Aggregator pre-init failed (will lazy-init): {agg_err}")
+
         logger.info("✅ QuantMind API initialized")
     except Exception as e:
         app.state.startup_healthy = False
@@ -118,6 +150,7 @@ app.include_router(
     model_training_router, prefix="/api/v1/models", tags=["ModelTraining"]
 )
 app.include_router(research_router)
+app.include_router(market_kline_router)
 app.include_router(stocks_search_router)
 app.include_router(trading_calendar.router)
 app.include_router(api_keys_router, prefix="/api/v1")
@@ -132,6 +165,10 @@ app.include_router(engine_proxy_router)
 app.include_router(trade_proxy_router)
 app.include_router(ai_ide_proxy_router)
 app.include_router(qwenpaw_proxy_router)
+app.include_router(qwenpaw_ui_proxy_router)
+app.include_router(dashboard_proxy_router)
+app.include_router(data_gateway_proxy_router)
+app.include_router(data_dashboard_router)
 app.include_router(news_router)
 
 # CORS

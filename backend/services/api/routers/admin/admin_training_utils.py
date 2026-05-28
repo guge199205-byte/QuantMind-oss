@@ -583,7 +583,19 @@ async def submit_training_job(
         name=f"training-{run_id}",
     )
 
-    return {"runId": run_id, "status": "pending", "payload": normalized_payload}
+    # 预检特征可用性，告知前端哪些特征在 parquet 中不存在
+    valid_features, missing_features = LocalDockerOrchestrator._filter_features_by_parquet(
+        run_id, normalized_payload.get("features", [])
+    )
+
+    return {
+        "runId": run_id,
+        "status": "pending",
+        "payload": normalized_payload,
+        "validFeatureCount": len(valid_features),
+        "missingFeatureCount": len(missing_features),
+        "missingFeatures": missing_features[:30],
+    }
 
 
 async def get_training_run_for_owner(run_id: str, current_user: dict[str, Any]) -> dict[str, Any]:

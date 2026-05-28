@@ -26,6 +26,11 @@ docker>=6.0
 pandas>=2.0.0
 numpy==1.26.4
 baostock>=0.8.9
+akshare>=1.18.0
+efinance>=0.5.0
+qstock>=1.3.0
+mootdx>=0.11.0
+eltdx>=0.5.0
 duckdb>=1.4.4
 plotly
 statsmodels

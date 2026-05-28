@@ -603,7 +603,7 @@ html.platform-win32.os-win10 .module-grid-container {
   width: fit-content;
   max-width: 100%;
   margin: 0 auto;
-  padding: 7px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(248, 250, 252, 0.44));
@@ -684,11 +684,11 @@ html.platform-win32.os-win10 .module-grid-container {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 8px 11px;
+  padding: 6px 9px;
   border-radius: 18px;
   cursor: pointer;
   transition: transform 0.24s ease, box-shadow 0.24s ease, background-color 0.24s ease;
-  min-width: 54px;
+  min-width: 46px;
   background: transparent;
   border: none;
   overflow: hidden;
@@ -711,8 +711,8 @@ html.platform-win32.os-win10 .module-grid-container {
 }
 
 .nav-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   stroke-width: 2.15;
   color: var(--nav-icon);
   filter:

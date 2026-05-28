@@ -79,6 +79,9 @@ CELERY_QUEUE = os.getenv("QLIB_CELERY_QUEUE", "qlib_backtest_srv").strip() or "q
 CELERY_EXCHANGE = os.getenv("QLIB_CELERY_EXCHANGE", "qlib")
 CELERY_ROUTING_KEY = os.getenv("QLIB_CELERY_ROUTING_KEY", "qlib.backtest")
 AUTO_INFERENCE_ENABLED = os.getenv("AUTO_INFERENCE_ENABLED", "true").lower() == "true"
+NEWS_ENRICH_ENABLED = os.getenv("NEWS_ENRICH_ENABLED", "true").lower() == "true"
+NEWS_ENRICH_INTERVAL_SEC = int(os.getenv("NEWS_ENRICH_INTERVAL_SEC", "60"))
+NEWS_MATCHER_RELOAD_SEC = int(os.getenv("NEWS_MATCHER_RELOAD_SEC", "600"))
 
 # Celery配置
 beat_schedule = {}
@@ -89,6 +92,26 @@ if AUTO_INFERENCE_ENABLED:
             "task": "engine.tasks.auto_inference_if_needed",
             "schedule": crontab(minute="0", hour="0", day_of_week="1-5"),
         },
+    }
+
+if NEWS_ENRICH_ENABLED:
+    beat_schedule["news-enrich-recent"] = {
+        "task": "engine.tasks.news_enrich_recent",
+        "schedule": float(NEWS_ENRICH_INTERVAL_SEC),
+        "kwargs": {"limit": 200},
+    }
+    beat_schedule["news-matcher-reload"] = {
+        "task": "engine.tasks.news_matcher_reload",
+        "schedule": float(NEWS_MATCHER_RELOAD_SEC),
+    }
+
+# 每日 18:00 (A 股收盘后) 自动增量同步全市场数据
+DAILY_SYNC_ENABLED = os.getenv("DAILY_SYNC_ENABLED", "true").lower() == "true"
+if DAILY_SYNC_ENABLED:
+    beat_schedule["daily-data-sync"] = {
+        "task": "engine.tasks.daily_data_sync",
+        "schedule": crontab(minute="0", hour="18", day_of_week="1-5"),
+        "kwargs": {"market": "A", "incremental": True, "calibrate": True},
     }
 
 celery_app.conf.update(

@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.engine.quantbot.intent_parser import parse_intent
-from backend.services.engine.quantbot.rd_agent_launcher import RDAgentLauncher
+from backend.services.engine.alpha_agent.launcher import get_launcher as get_alpha_agent_launcher
 from backend.services.engine.quantbot.task_store import QuantBotTaskStore
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/quantbot", tags=["QuantBot"])
 
 task_store = QuantBotTaskStore()
-launcher = RDAgentLauncher()
 
 
 class ChatRequest(BaseModel):
@@ -38,7 +37,7 @@ async def chat(request: Request, item: ChatRequest):
     """QuantBot 统一聊天接口
 
     - 一般对话：SSE 流式返回 LLM 回答
-    - 因子挖掘：异步启动 RD-Agent 演化，返回 task_id
+    - 因子挖掘：异步启动 AlphaAgent 演化，返回 task_id
     """
     user_context = getattr(request.state, "user", None)
     user_id = user_context.get("user_id", "anonymous") if user_context else "anonymous"
@@ -79,13 +78,18 @@ async def _handle_factor_evolution(
     }
     task_id = await task_store.create_task(user_id, task_request)
 
-    # 异步启动演化
-    await launcher.launch_evolution(task_id, user_id, intent)
+    # 异步启动演化 (AlphaAgent)
+    alpha_launcher = get_alpha_agent_launcher()
+    alpha_task_id = await alpha_launcher.start_evolution(
+        user_id,
+        loop_n=int(intent.get("constraints", {}).get("loop_n", 3)),
+        direction=intent.get("description", item.message),
+    )
 
     return {
         "intent": "factor_evolution",
-        "task_id": task_id,
-        "answer": f"已启动因子演化任务：{intent.get('description', item.message)}",
+        "task_id": alpha_task_id,
+        "answer": f"已启动 AlphaAgent 因子演化任务：{intent.get('description', item.message)}",
     }
 
 
@@ -116,10 +120,10 @@ async def _handle_chat_stream(
         "你是 QuantMind 的智能量化助手 QuantBot。用简洁友好的中文回答。\n"
         "\n"
         "## 你的能力\n"
-        "1. **因子挖掘 (RD-Agent)** — 你内置了一个 Docker 化的 RD-Agent 因子演化引擎，"
+        "1. **因子挖掘 (AlphaAgent)** — 你内置了一个 AlphaAgent 因子演化引擎，"
         "可以基于用户需求自动生成、回测、迭代量化因子。\n"
         "   - 触发方式：用户只要表达「挖因子 / 进化因子 / 生成一批XX因子 / evolve factors」"
-        "等意图，系统会自动识别并启动后台 Docker 容器执行演化循环（5–15 分钟/轮）。\n"
+        "等意图，系统会自动识别并启动后台 AlphaAgent 执行演化循环（5–15 分钟/轮）。\n"
         "   - 支持的因子类型：价值、动量、波动、质量、成长、技术、综合。\n"
         "   - 触发后会返回 `task_id`，前端会显示任务卡片，自动轮询进度。\n"
         "2. **回答量化研究问题** — 因子构造原理、回测指标解读、Qlib 用法、策略思路等。\n"
@@ -127,16 +131,15 @@ async def _handle_chat_stream(
         "\n"
         "## 挖好的因子去哪看 / 怎么测试\n"
         "- 演化完成的因子保存在数据库 `rd_agent_factors` 表，可通过 "
-        "`GET /api/v1/rd-agent/factors?user_id={当前用户}` 列出，"
-        "或通过 `GET /api/v1/rd-agent/factors/{factor_id}` 看详情（含 IC、IR、夏普、因子代码）。\n"
-        "- 一键回测：`POST /api/v1/rd-agent/factors/{factor_id}/backtest`，"
+        "`GET /api/v1/alpha-agent/factors?user_id={当前用户}` 列出，"
+        "或通过 `GET /api/v1/alpha-agent/factors/{factor_id}` 看详情（含 IC、IR、夏普、因子代码）。\n"
+        "- 一键回测：`POST /api/v1/alpha-agent/factors/{factor_id}/backtest`，"
         "回测结果会更新到同一条记录的 metrics 字段，可继续轮询。\n"
-        "- 当前**前端管理页**正在开发中，临时可在 `/admin/news` 同级未来会加 "
-        "`/admin/rd-agent` 列表页；当用户问「挖好的因子在哪测」时，"
-        "请告诉他可以直接 curl 上述 REST 接口测试，或等管理页 UI 上线。\n"
+        "- 演化任务状态：`GET /api/v1/alpha-agent/tasks/{task_id}`\n"
+        "- Alpha研究页面正在开发中，可直接访问 `/alpha-research` 查看因子列表和演化控制。\n"
         "\n"
         "## 行为约束\n"
-        "- 收到「挖因子」请求时，**不要自己写因子代码**，直接交给意图引擎触发 RD-Agent，"
+        "- 收到「挖因子」请求时，**不要自己写因子代码**，直接交给意图引擎触发 AlphaAgent，"
         "回复用户「已启动演化任务」即可。\n"
         "- 用户问能做什么时，主动提示因子挖掘能力 + 上面的示例触发语。\n"
     )

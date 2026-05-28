@@ -877,3 +877,96 @@ def warmup_stock_latest_cache_task():
     except Exception as e:
         logger.error(f"[CacheWarmup] 预热失败: {e}")
         return {"status": "failed", "error": str(e)}
+
+
+# ============================================================
+# 资讯 enrichment：股票/行业/事件标签 + 情感分
+# ============================================================
+
+@celery_app.task(name="engine.tasks.news_enrich_recent", bind=True, ignore_result=True)
+def news_enrich_recent_task(self, limit: int = 200) -> dict[str, Any]:
+    """每分钟扫描 Huntly 最近 N 篇文章，对未 enrich 的写入 news_article_enrichment。
+
+    幂等：huntly_page_id 是主键 + model_version 不变则跳过。
+    """
+    from backend.services.api.news import run_enrichment_batch
+    try:
+        n = run_enrichment_batch(limit=limit)
+        logger.info("[NewsEnrich] 完成: %d 篇新写入", n)
+        return {"status": "success", "written": n}
+    except Exception as e:
+        logger.error("[NewsEnrich] 失败: %s", e)
+        return {"status": "failed", "error": str(e)}
+
+
+@celery_app.task(name="engine.tasks.news_matcher_reload", ignore_result=True)
+def news_matcher_reload_task() -> dict[str, Any]:
+    """每 10 分钟重载 stock_aliases / finance_lexicon 自动机，
+    让管理员在 SQL 里新增的词条尽快生效。"""
+    from backend.services.api.news import get_matcher
+    try:
+        m = get_matcher(force_reload=True)
+        return {"status": "success", "aliases": m.alias_count, "lex": m.lex_count}
+    except Exception as e:
+        logger.error("[NewsMatcherReload] 失败: %s", e)
+        return {"status": "failed", "error": str(e)}
+
+
+@celery_app.task(name="engine.tasks.daily_data_sync", max_retries=0, bind=True)
+def daily_data_sync_task(
+    self,
+    market: str = "A",
+    symbols: str = "",
+    incremental: bool = True,
+    calibrate: bool = True,
+) -> dict[str, Any]:
+    """
+    Celery Beat 每日 18:00 自动增量同步全市场数据。
+
+    数据源优先级：investment_data → baostock → akshare → eltdx
+    写入：PostgreSQL stock_daily_latest + Qlib bin + 技术指标校准
+    使用 Redis 分布式锁防止并发执行。
+    """
+    import redis as _redis
+
+    lock_key = "quantmind:daily_sync:lock"
+    lock_ttl = 3600  # 1 小时自动过期
+    try:
+        rds = _redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), socket_timeout=2)
+        acquired = rds.set(lock_key, self.request.id, nx=True, ex=lock_ttl)
+        if not acquired:
+            running_id = rds.get(lock_key)
+            logger.warning("[DailySync] 已有任务在运行 (task_id=%s)，跳过", running_id)
+            return {"status": "skipped", "reason": f"已有同步任务在运行: {running_id}"}
+    except Exception as lock_exc:
+        logger.warning("[DailySync] Redis 锁获取失败，继续执行: %s", lock_exc)
+
+    logger.info("[DailySync] 开始: market=%s incremental=%s symbols=%s", market, incremental, symbols[:100])
+    try:
+        from backend.scripts.daily_data_sync import run_sync
+
+        sym_list = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+        result = run_sync(
+            market=market,
+            symbols=sym_list,
+            incremental=incremental,
+            update_qlib=True,
+            calibrate=calibrate,
+        )
+        logger.info(
+            "[DailySync] 完成: inv=%d bs=%d ak=%d eltdx=%d errors=%d",
+            result.get("investment_data_synced", 0),
+            result.get("baostock_synced", 0),
+            result.get("akshare_synced", 0),
+            result.get("eltdx_synced", 0),
+            len(result.get("errors", [])),
+        )
+        return result
+    except Exception as e:
+        logger.exception("[DailySync] 失败: %s", e)
+        return {"status": "failed", "error": str(e)}
+    finally:
+        try:
+            rds.delete(lock_key)
+        except Exception:
+            pass

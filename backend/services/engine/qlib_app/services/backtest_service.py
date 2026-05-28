@@ -236,26 +236,17 @@ class QlibBacktestService(QlibBacktestServiceRuntimeMixin):
                 raise
 
     def _audit_data_quality(self):
-        """轻量级数据质量审计"""
-        try:
-            df = D.features(["SH000300"], ["$close"], start_time="2023-01-01", end_time="2023-01-10")
-            if df is None or df.empty:
-                task_logger.warning("data_audit_missing_benchmark", "数据质量审计未发现基准数据")
-            elif df.isna().any().any():
-                task_logger.error("data_audit_nan_found", "数据质量审计发现 NaN 值，建议进行数据预洗")
-        except Exception as e:
-            task_logger.debug("data_audit_skipped", "数据审计执行跳过", error=str(e))
+        """轻量级数据质量审计 — 已禁用，避免 D.features() 在容器内触发 CPU 死循环"""
+        pass
 
     def check_health(self) -> dict[str, Any]:
-        """健康检查"""
+        """健康检查（不触发初始化，避免 qlib.init 卡死导致健康检查也卡住）"""
         try:
-            self.initialize()
-            data_available = False
             return {
-                "status": "healthy",
+                "status": "healthy" if self._initialized else "degraded",
                 "qlib_initialized": self._initialized,
                 "version": qlib.__version__,
-                "data_available": data_available,
+                "data_available": False,
                 "qlib_backend": QLIB_BACKEND,
             }
         except Exception as e:

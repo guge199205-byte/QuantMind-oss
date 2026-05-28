@@ -149,6 +149,17 @@ class RDAgentLauncher:
     HOST_PROJECT_PATH = os.getenv("HOST_PROJECT_PATH", "/opt/quantmind")
     QLIB_PROVIDER_URI = os.getenv("QLIB_PROVIDER_URI", "/app/db/qlib_data/cn_data")
 
+    # RD-Agent 因子数据模板路径（daily_pv_all.h5 / daily_pv_debug.h5 所在目录）
+    _FACTOR_DATA_TEMPLATE_DIR = (
+        Path(HOST_PROJECT_PATH)
+        / "rd-agent"
+        / "rdagent"
+        / "scenarios"
+        / "qlib"
+        / "experiment"
+        / "factor_data_template"
+    )
+
     def __init__(self):
         self.task_store = QuantBotTaskStore()
         self._running_tasks: dict[str, asyncio.Task] = {}
@@ -297,20 +308,46 @@ class RDAgentLauncher:
         }
 
         host = self.HOST_PROJECT_PATH.rstrip("/")
+        # 共享日志目录：rdagent 容器写入，quantmind 容器读取
+        log_dir_host = f"{host}/data/rdagent_logs"
+        log_dir_container = "/tmp/rdagent_logs"
         volumes = {
             f"{host}/backend": {"bind": "/app/backend", "mode": "ro"},
             f"{host}/scripts": {"bind": "/app/scripts", "mode": "ro"},
             f"{host}/config":  {"bind": "/app/config",  "mode": "ro"},
             f"{host}/db":      {"bind": "/app/db",      "mode": "ro"},
+            log_dir_host:      {"bind": log_dir_container, "mode": "rw"},
             seed_host: {"bind": seed_mount, "mode": "ro"},
         }
 
+        # daily_pv.h5 已在镜像构建时预置到 git_ignore_folder/factor_implementation_source_data/
+        # 如果镜像没有预置数据（旧镜像），从宿主机挂载并复制
+        template_dir = self._FACTOR_DATA_TEMPLATE_DIR
+        if template_dir.exists():
+            volumes[str(template_dir / "daily_pv_all.h5")] = {
+                "bind": "/app/rdagent_factor_data_fallback/daily_pv.h5", "mode": "ro",
+            }
+
+        # 确保数据文件在因子执行工作目录下
+        data_setup_cmd = (
+            "if [ ! -f git_ignore_folder/factor_implementation_source_data/daily_pv.h5 ]; then "
+            "  mkdir -p git_ignore_folder/factor_implementation_source_data; "
+            "  if [ -f /app/rdagent_factor_data_fallback/daily_pv.h5 ]; then "
+            "    cp /app/rdagent_factor_data_fallback/daily_pv.h5 "
+            "       git_ignore_folder/factor_implementation_source_data/daily_pv.h5; "
+            "  fi; "
+            "fi; "
+        )
+
         cmd = [
-            "--task-id", task_id,
-            "--user-id", user_id,
-            "--seed", seed_mount,
-            "--loop-n", str(loop_n),
-            "--provider-uri", self.QLIB_PROVIDER_URI,
+            "sh", "-c",
+            data_setup_cmd
+            + f"python /app/scripts/rd_agent/rd_agent_run.py "
+            + f"--task-id '{task_id}' "
+            + f"--user-id '{user_id}' "
+            + f"--seed '{seed_mount}' "
+            + f"--loop-n {loop_n} "
+            + f"--provider-uri '{self.QLIB_PROVIDER_URI}'",
         ]
 
         loop = asyncio.get_running_loop()
@@ -319,6 +356,7 @@ class RDAgentLauncher:
             lambda: client.containers.run(
                 self.DOCKER_IMAGE,
                 command=cmd,
+                entrypoint="",  # override ENTRYPOINT to prevent "python rd_agent_run.py sh -c ..."
                 environment=env,
                 volumes=volumes,
                 network=self.DOCKER_NETWORK,
@@ -427,6 +465,14 @@ class RDAgentLauncher:
             alt = Path(__file__).resolve().parents[4] / "scripts/rd_agent/rd_agent_run.py"
             wrapper = str(alt) if alt.exists() else wrapper
 
+        # 确保因子数据文件在工作目录下可达
+        data_dir = Path("/tmp/git_ignore_folder/factor_implementation_source_data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        dst = data_dir / "daily_pv.h5"
+        src = self._FACTOR_DATA_TEMPLATE_DIR / "daily_pv_all.h5"
+        if src.exists() and not dst.exists():
+            shutil.copy(str(src), str(dst))
+
         cmd = [
             "python", wrapper,
             "--task-id", task_id,
@@ -439,6 +485,7 @@ class RDAgentLauncher:
         env = os.environ.copy()
         env["PYTHONPATH"] = env.get("PYTHONPATH", "/app")
         env.setdefault("QLIB_PROVIDER_URI", self.QLIB_PROVIDER_URI)
+        env["FACTOR_CoSTEER_data_folder"] = "/tmp/git_ignore_folder/factor_implementation_source_data"
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

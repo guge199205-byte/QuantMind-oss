@@ -4,6 +4,7 @@
 基于Qlib risk_analysis()提供核心风险指标计算
 """
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -66,20 +67,26 @@ class BasicRiskService:
                 {"backtest_id": backtest_id, "tenant_id": tenant_id},
             ).info("returns_loaded", "获取收益数据", count=len(returns))
 
-            # 2. 计算Qlib原生指标
-            qlib_metrics = self._calculate_qlib_metrics(returns)
+            # 2-6. 同步重计算（含 Qlib import / NumPy 矩阵运算）放到线程池，
+            # 避免阻塞 event loop —— 一次性聚合，仅一次线程切换。
+            # 历史问题：直接在 async 路径里调 _calculate_qlib_metrics 触发
+            # qlib.contrib.evaluate import 链路（含 gym 兼容警告），event loop
+            # 被堵超过 120s，导致 /strategies 等所有接口超时。
+            def _compute_sync():
+                qlib_metrics = self._calculate_qlib_metrics(returns)
+                supplementary_metrics = self._calculate_supplementary_metrics(returns, qlib_metrics)
+                statistics = self._calculate_statistics(returns)
+                series_data = self._generate_series_data(returns)
+                histogram = self._generate_histogram(returns)
+                return qlib_metrics, supplementary_metrics, statistics, series_data, histogram
 
-            # 3. 补充计算指标
-            supplementary_metrics = self._calculate_supplementary_metrics(returns, qlib_metrics)
-
-            # 4. 统计指标
-            statistics = self._calculate_statistics(returns)
-
-            # 5. 生成时间序列数据
-            series_data = self._generate_series_data(returns)
-
-            # 6. 生成分布数据
-            histogram = self._generate_histogram(returns)
+            (
+                qlib_metrics,
+                supplementary_metrics,
+                statistics,
+                series_data,
+                histogram,
+            ) = await asyncio.to_thread(_compute_sync)
 
             # 7. 组装响应
             metrics = BasicRiskMetrics(**qlib_metrics, **supplementary_metrics, **statistics)

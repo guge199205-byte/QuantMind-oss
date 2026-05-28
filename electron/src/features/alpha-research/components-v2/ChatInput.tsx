@@ -50,7 +50,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+      textareaRef.current.style.height = Math.max(52, Math.min(textareaRef.current.scrollHeight, 120)) + 'px';
     }
   }, [input]);
 
@@ -132,8 +132,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
                     }
                     disabled={isRunning}
                     className="w-full bg-transparent text-base placeholder:text-muted-foreground focus:outline-none resize-none"
-                    rows={1}
-                    style={{ maxHeight: '120px' }}
+                    rows={2}
+                    style={{ minHeight: '52px', maxHeight: '120px' }}
                   />
                 </div>
 

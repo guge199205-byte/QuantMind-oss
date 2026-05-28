@@ -375,6 +375,50 @@ async def sync_official_data_update(
 
 
 @router.post(
+    "/update-feature-parquet",
+    summary="更新特征快照 Parquet（从 DB 计算全部 51 个模型特征）",
+)
+async def update_feature_parquet(
+    rebuild: bool = Query(False, description="是否重建全部日期的特征（默认仅补充缺失日期）"),
+    current_user: dict = Depends(require_admin),
+):
+    """
+    运行 update_feature_parquet.py 脚本，从 stock_daily_latest 读取 OHLCV 数据，
+    计算全部 51 个模型特征（动量、波动率、流动性、资金流、风格因子等），
+    更新 /app/db/feature_snapshots/model_features_2026.parquet。
+    """
+    _ = current_user
+
+    script_path = Path("/app/backend/scripts/update_feature_parquet.py")
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail=f"脚本不存在: {script_path}")
+
+    cmd = ["python", str(script_path)]
+    if rebuild:
+        cmd.append("--rebuild")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd="/app",
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        return {
+            "success": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout[-3000:] if proc.stdout else "",
+            "stderr": proc.stderr[-3000:] if proc.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="特征更新超时（>600s），请稍后重试")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post(
     "/sync-stock-daily-full",
     summary="日常全量同步：从本地 parquet 补齐 stock_daily_latest 所有列（含 is_st/指数成分/技术指标等）",
 )

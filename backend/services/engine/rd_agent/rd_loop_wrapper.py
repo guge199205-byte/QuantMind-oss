@@ -55,6 +55,10 @@ class RDLoopWrapper:
             env["OPENAI_API_KEY"] = os.getenv("AI_IDE_LLM_API_KEY", "")
         if not env.get("CHAT_MODEL"):
             env["CHAT_MODEL"] = os.getenv("CHAT_MODEL", "")
+        # litellm needs provider prefix for non-OpenAI models
+        model = env.get("CHAT_MODEL", "")
+        if model and not model.startswith(("openai/", "azure/", "anthropic/", "huggingface/")):
+            env["CHAT_MODEL"] = f"openai/{model}"
         env["REASONING_MODEL"] = env.get("CHAT_MODEL", "")
         env["CHAT_STREAM"] = "false"
         return env
@@ -225,12 +229,18 @@ class RDLoopWrapper:
             except Exception as e:
                 logger.debug("Failed to read feedback %s: %s", pkl_path, e)
 
-        # 4. Merge
+        # 4. Merge — match factor_meta names to factor_code names
+        #    Code names may have "calculate_" prefix (e.g. calculate_MOM_10D vs MOM_10D)
+        code_by_base: dict[str, str] = {}
+        for fname, code in factor_code.items():
+            base = fname.removeprefix("calculate_")
+            code_by_base[base] = code
+
         factors: list[dict] = []
-        all_names = set(factor_meta.keys()) | set(factor_code.keys())
+        all_names = set(factor_meta.keys()) | set(code_by_base.keys())
         for name in sorted(all_names):
             meta = factor_meta.get(name, {})
-            code = factor_code.get(name, "")
+            code = code_by_base.get(name, "")
             factors.append({
                 "name": meta.get("name", name),
                 "formulation": meta.get("formulation", ""),

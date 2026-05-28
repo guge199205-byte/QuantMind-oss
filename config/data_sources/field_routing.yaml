@@ -1,0 +1,546 @@
+# 字段路由表 v1 — QuantMind 多市场多数据源平台
+#
+# 每个 market(A/HK/US) 下按 field 列出 primary + fallbacks。
+# - primary  : 默认拉取源
+# - fallbacks: primary 失败 / 触发限流时按顺序尝试
+# - consensus: 是否需要多源共识投票（适用于关键价格字段）
+# - cleanup  : 是否走 DataCleaner 4 层清洗
+# - tier     : T1=离线日级 / T2=分钟 / T3=实时报价 / T4=逐笔订单流 / T5=资金流
+#
+# 数据源名必须与 backend/services/engine/data_platform/adapters/ 注册名一致。
+
+version: 1
+default_consensus_threshold: 0.02   # 2% 偏离视为异常
+default_min_consensus_sources: 2
+
+markets:
+  # ===================================================================
+  # A 股
+  # ===================================================================
+  A:
+    daily_kline:
+      tier: T1
+      primary: baostock
+      fallbacks: [efinance, qstock, akshare, investment_data, tdx_api, mootdx, openbb, yahoo_finance, eltdx, simonlin_a_stock]
+      consensus: true
+      cleanup: true
+    adj_factor:
+      tier: T1
+      primary: baostock
+      fallbacks: [efinance, akshare, yahoo_finance, eltdx, investment_data]
+      consensus: true
+      cleanup: true
+    minute_kline:
+      tier: T2
+      primary: tdx_api
+      fallbacks: [mootdx, efinance, qstock, eltdx]
+      consensus: false
+      cleanup: true
+    realtime_quote:
+      tier: T3
+      primary: qstock
+      fallbacks: [efinance, eltdx, injoyai_tdx, openbb, easyquotation, tdx_api]
+      consensus: false
+      cleanup: true
+    tick:
+      tier: T4
+      primary: tdx_api
+      fallbacks: [mootdx, eltdx]
+      consensus: false
+      cleanup: false
+    auction:
+      tier: T2
+      primary: tdx_api
+      fallbacks: [eltdx]
+      consensus: false
+      cleanup: true
+    money_flow:
+      tier: T5
+      primary: efinance
+      fallbacks: [qstock, akshare]
+      consensus: false
+      cleanup: true
+    financial_report:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare, investment_data, openbb, eltdx, simonlin_a_stock]
+      consensus: true
+      cleanup: true
+    f10:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance, simonlin_a_stock, openbb, eltdx, baostock]
+      consensus: false
+      cleanup: false
+    dragon_tiger:
+      tier: T1
+      primary: efinance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: true
+    margin_trading:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: true
+    block_trade:
+      tier: T1
+      primary: efinance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: true
+    shareholder_count:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: false
+    dividend:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare, efinance, eltdx, investment_data]
+      consensus: true
+      cleanup: true
+    share_unlock:
+      tier: T1
+      primary: efinance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: true
+    share_change:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance, baostock]
+      consensus: false
+      cleanup: true
+    research_report:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: false
+    announcement:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: false
+    news:
+      tier: T1
+      primary: qstock
+      fallbacks: [akshare, openbb]
+      consensus: false
+      cleanup: false
+    sector:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance, qstock, openbb, eltdx, baostock]
+      consensus: false
+      cleanup: false
+    growth:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    operation:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    dupont:
+      tier: T1
+      primary: baostock
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    forecast:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    performance_express:
+      tier: T1
+      primary: baostock
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    futures_kline:
+      tier: T1
+      primary: akshare
+      fallbacks: [tdx_api, mootdx]
+      consensus: false
+      cleanup: true
+    options_chain:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: true
+    hot_signal:
+      tier: T3
+      primary: qstock
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: false
+    institutional_holdings:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: false
+    stock_screening:
+      tier: T1
+      primary: akshare
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: false
+    sec_filing:
+      tier: T1
+      primary: akshare
+      fallbacks: []
+      consensus: false
+      cleanup: false
+
+  # ===================================================================
+  # 港股
+  # ===================================================================
+  HK:
+    daily_kline:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [efinance, akshare, simonlin_global]
+      consensus: false
+      cleanup: true
+    adj_factor:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [efinance, akshare]
+      consensus: true
+      cleanup: true
+    minute_kline:
+      tier: T2
+      primary: efinance
+      fallbacks: [yahoo_finance]
+      consensus: false
+      cleanup: true
+    realtime_quote:
+      tier: T3
+      primary: efinance
+      fallbacks: [yahoo_finance]
+      consensus: false
+      cleanup: true
+    financial_report:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare, simonlin_global]
+      consensus: false
+      cleanup: true
+    f10:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    dividend:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [efinance, akshare]
+      consensus: true
+      cleanup: true
+    sector:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    news:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    income_statement:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    cash_flow:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    major_holders:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    mutual_fund_holders:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    recommendations:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    upgrades_downgrades:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    earnings_estimate:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    earnings_dates:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    earnings_history:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    analyst_price_targets:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    revenue_estimate:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    growth_estimates:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    sustainability:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    splits:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    insider_transactions:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    calendar:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    valuation:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+
+  # ===================================================================
+  # 美股
+  # ===================================================================
+  US:
+    daily_kline:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [simonlin_global, efinance, akshare]
+      consensus: false
+      cleanup: true
+    adj_factor:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [simonlin_global]
+      consensus: true
+      cleanup: true
+    minute_kline:
+      tier: T2
+      primary: yahoo_finance
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: true
+    realtime_quote:
+      tier: T3
+      primary: yahoo_finance
+      fallbacks: [efinance]
+      consensus: false
+      cleanup: true
+    financial_report:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [simonlin_global, akshare]
+      consensus: true
+      cleanup: true
+    f10:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    dividend:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [simonlin_global]
+      consensus: true
+      cleanup: true
+    sec_filing:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    institutional_holdings:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    news:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    options_chain:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: true
+    sector:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: [akshare]
+      consensus: false
+      cleanup: false
+    income_statement:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    cash_flow:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    major_holders:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    mutual_fund_holders:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    recommendations:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    upgrades_downgrades:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    earnings_estimate:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    earnings_dates:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    earnings_history:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    analyst_price_targets:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    revenue_estimate:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    growth_estimates:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    sustainability:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    splits:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    insider_transactions:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    calendar:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false
+    valuation:
+      tier: T1
+      primary: yahoo_finance
+      fallbacks: []
+      consensus: false
+      cleanup: false

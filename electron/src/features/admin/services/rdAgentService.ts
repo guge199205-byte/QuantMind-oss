@@ -1,5 +1,5 @@
 /**
- * RD-Agent 因子挖掘服务 — 调用后端 /api/v1/rd-agent 与 /api/v1/quantbot
+ * AlphaAgent 因子挖掘服务 — 调用后端 /api/v1/alpha-agent 与 /api/v1/quantbot
  *
  * 走原生 axios + 拦截器（避开 createAPIClient 改写 baseURL 的坑）。
  */
@@ -86,13 +86,13 @@ class RDAgentService {
     status?: FactorStatus;
     limit?: number;
   } = {}): Promise<RDAgentFactor[]> {
-    const r = await apiClient.get('/rd-agent/factors', { params });
+    const r = await apiClient.get('/alpha-agent/factors', { params });
     const body = unwrap<{ factors: RDAgentFactor[]; total: number }>(r.data);
     return body?.factors ?? [];
   }
 
   async getFactor(factorId: string): Promise<RDAgentFactor | null> {
-    const r = await apiClient.get(`/rd-agent/factors/${factorId}`);
+    const r = await apiClient.get(`/alpha-agent/factors/${factorId}`);
     return unwrap<RDAgentFactor>(r.data) ?? null;
   }
 
@@ -100,14 +100,14 @@ class RDAgentService {
     factorId: string,
     range?: { start_date?: string; end_date?: string },
   ): Promise<{ factor_id: string; status: string; message: string }> {
-    const r = await apiClient.post(`/rd-agent/factors/${factorId}/backtest`, null, {
+    const r = await apiClient.post(`/alpha-agent/factors/${factorId}/backtest`, null, {
       params: range,
     });
     return unwrap(r.data);
   }
 
   async getStats(): Promise<RDAgentStats> {
-    const r = await apiClient.get('/rd-agent/stats');
+    const r = await apiClient.get('/alpha-agent/stats');
     return unwrap<RDAgentStats>(r.data) ?? ({} as RDAgentStats);
   }
 

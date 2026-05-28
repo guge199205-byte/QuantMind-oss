@@ -94,6 +94,36 @@ class LocalDockerOrchestrator:
         return ts_val, msg_part.rstrip("\n")
 
     @staticmethod
+    def _filter_features_by_parquet(
+        run_id: str, requested_features: list[str]
+    ) -> tuple[list[str], list[str]]:
+        """检查请求的特征是否存在于 parquet 中，返回 (valid, missing)。"""
+        try:
+            import pyarrow.parquet as pq
+            from pathlib import Path
+
+            parquet_dir = Path(_LOCAL_DATA_MOUNT_DIR)
+            if not parquet_dir.exists():
+                logger.warning("[%s] Parquet dir not found: %s", run_id, parquet_dir)
+                return requested_features, []
+
+            # 读最新一年的 schema
+            parquet_files = sorted(parquet_dir.glob("model_features_*.parquet"))
+            if not parquet_files:
+                logger.warning("[%s] No parquet files in %s", run_id, parquet_dir)
+                return requested_features, []
+
+            schema = pq.ParquetFile(parquet_files[-1]).schema_arrow
+            parquet_cols = set(schema.names)
+
+            valid = [f for f in requested_features if f in parquet_cols]
+            missing = [f for f in requested_features if f not in parquet_cols]
+            return valid, missing
+        except Exception as exc:
+            logger.warning("[%s] Feature filter failed: %s", run_id, exc)
+            return requested_features, []
+
+    @staticmethod
     def _infer_progress_from_log_line(line: str, current: int) -> int:
         text = str(line or "").lower()
         next_progress = int(current)
@@ -134,13 +164,30 @@ class LocalDockerOrchestrator:
         # 强制使用本地数据，不回落到 COS 下载
         data_source_mode = payload.get("data_source_mode", "LOCAL")
 
+        # 过滤掉 parquet 中不存在的特征，避免无效内存分配
+        requested_features = payload.get("features", [])
+        valid_features, missing_features = self._filter_features_by_parquet(
+            run_id, requested_features
+        )
+        if missing_features:
+            logger.warning(
+                "[%s] %d/%d requested features not in parquet, filtered out: %s...",
+                run_id,
+                len(missing_features),
+                len(requested_features),
+                missing_features[:10],
+            )
+        # 将过滤结果存到 payload 中，供后续返回给前端
+        payload["_valid_features"] = valid_features
+        payload["_missing_features"] = missing_features
+
         config: dict[str, Any] = {
             "run_id": run_id,
             "job_name": payload.get("job_name", "unnamed"),
             "data": {
                 "train_start": payload.get("train_start", "2022-01-01"),
                 "train_end": payload.get("train_end", "2024-12-31"),
-                "features": payload.get("features", []),
+                "features": valid_features,
                 "source_mode": data_source_mode,
                 "local_dir": _LOCAL_DATA_MOUNT_DIR
                 if data_source_mode == "LOCAL"
@@ -354,6 +401,7 @@ class LocalDockerOrchestrator:
                 network=_DOCKER_NETWORK,
                 detach=True,
                 name=f"qm-train-{run_id}",
+                mem_limit=os.getenv("TRAINING_MEM_LIMIT", "24g"),
             )
         except Exception as e:
             from backend.shared.database_manager_v2 import get_session

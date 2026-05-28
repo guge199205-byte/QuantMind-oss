@@ -341,7 +341,8 @@ async def list_providers():
 @router.get("/strategies/{strategy_id}")
 async def get_strategy_v1(strategy_id: str):
     """获取策略详情（前端标准路径）"""
-    result = get_strategy_by_id(strategy_id)
+    import asyncio
+    result = await asyncio.to_thread(get_strategy_by_id, strategy_id)
     if result["success"]:
         return success(result["strategy"])
     else:
@@ -351,7 +352,8 @@ async def get_strategy_v1(strategy_id: str):
 @router.get("/legacy/strategies/{strategy_id}", include_in_schema=False)
 async def get_strategy(strategy_id: str):
     """获取策略详情"""
-    result = get_strategy_by_id(strategy_id)
+    import asyncio
+    result = await asyncio.to_thread(get_strategy_by_id, strategy_id)
     if result["success"]:
         return success(result["strategy"])
     else:

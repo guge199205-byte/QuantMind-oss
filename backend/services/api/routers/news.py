@@ -17,20 +17,31 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sqlite3
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+
+try:
+    from zoneinfo import ZoneInfo
+    _HUNTLY_TZ = ZoneInfo("Asia/Shanghai")
+except Exception:
+    _HUNTLY_TZ = timezone.utc
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/news", tags=["News"])
 
 HUNTLY_BASE_URL = os.getenv("HUNTLY_BASE_URL", "http://quantmind-huntly").rstrip("/")
-HUNTLY_USERNAME = os.getenv("HUNTLY_USERNAME", "807133286")
-HUNTLY_PASSWORD = os.getenv("HUNTLY_PASSWORD", "199205181010")
+HUNTLY_USERNAME = os.getenv("HUNTLY_USERNAME", "")
+HUNTLY_PASSWORD = os.getenv("HUNTLY_PASSWORD", "")
 HUNTLY_TIMEOUT = float(os.getenv("HUNTLY_TIMEOUT_SECONDS", "20"))
+# Huntly 把全部 page 写入此 SQLite (Asia/Shanghai 本地时间字符串).
+# REST /api/page/list 上限 500, 拿不到几万条历史 — 我们直接读 SQLite 做真分页.
+HUNTLY_SQLITE_PATH = os.getenv("HUNTLY_SQLITE_PATH", "/data/huntly/db.sqlite")
 
 
 # ---------- enrichment ----------
@@ -178,6 +189,7 @@ def _query_enrichment_page_ids(
     want_visits: set[str] | None = None,
     want_departments: set[str] | None = None,
     keyword: str | None = None,
+    restrict_to_ids: list[int] | None = None,
     limit: int = 2000,
 ) -> list[int]:
     """根据 enrichment 表里的过滤条件，倒排查出所有命中文章的 huntly_page_id。
@@ -210,6 +222,12 @@ def _query_enrichment_page_ids(
             "|| key_terms || provinces || cities || politicians || visits || departments, ',') ILIKE %s)"
         )
         params.append(f"%{keyword}%")
+    if restrict_to_ids is not None:
+        if not restrict_to_ids:
+            return []
+        # 把候选 ID 集合作为额外过滤 — 避开 ORDER BY enriched_at LIMIT 5000 的近期偏置
+        where.append("huntly_page_id = ANY(%s)")
+        params.append(list(restrict_to_ids))
     if not where:
         return []
     sql = (
@@ -349,6 +367,210 @@ async def _huntly_request(
 def _is_financial_event(title: str | None, summary: str | None) -> bool:
     haystack = (title or "") + " " + (summary or "")
     return any(kw in haystack for kw in _FINANCIAL_EVENT_KEYWORDS)
+
+
+def _huntly_sqlite_available() -> bool:
+    return os.path.exists(HUNTLY_SQLITE_PATH)
+
+
+def _huntly_sqlite() -> sqlite3.Connection:
+    # uri+immutable 让 sqlite 不抢写锁, 与 huntly 容器并发安全
+    uri = f"file:{HUNTLY_SQLITE_PATH}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=5.0, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _huntly_dt_to_iso(s: str | None) -> str | None:
+    """Huntly 把时间存成 'YYYY-MM-DD HH:MM:SS.fff' 上海本地时间. 转 UTC ISO 给前端."""
+    if not s or s.startswith("0001-"):
+        return None
+    try:
+        # 既有 'YYYY-MM-DD HH:MM:SS.fff' 也可能 'YYYY-MM-DDTHH:MM:SSZ'
+        if "T" in s:
+            return s if s.endswith("Z") or "+" in s[10:] else s + "Z"
+        s2 = s.replace(" ", "T")
+        if "." in s2:
+            head, _, frac = s2.partition(".")
+            frac = (frac + "000")[:3]
+            s2 = f"{head}.{frac}"
+        d = datetime.fromisoformat(s2).replace(tzinfo=_HUNTLY_TZ)
+        return d.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return None
+
+
+def _sqlite_page_ids_in_range(
+    *,
+    source_id: int | None,
+    folder_id: int | None,
+    starred: bool | None,
+    since_iso: str | None,
+    until_iso: str | None,
+    limit: int = 50000,
+) -> list[int]:
+    """从 SQLite 按 source/folder/starred/日期范围拿候选 page id (不做关键词过滤).
+
+    用于「标签筛选 + 日期筛选」组合时, 先用日期裁出候选集再让 PG 在其中匹配标签,
+    避免 PG ORDER BY enriched_at DESC LIMIT 5000 的近期偏置.
+    """
+    where: list[str] = []
+    params: list = []
+    if source_id is not None:
+        where.append("connector_id = ?"); params.append(int(source_id))
+    if folder_id is not None and folder_id > 0:
+        where.append("folder_id = ?"); params.append(int(folder_id))
+    if starred is True:
+        where.append("is_starred = 1")
+
+    def _iso_to_local_str(iso: str | None) -> str | None:
+        if not iso:
+            return None
+        try:
+            d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            return d.astimezone(_HUNTLY_TZ).strftime("%Y-%m-%d %H:%M:%S.000")
+        except Exception:
+            return None
+
+    s = _iso_to_local_str(since_iso)
+    u = _iso_to_local_str(until_iso)
+    if s:
+        where.append("connected_at >= ?"); params.append(s)
+    if u:
+        where.append("connected_at <= ?"); params.append(u)
+
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    sql = f"SELECT id FROM page{where_sql} ORDER BY connected_at DESC LIMIT ?"
+    params.append(int(limit))
+    try:
+        with _huntly_sqlite() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            return [int(r["id"]) for r in cur.fetchall()]
+    except sqlite3.Error as e:
+        logger.warning("sqlite 候选 ID 查询失败: %s", e)
+        return []
+
+
+def _list_articles_from_sqlite(
+    *,
+    source_id: int | None,
+    folder_id: int | None,
+    keyword: str | None,
+    only_financial_event: bool,
+    starred: bool | None,
+    since_iso: str | None,
+    until_iso: str | None,
+    only_ids: list[int] | None,
+    offset: int,
+    limit: int,
+) -> tuple[list[dict], int, str | None]:
+    """直读 Huntly SQLite, 返回 (page_articles, total, latest_published_at_iso).
+
+    分页策略: SQL 真 offset/limit + 真 COUNT(*), 全库可分页, 不再受 REST count<=500 限制.
+    """
+    where: list[str] = []
+    params: list = []
+
+    if source_id is not None:
+        where.append("p.connector_id = ?"); params.append(int(source_id))
+    if folder_id is not None and folder_id > 0:
+        where.append("p.folder_id = ?"); params.append(int(folder_id))
+    if starred is True:
+        where.append("p.is_starred = 1")
+
+    # 时间过滤: 把 ISO UTC 转回上海本地, 直接走字符串比较 (Huntly 字段格式可比)
+    def _iso_to_local_str(iso: str | None) -> str | None:
+        if not iso:
+            return None
+        try:
+            d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            local = d.astimezone(_HUNTLY_TZ)
+            return local.strftime("%Y-%m-%d %H:%M:%S.000")
+        except Exception:
+            return None
+
+    since_local = _iso_to_local_str(since_iso)
+    until_local = _iso_to_local_str(until_iso)
+    if since_local:
+        where.append("p.connected_at >= ?"); params.append(since_local)
+    if until_local:
+        where.append("p.connected_at <= ?"); params.append(until_local)
+
+    if keyword and keyword.strip():
+        kw = f"%{keyword.strip()}%"
+        where.append("(p.title LIKE ? OR p.description LIKE ?)")
+        params.extend([kw, kw])
+
+    if only_financial_event:
+        # SQL 内 OR (title LIKE %kw%) — 词表很短, 接受 N 次 OR
+        ev_clauses = []
+        for kw in _FINANCIAL_EVENT_KEYWORDS:
+            ev_clauses.append("p.title LIKE ?")
+            params.append(f"%{kw}%")
+        where.append("(" + " OR ".join(ev_clauses) + ")")
+
+    if only_ids is not None:
+        if not only_ids:
+            return [], 0, None
+        # SQLite 不支持 ANY(array), 用 IN(?,?,...). 控制大小避免参数爆炸.
+        ids = list(only_ids)[:5000]
+        placeholders = ",".join(["?"] * len(ids))
+        where.append(f"p.id IN ({placeholders})")
+        params.extend(ids)
+
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    sql_count = f"SELECT COUNT(*) FROM page p{where_sql}"
+    sql_list = (
+        "SELECT p.id, p.title, p.description, p.url, p.connector_id, p.source_id, "
+        "       p.folder_id, p.connected_at, p.created_at, p.is_mark_read, p.is_starred, "
+        "       p.thumb_url, c.name AS connector_name, c.icon_url AS connector_icon "
+        "FROM page p LEFT JOIN connector c ON c.id = p.connector_id"
+        f"{where_sql} "
+        "ORDER BY p.connected_at DESC "
+        "LIMIT ? OFFSET ?"
+    )
+
+    try:
+        with _huntly_sqlite() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_count, params)
+            total = int(cur.fetchone()[0])
+            cur.execute(sql_list, params + [int(limit), int(offset)])
+            rows = cur.fetchall()
+    except sqlite3.Error as e:
+        logger.error("huntly sqlite query failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Huntly DB 查询失败: {e}")
+
+    articles: list[dict] = []
+    latest: str | None = None
+    for row in rows:
+        published = _huntly_dt_to_iso(row["connected_at"]) or _huntly_dt_to_iso(row["created_at"])
+        if latest is None and published:
+            latest = published
+        title = row["title"] or "(无标题)"
+        summary = row["description"] or ""
+        if summary and len(summary) > 280:
+            summary = summary[:280] + "..."
+        articles.append({
+            "id": int(row["id"]),
+            "title": title,
+            "summary": summary or None,
+            "url": row["url"],
+            "source_id": row["connector_id"] or row["source_id"],
+            "source_name": row["connector_name"] or "未知来源",
+            "folder_id": row["folder_id"],
+            "published_at": published,
+            "read": bool(row["is_mark_read"]),
+            "starred": bool(row["is_starred"]),
+            "is_financial_event": _is_financial_event(title, summary),
+            "thumbnail": row["thumb_url"] or row["connector_icon"],
+        })
+    return articles, total, latest
 
 
 def _normalize_page(page: dict) -> dict:
@@ -698,21 +920,19 @@ async def list_articles(
     politicians: str | None = Query(None, description="政治人物, 逗号分隔 e.g. 李强,潘功胜"),
     visits: str | None = Query(None, description="调研类动词, 逗号分隔 e.g. 调研,视察"),
     departments: str | None = Query(None, description="国家部门, 逗号分隔 e.g. 央行,证监会"),
+    starred: bool | None = Query(None, description="仅返回收藏"),
     strong_only: bool = Query(False, description="仅返回强信号 |score|>=0.5"),
     since: str | None = Query(None, description="起始时间 ISO 8601, e.g. 2026-05-20T00:00:00Z"),
     until: str | None = Query(None, description="截止时间 ISO 8601"),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=500),
 ):
-    """资讯文章列表 (代理 Huntly /api/page/list)
+    """资讯文章列表 — 直接从 Huntly SQLite 读, 全库分页 (84k+ 历史可见).
 
-    Huntly 端是 GET，返回纯数组（按 connectedAt desc）。
-
-    过滤策略：
-      - 无 enrichment 过滤时：按旧逻辑直接代理 Huntly 分页结果
-      - 有 enrichment 过滤时：先在 PG enrichment 表里倒排查出命中的 huntly_page_id，
-        再从 Huntly 拉一个较大的 pool（500–1000 条），求交集 → 内存分页。
-        这样可以保证 "命中数=显示数"，避免分页吃掉过滤结果。
+    过滤策略:
+      - 无 enrichment 标签过滤: SQL 真分页 (offset/limit + COUNT). 用户可以翻到任意一页.
+      - 有 enrichment 过滤: 先在 PG enrichment 表里倒排查出 huntly_page_id 列表 (上限 5000),
+        再用 SQLite IN(...) 求交集 + SQL 真分页. 仍然走 SQL, 不再受 REST 500 上限.
     """
     def _split(s: str | None) -> list[str]:
         return [x.strip() for x in (s or "").split(",") if x.strip()]
@@ -740,32 +960,119 @@ async def list_articles(
         or want_provinces or want_cities or want_politicians or want_visits
         or want_departments
     )
-    # keyword 也需要走"标签/内容"双路径
-    has_keyword = bool(keyword and keyword.strip())
 
-    # 解析时间过滤
-    def _parse_iso(s: str | None):
-        if not s:
-            return None
-        try:
-            from datetime import datetime
-            return datetime.fromisoformat(s.replace("Z", "+00:00"))
-        except Exception:
-            return None
+    only_ids: list[int] | None = None
+    matched_total: int | None = None
+    if has_enrichment_filter:
+        # 当用户同时提供日期/source/folder 过滤时, 先用 SQLite 把候选 IDs 裁出来,
+        # 再让 PG 在该子集内做标签匹配 — 避免 ORDER BY enriched_at LIMIT 5000 把
+        # 早期时间窗的命中文章筛掉.
+        restrict_ids: list[int] | None = None
+        if (since or until or source_id is not None
+                or (folder_id is not None and folder_id > 0)
+                or starred is True) and _huntly_sqlite_available():
+            restrict_ids = await asyncio.to_thread(
+                _sqlite_page_ids_in_range,
+                source_id=source_id,
+                folder_id=folder_id,
+                starred=starred,
+                since_iso=since,
+                until_iso=until,
+                limit=50000,
+            )
+            if not restrict_ids:
+                return {
+                    "articles": [],
+                    "page": page,
+                    "page_size": page_size,
+                    "total": 0,
+                    "matched_total": 0,
+                    "latest_published_at": None,
+                    "server_time": datetime.utcnow().isoformat() + "Z",
+                }
 
-    since_dt = _parse_iso(since)
-    until_dt = _parse_iso(until)
+        # PG 倒排: 拿到全库命中的 huntly_page_id (5000 上限)
+        only_ids = _query_enrichment_page_ids(
+            want_tickers, want_industries, want_event_tags, want_sentiment, strong_only,
+            want_countries=want_countries,
+            want_regions=want_regions,
+            want_key_terms=want_key_terms,
+            want_date_entities=want_date_entities,
+            want_provinces=want_provinces,
+            want_cities=want_cities,
+            want_politicians=want_politicians,
+            want_visits=want_visits,
+            want_departments=want_departments,
+            keyword=keyword,
+            restrict_to_ids=restrict_ids,
+            limit=5000,
+        )
+        matched_total = len(only_ids)
+        if not only_ids:
+            return {
+                "articles": [],
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "matched_total": 0,
+                "latest_published_at": None,
+                "server_time": datetime.utcnow().isoformat() + "Z",
+            }
 
-    if has_enrichment_filter or has_keyword:
-        # 过滤模式：拉一个大池子求交集
-        pool_size = max(page_size * page * 4, 500)
-        pool_size = min(pool_size, 1000)
-    else:
-        pool_size = page_size
+    if not _huntly_sqlite_available():
+        # 回退到旧的 REST 代理逻辑 (开发环境无 sqlite mount)
+        return await _list_articles_via_rest(
+            source_id=source_id, folder_id=folder_id, keyword=keyword,
+            only_financial_event=only_financial_event, page=page, page_size=page_size,
+            since=since, until=until,
+        )
 
-    # Huntly v0.6.x 真实参数：count(总数) / sort(枚举) / isAsc / connectorId / folderId
+    offset = (page - 1) * page_size
+    articles, total, latest_at = await asyncio.to_thread(
+        _list_articles_from_sqlite,
+        source_id=source_id,
+        folder_id=folder_id,
+        keyword=keyword,
+        only_financial_event=only_financial_event,
+        starred=starred,
+        since_iso=since,
+        until_iso=until,
+        only_ids=only_ids,
+        offset=offset,
+        limit=page_size,
+    )
+
+    # 合并 enrichment
+    page_ids = [int(a["id"]) for a in articles if a.get("id")]
+    enrich_map = _load_enrichments(page_ids)
+    for a in articles:
+        a["enrichment"] = enrich_map.get(int(a["id"]), _empty_enrichment()) if a.get("id") else _empty_enrichment()
+
+    return {
+        "articles": articles,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "matched_total": matched_total if matched_total is not None else total,
+        "latest_published_at": latest_at,
+        "server_time": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+async def _list_articles_via_rest(
+    *,
+    source_id: int | None,
+    folder_id: int | None,
+    keyword: str | None,
+    only_financial_event: bool,
+    page: int,
+    page_size: int,
+    since: str | None,
+    until: str | None,
+) -> dict:
+    """开发回退: 没有 sqlite mount 时仍走旧的 Huntly REST 路径 (受 500 上限)."""
     params: dict = {
-        "count": pool_size,
+        "count": min(page_size * page, 500),
         "sort": "CONNECTED_AT",
         "isAsc": "false",
     }
@@ -773,121 +1080,30 @@ async def list_articles(
         params["connectorId"] = source_id
     if folder_id is not None and folder_id > 0:
         params["folderId"] = folder_id
-    # has_keyword 模式下不传 Huntly q=, 在内存合并 (标题/正文 ∪ 标签) 命中, 否则会漏掉只标签命中的
-    if keyword and not (has_keyword or has_enrichment_filter):
+    if keyword:
         params["q"] = keyword
-
     r = await _huntly_request("GET", "/api/page/list", params=params)
     if r.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Huntly /page/list HTTP {r.status_code}: {r.text[:200]}",
-        )
-
+        raise HTTPException(status_code=502, detail=f"Huntly /page/list HTTP {r.status_code}")
     body = _unwrap(r.json())
-    if isinstance(body, list):
-        raw_pages = body
-    elif isinstance(body, dict):
-        raw_pages = body.get("items") or body.get("content") or body.get("data") or []
-    else:
-        raw_pages = []
-
-    articles = [_normalize_page(p) for p in raw_pages]
+    raw = body if isinstance(body, list) else (body.get("items") or body.get("content") or body.get("data") or [])
+    arts = [_normalize_page(p) for p in raw]
     if only_financial_event:
-        articles = [a for a in articles if a["is_financial_event"]]
-
-    # 时间过滤（基于 published_at, ISO 字符串）
-    if since_dt or until_dt:
-        from datetime import datetime, timezone
-        def _in_range(a: dict) -> bool:
-            t = a.get("published_at")
-            if not t:
-                return False
-            try:
-                d = datetime.fromisoformat(t.replace("Z", "+00:00"))
-                if d.tzinfo is None:
-                    d = d.replace(tzinfo=timezone.utc)
-            except Exception:
-                return False
-            if since_dt and d < since_dt:
-                return False
-            if until_dt and d > until_dt:
-                return False
-            return True
-        articles = [a for a in articles if _in_range(a)]
-
-    # 合并 enrichment
-    page_ids = [int(a["id"]) for a in articles if a.get("id")]
-    enrich_map = _load_enrichments(page_ids)
-
-    if has_enrichment_filter or has_keyword:
-        # 标签条件 (不含 keyword) 命中的 ids
-        tag_filter_ids: set[int] | None = None
-        if has_enrichment_filter:
-            tag_filter_ids = set(_query_enrichment_page_ids(
-                want_tickers, want_industries, want_event_tags, want_sentiment, strong_only,
-                want_countries=want_countries,
-                want_regions=want_regions,
-                want_key_terms=want_key_terms,
-                want_date_entities=want_date_entities,
-                want_provinces=want_provinces,
-                want_cities=want_cities,
-                want_politicians=want_politicians,
-                want_visits=want_visits,
-                want_departments=want_departments,
-                limit=5000,
-            ))
-
-        if has_keyword:
-            kw = (keyword or "").strip().lower()
-            # (a) 池子内: 标题/摘要 ILIKE keyword 命中 (Huntly q= 已被禁掉, 所以在内存里匹配)
-            content_hit_ids = {
-                int(a["id"])
-                for a in articles
-                if a.get("id") and (
-                    kw in (a.get("title") or "").lower()
-                    or kw in (a.get("summary") or "").lower()
-                )
-            }
-            # (b) 倒排表里: 标签/股票/行业等数组的字符串包含 keyword 命中 (跨全库, 不限池子)
-            tag_keyword_ids = set(_query_enrichment_page_ids(
-                set(), set(), set(), None, False,
-                keyword=keyword,
-                limit=5000,
-            ))
-            keyword_hit_ids = content_hit_ids | tag_keyword_ids
-            hit_ids = (keyword_hit_ids & tag_filter_ids) if tag_filter_ids is not None else keyword_hit_ids
-        else:
-            hit_ids = tag_filter_ids or set()
-
-        articles = [a for a in articles if a.get("id") and int(a["id"]) in hit_ids]
-        matched_total = len(hit_ids)
-    else:
-        matched_total = len(articles)
-
-    for a in articles:
-        a["enrichment"] = enrich_map.get(int(a["id"]), _empty_enrichment()) if a.get("id") else _empty_enrichment()
-
-    # 内存分页（已按 CONNECTED_AT desc 排序）
-    total = len(articles) if has_enrichment_filter or only_financial_event or since_dt or until_dt else matched_total
+        arts = [a for a in arts if a["is_financial_event"]]
     start = (page - 1) * page_size
-    end = start + page_size
-    page_slice = articles[start:end] if has_enrichment_filter else articles[:page_size]
-
-    latest_at = None
-    for a in articles:
-        if a.get("published_at"):
-            latest_at = a["published_at"]
-            break
-
+    page_slice = arts[start:start + page_size]
+    page_ids = [int(a["id"]) for a in page_slice if a.get("id")]
+    enrich_map = _load_enrichments(page_ids)
+    for a in page_slice:
+        a["enrichment"] = enrich_map.get(int(a["id"]), _empty_enrichment()) if a.get("id") else _empty_enrichment()
     return {
         "articles": page_slice,
         "page": page,
         "page_size": page_size,
-        "total": total,
-        "matched_total": matched_total,  # enrichment 全库命中数（可大于 articles 长度）
-        "latest_published_at": latest_at,
-        "server_time": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "total": len(arts),
+        "matched_total": len(arts),
+        "latest_published_at": arts[0].get("published_at") if arts else None,
+        "server_time": datetime.utcnow().isoformat() + "Z",
     }
 
 
@@ -968,6 +1184,8 @@ async def list_financial_events(
         cities=None,
         politicians=None,
         visits=None,
+        departments=None,
+        starred=None,
         strong_only=False,
         since=None,
         until=None,
@@ -1131,6 +1349,26 @@ async def enrichment_run_now(limit: int = Query(200, ge=1, le=5000)):
         return {"ok": True, "written": n}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"enrich failed: {e}")
+
+
+@router.post("/enrichment/rebuild-all")
+async def enrichment_rebuild_all(force: bool = Query(False, description="true=覆盖已 enrich 的文章")):
+    """一键全量重建标签 — 直接读 Huntly SQLite, 后台线程跑, 立即返回."""
+    try:
+        from backend.services.api.news import start_full_rebuild_async
+        return start_full_rebuild_async(force=force)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"rebuild failed: {e}")
+
+
+@router.get("/enrichment/rebuild-progress")
+async def enrichment_rebuild_progress():
+    """查询全量重建进度."""
+    try:
+        from backend.services.api.news import get_rebuild_progress
+        return get_rebuild_progress()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"progress failed: {e}")
 
 
 # ---------------------------------------------------------------------------

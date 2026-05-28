@@ -193,6 +193,51 @@ class AdminService {
         return resp.data;
     }
 
+    async triggerDailySync(params?: {
+        market?: string;
+        symbols?: string[];
+        incremental?: boolean;
+        calibrate?: boolean;
+    }): Promise<any> {
+        const resp = await this.axiosInstance.post('/admin/data-platform/daily-sync', {
+            market: params?.market || 'A',
+            symbols: params?.symbols || [],
+            incremental: params?.incremental ?? true,
+            calibrate: params?.calibrate ?? true,
+        }, { timeout: 30000 });
+        return resp.data;
+    }
+
+    async getDailySyncTaskStatus(taskId: string): Promise<any> {
+        const resp = await this.axiosInstance.get(`/admin/data-platform/daily-sync/status/${taskId}`, {
+            timeout: 15000,
+        });
+        return resp.data;
+    }
+
+    async getSyncStatus(): Promise<any> {
+        const resp = await this.axiosInstance.get('/admin/data-platform/sync-status', {
+            timeout: 30000,
+        });
+        return resp.data;
+    }
+
+    async updateInvestmentData(version?: string): Promise<any> {
+        const resp = await this.axiosInstance.post('/admin/data-platform/update-investment-data', null, {
+            params: { version: version || '' },
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
+    async updateFeatureParquet(rebuild = false): Promise<any> {
+        const resp = await this.axiosInstance.post('/admin/models/update-feature-parquet', null, {
+            params: { rebuild },
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
     async getModelDirectoryDetail(modelPath: string): Promise<ModelDirectoryInfo> {
         const resp = await this.axiosInstance.get<ModelDirectoryInfo>(`/admin/models/directory/${modelPath}`);
         return resp.data;

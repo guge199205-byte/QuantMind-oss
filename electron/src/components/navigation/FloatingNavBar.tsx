@@ -8,9 +8,12 @@ import {
   LayoutDashboard,
   LineChart,
   Orbit,
+  Rss,
   Search,
   ShieldCheck,
-  SquareTerminal
+  SquareTerminal,
+  TestTube2,
+  Brain
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSelector } from 'react-redux';
@@ -40,6 +43,10 @@ export const FloatingNavBar: React.FC<FloatingNavBarProps> = ({ current, onChang
     { id: 'model-registry', label: '模型管理', icon: Boxes },
     { id: 'research', label: '投研平台', icon: Search },
     { id: 'trading', label: '实盘交易', icon: ArrowLeftRight },
+    { id: 'rss-news', label: 'RSS信息流', icon: Rss },
+    { id: 'alpha-research', label: 'Alpha研究', icon: TestTube2 },
+    { id: 'trading-agents', label: '投研分析', icon: Brain },
+    { id: 'data-dashboard', label: '数据看板', icon: LineChart },
     { id: 'profile', label: '个人中心', icon: CircleUserRound }
   ];
 
@@ -49,7 +56,7 @@ export const FloatingNavBar: React.FC<FloatingNavBarProps> = ({ current, onChang
 
   const groupedNavItems: NavItemConfig[][] = [
     navItems.filter((item) => ['dashboard', 'strategy', 'ai-ide', 'backtest', 'agent'].includes(item.id)),
-    navItems.filter((item) => ['model-training', 'model-registry', 'research', 'trading'].includes(item.id)),
+    navItems.filter((item) => ['model-training', 'model-registry', 'research', 'trading', 'rss-news', 'alpha-research', 'trading-agents', 'data-dashboard'].includes(item.id)),
     navItems.filter((item) => ['profile', 'admin'].includes(item.id))
   ].filter((group) => group.length > 0);
 

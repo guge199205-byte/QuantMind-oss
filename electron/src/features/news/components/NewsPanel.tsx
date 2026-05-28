@@ -33,9 +33,11 @@ import {
   BellOutlined,
   FireOutlined,
   GlobalOutlined,
+  LeftOutlined,
   LinkOutlined,
   MinusOutlined,
   ReloadOutlined,
+  RightOutlined,
   RiseOutlined,
   StarFilled,
   StarOutlined,
@@ -114,6 +116,17 @@ export const NewsPanel: React.FC = () => {
   const [visitFilter, setVisitFilter] = useState<string[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState<string[]>([]);
   const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildingAll, setRebuildingAll] = useState(false);
+  const [rebuildProgress, setRebuildProgress] = useState<{
+    running: boolean;
+    total: number;
+    processed: number;
+    ok: number;
+    failed: number;
+    elapsed_seconds?: number;
+    eta_seconds?: number | null;
+  } | null>(null);
+  const rebuildPollRef = useRef<number | null>(null);
   const [strongOnly, setStrongOnly] = useState(false);
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [stats, setStats] = useState<NewsEnrichmentStats | null>(null);
@@ -253,11 +266,94 @@ export const NewsPanel: React.FC = () => {
     });
   }, [loadArticles, loadStats]);
 
+  const stopRebuildPolling = useCallback(() => {
+    if (rebuildPollRef.current) {
+      window.clearInterval(rebuildPollRef.current);
+      rebuildPollRef.current = null;
+    }
+  }, []);
+
+  const startRebuildPolling = useCallback(() => {
+    stopRebuildPolling();
+    rebuildPollRef.current = window.setInterval(async () => {
+      try {
+        const p = await newsService.getRebuildProgress();
+        setRebuildProgress(p);
+        if (!p.running) {
+          stopRebuildPolling();
+          setRebuildingAll(false);
+          message.success({
+            content: `全量重建完成: 共 ${p.total} 篇 / 成功 ${p.ok} / 失败 ${p.failed} (${(p.elapsed_seconds / 60).toFixed(1)} 分钟)`,
+            key: 'rebuild-all',
+            duration: 6,
+          });
+          await loadArticles();
+          await loadStats();
+        }
+      } catch {
+        // ignore single tick error
+      }
+    }, 3000);
+  }, [stopRebuildPolling, loadArticles, loadStats]);
+
+  const handleRebuildAll = useCallback(() => {
+    Modal.confirm({
+      title: '一键重建全部标签',
+      width: 480,
+      content: (
+        <div>
+          <p>将直接读取 Huntly 数据库, 对 <b>全部 8 万多篇</b> 文章<b style={{ color: '#ef4444' }}>强制重建</b>标签 (覆盖已有 enrichment)。</p>
+          <p style={{ color: '#94a3b8', fontSize: 12 }}>
+            后台异步运行, 可关闭此对话框。预计耗时 30 ~ 90 分钟, 期间可继续浏览/筛选 (新数据会陆续生效)。
+          </p>
+          <p style={{ color: '#94a3b8', fontSize: 12 }}>
+            适用场景: 词典/模型升级后想让所有历史文章按新规则重新打标签。
+          </p>
+        </div>
+      ),
+      okText: '开始强制重建',
+      cancelText: '取消',
+      okButtonProps: { type: 'primary', danger: true },
+      onOk: async () => {
+        setRebuildingAll(true);
+        try {
+          const r = await newsService.rebuildAllEnrichment(true);
+          if (r.started) {
+            message.success({ content: `已启动后台强制重建任务 (共 ${r.total || '?'} 篇)`, key: 'rebuild-all' });
+          } else {
+            message.info({ content: `任务已在运行中 (${r.processed}/${r.total})`, key: 'rebuild-all' });
+          }
+          setRebuildProgress(r as any);
+          startRebuildPolling();
+        } catch {
+          setRebuildingAll(false);
+          message.error({ content: '启动全量重建失败', key: 'rebuild-all' });
+        }
+      },
+    });
+  }, [startRebuildPolling]);
+
   useEffect(() => {
     checkHealth();
     loadSources();
     loadStats();
-  }, [checkHealth, loadSources, loadStats]);
+    // 页面打开时若后端还在跑全量重建, 自动接上进度
+    (async () => {
+      try {
+        const p = await newsService.getRebuildProgress();
+        if (p.running) {
+          setRebuildProgress(p);
+          setRebuildingAll(true);
+          startRebuildPolling();
+        } else if (p.total > 0) {
+          setRebuildProgress(p);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => {
+      if (rebuildPollRef.current) window.clearInterval(rebuildPollRef.current);
+    };
+  }, [checkHealth, loadSources, loadStats, startRebuildPolling]);
 
   useEffect(() => {
     loadArticles();
@@ -435,6 +531,9 @@ export const NewsPanel: React.FC = () => {
         minHeight: 0,
         background: '#ffffff',
         overflow: 'hidden',
+        // 底部留出 84px 给 FloatingNavBar (位于 bottom:14px, 约 56px 高 + 14px 间距)
+        paddingBottom: 84,
+        boxSizing: 'border-box',
       }}
     >
       {/* 顶部工具栏 */}
@@ -510,6 +609,21 @@ export const NewsPanel: React.FC = () => {
             onClick={handleRebuildTags}
           >
             重建标签
+          </Button>
+        </Tooltip>
+        <Tooltip title="一键对全部 8 万多篇历史文章重建标签 (后台异步)">
+          <Button
+            size="small"
+            type="primary"
+            danger
+            ghost
+            icon={<SyncOutlined spin={rebuildingAll} />}
+            loading={rebuildingAll}
+            onClick={handleRebuildAll}
+          >
+            {rebuildingAll && rebuildProgress && rebuildProgress.total > 0
+              ? `重建中 ${rebuildProgress.processed}/${rebuildProgress.total}`
+              : '一键重建全部'}
           </Button>
         </Tooltip>
         {health?.huntly_base_url && (
@@ -1230,8 +1344,35 @@ export const NewsPanel: React.FC = () => {
               }}
             />
             </div>
-            <div style={{ flex: '0 0 auto', padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>共 {totalArticles.toLocaleString()} 条</Text>
+            <div style={{ flex: '0 0 auto', padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              {/* 左下角：上页 / 下页 / 文章数量 — 方便对几万条文章逐页重建标签 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tooltip title="上一页">
+                  <Button
+                    size="small"
+                    icon={<LeftOutlined />}
+                    disabled={currentPage <= 1 || loading}
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  >
+                    上页
+                  </Button>
+                </Tooltip>
+                <Tooltip title="下一页">
+                  <Button
+                    size="small"
+                    icon={<RightOutlined />}
+                    disabled={currentPage >= Math.max(1, Math.ceil(totalArticles / pageSize)) || loading}
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                  >
+                    下页
+                  </Button>
+                </Tooltip>
+                <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                  第 <Text strong>{currentPage}</Text> / {Math.max(1, Math.ceil(totalArticles / pageSize))} 页
+                  <span style={{ marginLeft: 8, color: '#94a3b8' }}>·</span>
+                  <span style={{ marginLeft: 8 }}>共 <Text strong style={{ color: '#6366f1' }}>{totalArticles.toLocaleString()}</Text> 条</span>
+                </Text>
+              </div>
               <Pagination
                 size="small"
                 current={currentPage}
@@ -1239,6 +1380,7 @@ export const NewsPanel: React.FC = () => {
                 total={totalArticles}
                 showSizeChanger
                 showQuickJumper
+                showLessItems
                 pageSizeOptions={['20', '50', '100', '200']}
                 onChange={(page, size) => {
                   setCurrentPage(page);

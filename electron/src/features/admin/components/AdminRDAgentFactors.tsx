@@ -1,11 +1,11 @@
 /**
- * RD-Agent 因子挖掘 — 管理后台可视化页
+ * AlphaAgent 因子挖掘 — 管理后台可视化页
  *
  * 模块：
  *  ① 统计概览（4 卡）
  *  ② 触发演化（表单 → POST /quantbot/chat）
  *  ③ 活跃任务列表（5s 轮询 /quantbot/tasks）
- *  ④ 因子列表 Table（/rd-agent/factors）
+ *  ④ 因子列表 Table（/alpha-agent/factors）
  *  ⑤ 因子详情 Drawer（factor_code + metrics + 一键回测）
  */
 
@@ -287,7 +287,7 @@ export const AdminRDAgentFactors: React.FC = () => {
     }
 
     const strategyName = factor.factor_name || factor.factor_id;
-    const header = `# RD因子: ${strategyName}\n# Factor ID: ${factor.factor_id}\n# 自动从 RD-Agent 因子挖掘注入到回测中心\n\n`;
+    const header = `# RD因子: ${strategyName}\n# Factor ID: ${factor.factor_id}\n# 自动从 AlphaAgent 因子挖掘注入到回测中心\n\n`;
 
     updateBacktestConfig({
       strategy_code: header + factor.factor_code,

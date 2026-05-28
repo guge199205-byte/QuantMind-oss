@@ -57,13 +57,32 @@
 - **模型版本管理** — 多模型共存，一键切换
 - **实时推理** — 每日自动生成交易信号
 
-### RD-Agent 因子挖掘
+### Alpha Agent 因子进化
 
-集成微软 **RD-Agent**，AI 自主生成并进化量化因子：
+集成 **AlphaAgent**，AI 自主生成并进化量化因子：
 
 - **自动因子演化** — 从 seed factors 出发，自动探索新因子
 - **自动回测验证** — 生成的因子自动运行 Qlib 回测并保存结果
 - **Chat 触发** — 通过 QuantBot 聊天即可启动因子挖掘任务
+- **多轮迭代** — 支持配置进化轮次，持续优化因子质量
+
+### 数据平台 (Data Platform)
+
+统一多市场多数据源的接入、清洗、路由、监控：
+
+- **多市场支持** — A 股、港股、美股数据统一接入
+- **数据源适配** — 通达信、investment_data、simonlin 等多数据源适配
+- **标准化模型** — OHLCV、基本面、符号元数据统一格式
+- **健康监控** — Redis 指标监控数据源状态
+
+### 财经资讯 (News & RSS)
+
+集成 **Huntly** + **RSSHub**，提供财经资讯聚合：
+
+- **RSS 订阅** — 支持 Twitter、微博、雪球等多平台 RSS 源
+- **资讯聚合** — Huntly 统一管理订阅源和文章
+- **智能匹配** — 自动匹配资讯与持仓股票
+- **标签管理** — 支持自定义资讯分类标签
 
 ### QuantBot 智能助手
 
@@ -260,8 +279,13 @@ QuantMind 提供 **两种** 客户端访问方式，任选其一：
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
-│                    RD-Agent (已安装至量化容器)                     │
+│                    Alpha Agent (因子进化)                          │
 │  因子演化 → 自动回测 → rd_agent_factors 表 → 结果查询             │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│                    Huntly + RSSHub (:8090 / :1200)                │
+│  财经资讯聚合 • RSS 订阅 • 智能匹配                               │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -269,14 +293,16 @@ QuantMind 提供 **两种** 客户端访问方式，任选其一：
 
 | 端口 | 服务 | 说明 |
 |------|------|------|
-| **3080** | Web 前端 (nginx) | 浏览器访问入口，反代 `/api/` `/ws/` 到 8000 |
+| **3000** | Web 前端 (nginx) | 浏览器访问入口，反代 `/api/` `/ws/` 到 8000 |
 | **8000** | API Gateway | 用户认证、策略管理、社区、管理后台 |
-| **8001** | Engine | Qlib 回测、AI 策略生成、模型推理、RD-Agent |
+| **8001** | Engine | Qlib 回测、AI 策略生成、模型推理、Alpha Agent |
 | **8002** | Trade | 订单管理、持仓、风控 |
 | **8003** | Stream | 实时行情、WebSocket 推送 |
 | **5432** | PostgreSQL | 数据库 |
 | **6379** | Redis | 缓存 / Celery 消息队列 |
 | **8089** | QwenPaw | QuantBot 聊天机器人（外部访问） |
+| **8090** | Huntly | 财经资讯聚合（RSS/新闻） |
+| **1200** | RSSHub | RSS 源生成（Twitter/微博/雪球等） |
 
 ### 技术栈
 
@@ -285,10 +311,12 @@ QuantMind 提供 **两种** 客户端访问方式，任选其一：
 | **前端** | Electron + React 18 + TypeScript + Ant Design + Framer Motion（同代码同时构建为浏览器版 nginx 镜像 `quantmind-web`） |
 | **后端** | Python 3.10 + FastAPI + SQLAlchemy (asyncpg) |
 | **回测引擎** | Qlib + Pandas 双引擎 |
-| **AI 模型** | LightGBM + Qlib Model Framework + RD-Agent |
+| **AI 模型** | LightGBM + Qlib Model Framework + AlphaAgent |
 | **数据库** | PostgreSQL 15（分区表） + Redis 7 |
 | **消息队列** | Celery + Redis |
 | **聊天机器人** | agentscope/qwenpaw |
+| **资讯聚合** | Huntly + RSSHub |
+| **数据平台** | 多市场多数据源统一接入（A/HK/US） |
 | **容器化** | Docker + Docker Compose |
 
 ### 目录结构
@@ -317,9 +345,12 @@ quantmind/
 │   │   │   │   │   ├── model_management_ops.py  # 数据管理操作
 │   │   │   │   │   ├── admin_training.py   # 管理训练
 │   │   │   │   │   ├── strategy_templates.py # 策略模板管理
+│   │   │   │   │   ├── data_platform.py    # 数据平台管理
 │   │   │   │   │   └── users.py            # 用户管理
 │   │   │   │   ├── auth.py                 # 登录/注册
 │   │   │   │   ├── model_training.py       # 模型训练
+│   │   │   │   ├── news.py                 # 资讯代理
+│   │   │   │   ├── market_kline.py         # K 线行情
 │   │   │   │   ├── qwenpaw_proxy.py        # QwenPaw 代理
 │   │   │   │   ├── profiles.py             # 用户画像
 │   │   │   │   ├── research.py             # 投研平台
@@ -330,11 +361,18 @@ quantmind/
 │   │   ├── engine/             # 引擎服务 (:8001)
 │   │   │   ├── main.py         # Engine 服务入口
 │   │   │   ├── routers/        # 路由
-│   │   │   │   ├── rd_agent.py            # RD-Agent 因子提交
+│   │   │   │   ├── rd_agent.py            # Alpha Agent 因子提交
 │   │   │   │   ├── quantbot_router.py     # QuantBot 聊天接口
+│   │   │   │   ├── alpha_agent.py         # Alpha Agent 因子进化
 │   │   │   │   └── model_training.py      # 模型训练路由
 │   │   │   ├── qlib_app/       # Qlib 回测引擎
 │   │   │   ├── ai_strategy/    # AI 策略生成
+│   │   │   ├── alpha_agent/    # Alpha Agent 因子进化
+│   │   │   │   └── launcher.py            # 因子进化启动器
+│   │   │   ├── data_platform/  # 数据平台（多市场多数据源）
+│   │   │   │   ├── adapters/              # 数据源适配器
+│   │   │   │   ├── calendars/             # 市场交易日历
+│   │   │   │   └── storage.py             # 数据存储
 │   │   │   ├── quantbot/       # QuantBot 意图识别 + 任务调度
 │   │   │   │   ├── intent_parser.py       # 意图识别
 │   │   │   │   ├── rd_agent_launcher.py   # RD-Agent 启动器
@@ -381,6 +419,8 @@ quantmind/
 │   │
 │   ├── config/                 # 配置文件
 │   │   ├── settings.py         # 应用设置
+│   │   ├── data_sources/       # 数据源配置
+│   │   ├── qwenpaw/            # QwenPaw 配置
 │   │   └── users/              # 用户配置（QMT 等）
 │   │
 │   └── scripts/                # 后端工具脚本
@@ -390,10 +430,19 @@ quantmind/
 ├── electron/                   # Electron 前端（桌面应用）
 │   ├── src/
 │   │   ├── features/
-│   │   │   └── quantbot/       # QuantBot 聊天功能
-│   │   │       ├── pages/      # 页面组件
-│   │   │       ├── components/ # UI 组件
-│   │   │       └── services/   # API 服务
+│   │   │   ├── quantbot/       # QuantBot 聊天功能
+│   │   │   │   ├── pages/      # 页面组件
+│   │   │   │   ├── components/ # UI 组件
+│   │   │   │   └── services/   # API 服务
+│   │   │   ├── news/           # 资讯模块
+│   │   │   │   ├── components/ # NewsPanel 等
+│   │   │   │   └── services/   # 资讯 API
+│   │   │   ├── admin/          # 管理后台
+│   │   │   │   └── components/ # AdminDataPlatform, AdminRssSources 等
+│   │   │   ├── alpha-research/ # Alpha 研究平台
+│   │   │   └── strategy-wizard/# 策略向导
+│   │   ├── components/
+│   │   │   └── KlineChart.tsx  # K 线图表组件
 │   │   ├── store/              # Redux 状态管理
 │   │   └── utils/              # 工具函数
 │   └── package.json
@@ -414,6 +463,10 @@ quantmind/
 │       │   └── backfill_financial.py           # 财务数据回填
 │       └── processing/
 │           └── backfill_return_fields.py       # 收益率字段回填
+│
+├── alphaagent/                 # AlphaAgent 因子进化框架
+│   ├── scenarios/qlib/         # Qlib 场景实验
+│   └── pyproject.toml          # 项目配置
 │
 ├── rd-agent/                   # RD-Agent（微软因子挖掘工具，需 git clone）
 │   ├── rdagent/                # 核心代码
@@ -442,12 +495,14 @@ quantmind/
 │   └── migrations/             # 数据库迁移记录
 ├── models/                     # AI 模型文件（按需下载/训练）
 ├── logs/                       # 日志
-└── docs/                       # 详细技术文档（21+ 篇）
+└── docs/                       # 详细技术文档（30+ 篇）
     ├── 部署指南.md
     ├── 数据包安装指南.md
     ├── 系统架构文档.md
     ├── 数据初始化指南.md       # 数据流转 + 初始化流程
-    └── 智能体配置指南.md       # QuantBot/QwenPaw 配置
+    ├── 智能体配置指南.md       # QuantBot/QwenPaw 配置
+    ├── quantbot代理服务.md     # QuantBot 代理服务文档
+    └── PLAN_multi_market_datasource.md  # 多市场数据源规划
 ```
 
 ---
@@ -524,6 +579,8 @@ quantmind/
 | **策略** | [Alpha158 训练](docs/alpha158训练计划.md) · [策略比较](docs/策略比较分析.md) · [多模型切换](docs/多模型训练与推理切换设计方案.md) |
 | **规范** | [Qlib 策略开发](docs/Qlib内部策略开发规范.md) · [回测费用](docs/回测费用配置说明.md) |
 | **数据** | [高维特征存储](docs/高维特征存储与统一访问方案.md) · [152 维特征](docs/QuantMind_152维特征方案规范.md) · [stock_daily_latest 维护](docs/stock_daily_latest_维护文档.md) |
+| **智能体** | [QuantBot 代理服务](docs/quantbot代理服务.md) · [智能体配置指南](docs/智能体配置指南.md) |
+| **数据源** | [多市场数据源规划](docs/PLAN_multi_market_datasource.md) · [数据初始化指南](docs/数据初始化指南.md) |
 
 ---
 
@@ -546,12 +603,15 @@ QuantMind 采用 **基于角色的访问控制（RBAC）**，通过 JWT Token �
 | 用户管理 | ✅ | ❌ | ❌ |
 | 模型管理 | ✅ | ❌ | ❌ |
 | 数据同步 | ✅ | ❌ | ❌ |
+| 数据平台管理 | ✅ | ❌ | ❌ |
+| RSS 源管理 | ✅ | ❌ | ❌ |
 | 策略管理 | ✅ | ✅（本人） | ❌ |
 | 回测 | ✅ | ✅ | ❌ |
 | 模型训练 | ✅ | ✅ | ❌ |
 | QuantBot 聊天 | ✅ | ✅ | ❌ |
-| RD-Agent 因子挖掘 | ✅ | ✅ | ❌ |
+| Alpha Agent 因子挖掘 | ✅ | ✅ | ❌ |
 | 投研平台 | ✅ | ✅ | ❌ |
+| 财经资讯 | ✅ | ✅ | ❌ |
 | 社区浏览 | ✅ | ✅ | ✅（只读） |
 
 ### 认证方式
@@ -635,6 +695,15 @@ docker exec quantmind python /app/scripts/data/maintenance/sync_stock_daily_full
 
 # Qlib 数据更新
 docker exec quantmind python /app/scripts/daily_update.py --force
+
+# 查看 Celery Worker 日志
+docker compose logs -f celery-worker
+
+# 查看 Huntly 资讯日志
+docker compose logs -f huntly
+
+# 查看 RSSHub 日志
+docker compose logs -f rsshub
 ```
 
 ---
@@ -668,9 +737,12 @@ docker exec quantmind python /app/scripts/daily_update.py --force
 
 - [Qlib](https://github.com/microsoft/qlib) — 微软量化投资平台
 - [RD-Agent](https://github.com/microsoft/RD-Agent) — 微软研发智能体
+- [AlphaAgent](https://github.com/ModelTC/AlphaAgent) — 因子进化框架
 - [QwenPaw](https://github.com/agentscope-ai/qwenpaw) — 阿里 agentscope 智能对话框架（QuantBot 底层）
 - [LightGBM](https://github.com/microsoft/LightGBM) — 微软梯度提升框架
 - [FastAPI](https://fastapi.tiangolo.com/) — 现代高性能 Web 框架
+- [Huntly](https://github.com/lcomplete/huntly) — 财经资讯聚合平台
+- [RSSHub](https://github.com/DIYgod/RSSHub) — RSS 源生成工具
 
 ### 数据源与工具
 

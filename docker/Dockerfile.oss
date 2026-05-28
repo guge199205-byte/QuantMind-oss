@@ -66,8 +66,11 @@ COPY backend backend
 COPY config config
 COPY strategy_templates strategy_templates
 
-# 创建数据目录
-RUN mkdir -p /data/models /data/qlib_data /data/uploads /data/strategies /tmp
+# 创建数据目录 & Qlib 符号链接（AlphaAgent 硬编码 ~/.qlib/qlib_data/cn_data）
+RUN mkdir -p /data/models /data/qlib_data /data/uploads /data/strategies /tmp \
+    && mkdir -p /root/.qlib/qlib_data \
+    && ln -sf /app/db/qlib_data/cn_data /root/.qlib/qlib_data/cn_data
+# Qlib features 符号链接在运行时由 entrypoint 或首次访问时创建（数据卷挂载后才存在）
 
 # 暴露端口
 EXPOSE 8000 8001 8002 8003

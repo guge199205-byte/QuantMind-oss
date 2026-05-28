@@ -49,7 +49,13 @@ const AdminModelManagement = lazy(() => import('./features/admin/components/Admi
 const AdminDataManagement = lazy(() => import('./features/admin/components/AdminDataManagement').then(m => ({ default: m.AdminDataManagement })));
 const AdminStrategyTemplates = lazy(() => import('./features/admin/components/AdminStrategyTemplates').then(m => ({ default: m.AdminStrategyTemplates })));
 const AdminNewsPage = lazy(() => import('./features/news/components/NewsPanel').then(m => ({ default: m.NewsPanel })));
+const AdminRssSources = lazy(() => import('./features/admin/components/AdminRssSources').then(m => ({ default: m.AdminRssSources })));
 const AdminRDAgentFactors = lazy(() => import('./features/admin/components/AdminRDAgentFactors').then(m => ({ default: m.AdminRDAgentFactors })));
+const AdminDataPlatform = lazy(() => import('./features/admin/components/AdminDataPlatform').then(m => ({ default: m.AdminDataPlatform })));
+const AdminTagManagement = lazy(() => import('./features/admin/components/AdminTagManagement').then(m => ({ default: m.AdminTagManagement })));
+const AlphaResearchPage = lazy(() => import('./features/alpha-research/pages/AlphaResearchPage'));
+const TradingAgentsPage = lazy(() => import('./features/trading-agents/pages/TradingAgentsPage'));
+const DashboardPage = lazy(() => import('./features/dashboard/pages/DashboardPage'));
 
 // 主题切换hook
 // 主题管理已移除 - 应用统一使用浅色主题
@@ -117,6 +123,10 @@ export default function App() {
       'model-registry': '/model-registry',
       'research': '/research',
       'trading': '/trading',
+      'rss-news': '/rss-news',
+      'alpha-research': '/alpha-research',
+      'trading-agents': '/trading-agents',
+      'data-dashboard': '/dashboard',
       'profile': '/user-center',
       'admin': '/admin',
     };
@@ -152,8 +162,16 @@ export default function App() {
       dispatch(setCurrentTab('model-registry' as DashboardTab));
     } else if (location.pathname.startsWith('/research')) {
       dispatch(setCurrentTab('research' as DashboardTab));
+    } else if (location.pathname.startsWith('/trading-agents')) {
+      dispatch(setCurrentTab('trading-agents' as DashboardTab));
     } else if (location.pathname.startsWith('/trading')) {
       dispatch(setCurrentTab('trading' as DashboardTab));
+    } else if (location.pathname.startsWith('/rss-news')) {
+      dispatch(setCurrentTab('rss-news' as DashboardTab));
+    } else if (location.pathname.startsWith('/alpha-research')) {
+      dispatch(setCurrentTab('alpha-research' as DashboardTab));
+    } else if (location.pathname.startsWith('/dashboard')) {
+      dispatch(setCurrentTab('data-dashboard' as DashboardTab));
     } else if (location.pathname.startsWith('/admin')) {
       dispatch(setCurrentTab('admin' as DashboardTab));
     } else if (location.pathname === '/') {
@@ -477,6 +495,48 @@ export default function App() {
                     }
                   />
                   <Route
+                    path="/rss-news"
+                    element={
+                      <ProtectedRoute>
+                        <div style={{ height: '100vh', width: '100%', display: 'flex', flexDirection: 'column' }}>
+                          <Suspense fallback={<Spin size="large" />}>
+                            <AdminNewsPage />
+                          </Suspense>
+                        </div>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/alpha-research"
+                    element={
+                      <ProtectedRoute>
+                        <Suspense fallback={<Spin size="large" />}>
+                          <AlphaResearchPage />
+                        </Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/trading-agents"
+                    element={
+                      <ProtectedRoute>
+                        <Suspense fallback={<Spin size="large" />}>
+                          <TradingAgentsPage />
+                        </Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <Suspense fallback={<Spin size="large" />}>
+                          <DashboardPage />
+                        </Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="/admin"
                     element={
                       <ProtectedRoute requiredRole="admin">
@@ -490,13 +550,14 @@ export default function App() {
                     <Route path="models" element={<Suspense fallback={<Spin size="large" />}><AdminModelManagement /></Suspense>} />
                     <Route path="data" element={<Suspense fallback={<Spin size="large" />}><AdminDataManagement /></Suspense>} />
                     <Route path="strategies" element={<Suspense fallback={<Spin size="large" />}><AdminStrategyTemplates /></Suspense>} />
-                    <Route path="news" element={<Suspense fallback={<Spin size="large" />}><AdminNewsPage /></Suspense>} />
+                    <Route path="news" element={<Suspense fallback={<Spin size="large" />}><AdminRssSources /></Suspense>} />
+                    <Route path="tags" element={<Suspense fallback={<Spin size="large" />}><AdminTagManagement /></Suspense>} />
                     <Route path="rd-agent" element={<Suspense fallback={<Spin size="large" />}><AdminRDAgentFactors /></Suspense>} />
                     {/* 待开发页面占位 */}
                     <Route path="inference" element={<div className="p-8 text-center text-slate-400">推理监控页面开发中...</div>} />
                     <Route path="orders" element={<div className="p-8 text-center text-slate-400">订单管理页面开发中...</div>} />
                     <Route path="risk" element={<div className="p-8 text-center text-slate-400">风险控制页面开发中...</div>} />
-                    <Route path="quotes" element={<div className="p-8 text-center text-slate-400">行情源监控页面开发中...</div>} />
+                    <Route path="quotes" element={<Suspense fallback={<Spin size="large" />}><AdminDataPlatform /></Suspense>} />
                     <Route path="settings" element={<div className="p-8 text-center text-slate-400">系统设置页面开发中...</div>} />
                   </Route>
 

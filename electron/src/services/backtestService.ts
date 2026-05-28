@@ -1295,7 +1295,7 @@ class BacktestService {
   }
 
   async getQlibHealth(): Promise<QlibHealthStatus> {
-    const response = await this.client.get<QlibHealthStatus>('/health');
+    const response = await this.client.get<QlibHealthStatus>('/health', { timeout: 10000 });
     return response.data;
   }
 

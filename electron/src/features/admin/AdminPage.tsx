@@ -48,7 +48,7 @@ const AdminPage: React.FC = () => {
             label: '推理引擎',
             children: [
                 { key: 'models', label: '模型管理' },
-                { key: 'rd-agent', label: 'RD因子挖掘' },
+                { key: 'rd-agent', label: 'AlphaAgent因子' },
                 { key: 'inference', label: '推理监控' },
             ]
         },
@@ -67,8 +67,9 @@ const AdminPage: React.FC = () => {
             label: '实时数据流',
             children: [
                 { key: 'data', label: '数据管理' },
-                { key: 'quotes', label: '行情源监控' },
-                { key: 'news', label: '资讯监控' },
+                { key: 'quotes', label: '数据源监控' },
+                { key: 'news', label: 'RSS源管理' },
+                { key: 'tags', label: '标签管理' },
             ]
         },
         { type: 'divider' as const },
@@ -147,7 +148,7 @@ const AdminPage: React.FC = () => {
                     {/* 资讯监控 / RD 因子挖掘等大屏页面用全宽，其余保留 1400px 阅读宽度 */}
                     <div
                         className={
-                            ['news', 'rd-agent', 'inference'].includes(currentKey)
+                            ['news', 'rd-agent', 'inference', 'tags'].includes(currentKey)
                                 ? 'w-full animate-in fade-in slide-in-from-bottom-4 duration-500'
                                 : 'max-w-[1400px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500'
                         }

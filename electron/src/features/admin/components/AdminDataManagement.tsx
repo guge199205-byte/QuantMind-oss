@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Alert, Button, Card, Col, Descriptions, Input, Row, Space, Spin, Statistic, Table, Tag, message, Typography, Progress, Divider, Tooltip, Empty } from 'antd';
-import { 
-    DatabaseOutlined, 
-    ReloadOutlined, 
-    CloudSyncOutlined, 
-    CheckCircleFilled, 
-    WarningFilled, 
+import {
+    DatabaseOutlined,
+    ReloadOutlined,
+    CloudSyncOutlined,
+    CheckCircleFilled,
+    WarningFilled,
     FileTextOutlined,
     ThunderboltOutlined,
     CompassOutlined,
@@ -13,7 +13,9 @@ import {
     InfoCircleOutlined,
     CodeOutlined,
     SafetyCertificateOutlined,
-    UserOutlined
+    UserOutlined,
+    SyncOutlined,
+    CloudDownloadOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { adminService } from '../services/adminService';
@@ -31,6 +33,9 @@ export const AdminDataManagement: React.FC = () => {
     const [data, setData] = useState<AdminDataStatusResult | null>(null);
     const [syncLoading, setSyncLoading] = useState(false);
     const [syncResult, setSyncResult] = useState<AdminOfficialDataUpdateSyncResult | null>(null);
+    const [dailySyncLoading, setDailySyncLoading] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<any>(null);
+    const [syncStatusLoading, setSyncStatusLoading] = useState(false);
 
     const loadDataStatus = async (refresh = false) => {
         setLoading(true);
@@ -50,9 +55,22 @@ export const AdminDataManagement: React.FC = () => {
 
     const initialRefreshRef = useRef(false);
 
+    const loadSyncStatus = useCallback(async () => {
+        setSyncStatusLoading(true);
+        try {
+            const resp = await adminService.getSyncStatus();
+            setSyncStatus(resp?.data || resp);
+        } catch {
+            // silent
+        } finally {
+            setSyncStatusLoading(false);
+        }
+    }, []);
+
     useEffect(() => {
         if (!initialRefreshRef.current) {
             loadDataStatus(true);
+            loadSyncStatus();
             initialRefreshRef.current = true;
         }
     }, []);
@@ -124,6 +142,26 @@ export const AdminDataManagement: React.FC = () => {
         },
     ];
 
+    const handleUpdateFeatureParquet = async (rebuild = false) => {
+        setParquetLoading(true);
+        setParquetResult(null);
+        try {
+            const resp = await adminService.updateFeatureParquet(rebuild);
+            setParquetResult(resp);
+            if (resp.success) {
+                message.success(rebuild ? '特征快照已全量重建' : '特征快照已更新');
+                await loadDataStatus(false);
+            } else {
+                message.error('特征更新失败，请查看执行日志');
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '未知错误';
+            message.error(`更新失败: ${msg}`);
+        } finally {
+            setParquetLoading(false);
+        }
+    };
+
     const handleSyncOfficialData = async () => {
         setSyncLoading(true);
         try {
@@ -144,6 +182,84 @@ export const AdminDataManagement: React.FC = () => {
             message.error(`同步失败: ${msg}`);
         } finally {
             setSyncLoading(false);
+        }
+    };
+
+    const [syncTaskId, setSyncTaskId] = useState<string | null>(null);
+    const [syncTaskProgress, setSyncTaskProgress] = useState<string>('');
+    const [parquetLoading, setParquetLoading] = useState(false);
+    const [parquetResult, setParquetResult] = useState<any>(null);
+
+    const handleDailySync = async (incremental = true) => {
+        setDailySyncLoading(true);
+        setSyncTaskProgress('提交任务...');
+        try {
+            const resp = await adminService.triggerDailySync({ incremental, calibrate: true });
+            if (resp?.success && resp.data?.task_id) {
+                const taskId = resp.data.task_id;
+                setSyncTaskId(taskId);
+                setSyncTaskProgress('任务已提交，等待执行...');
+                message.info(`同步任务已提交 (${taskId.slice(0, 8)}...)，后台执行中`);
+
+                // 轮询任务状态
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusResp = await adminService.getDailySyncTaskStatus(taskId);
+                        const d = statusResp?.data;
+                        if (!d) return;
+
+                        if (d.status === 'SUCCESS') {
+                            clearInterval(pollInterval);
+                            const r = d.result || {};
+                            if (r.status === 'skipped') {
+                                message.warning(r.reason || '已有同步任务在运行');
+                            } else {
+                                message.success(
+                                    `同步完成: investment_data=${r.investment_data_synced || 0}, baostock=${r.baostock_synced || 0}, akshare=${r.akshare_synced || 0}, eltdx=${r.eltdx_synced || 0}`
+                                );
+                            }
+                            setDailySyncLoading(false);
+                            setSyncTaskId(null);
+                            setSyncTaskProgress('');
+                            await loadSyncStatus();
+                            await loadDataStatus(false);
+                        } else if (d.status === 'FAILURE') {
+                            clearInterval(pollInterval);
+                            const errMsg = d.error && d.error !== `engine.tasks.daily_data_sync`
+                                ? d.error
+                                : '任务执行异常，请查看后端日志';
+                            message.error(`同步失败: ${errMsg}`);
+                            setDailySyncLoading(false);
+                            setSyncTaskId(null);
+                            setSyncTaskProgress('');
+                        } else {
+                            // PENDING / STARTED
+                            setSyncTaskProgress(d.status === 'STARTED' ? '同步执行中...' : '等待队列...');
+                        }
+                    } catch {
+                        // polling error, continue
+                    }
+                }, 5000);
+
+                // 超时保护: 30 分钟后停止轮询
+                setTimeout(() => {
+                    clearInterval(pollInterval);
+                    if (dailySyncLoading) {
+                        message.warning('同步任务超时，请手动检查状态');
+                        setDailySyncLoading(false);
+                        setSyncTaskId(null);
+                        setSyncTaskProgress('');
+                    }
+                }, 30 * 60 * 1000);
+            } else {
+                message.error('任务提交失败');
+                setDailySyncLoading(false);
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '未知错误';
+            message.error(`提交失败: ${msg}`);
+            setDailySyncLoading(false);
+            setSyncTaskProgress('');
         }
     };
 
@@ -399,7 +515,8 @@ export const AdminDataManagement: React.FC = () => {
                                         '增量拉取远程 PG 行情数据',
                                         '更新本地 Parquet 核心资产',
                                         '校准指标 (MA/换手率/收益率)',
-                                        '增量更新 Qlib 二进制引擎数据'
+                                        '增量更新 Qlib 二进制引擎数据',
+                                        '计算 51 维模型特征（动量/波动率/流动性/资金流/风格因子）'
                                     ].map((text, i) => (
                                         <li key={i} className="flex items-start text-xs text-slate-500 font-medium">
                                             <CheckCircleFilled className="text-emerald-500 mt-0.5 mr-2" />
@@ -409,26 +526,195 @@ export const AdminDataManagement: React.FC = () => {
                                 </ul>
                             </div>
                             
-                            <Button 
-                                type="primary" 
-                                block 
-                                className="h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 border-none font-black text-base shadow-lg shadow-indigo-100 transition-all flex items-center justify-center"
-                                loading={syncLoading}
-                                onClick={handleSyncOfficialData}
-                                icon={<ThunderboltOutlined />}
-                            >
-                                启动日常全量同步
-                            </Button>
-                            
+                            <Space direction="vertical" className="w-full" size="middle">
+                                <Button
+                                    type="primary"
+                                    block
+                                    className="h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-700 border-none font-black text-sm shadow-lg shadow-indigo-100 transition-all flex items-center justify-center"
+                                    loading={dailySyncLoading}
+                                    onClick={() => handleDailySync(true)}
+                                    icon={<SyncOutlined />}
+                                    disabled={!!syncTaskId}
+                                >
+                                    增量同步（多源聚合）
+                                </Button>
+                                <Button
+                                    block
+                                    className="h-12 rounded-2xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                                    loading={dailySyncLoading}
+                                    onClick={() => handleDailySync(false)}
+                                    icon={<CloudDownloadOutlined />}
+                                    disabled={!!syncTaskId}
+                                >
+                                    全量同步
+                                </Button>
+                                <Button
+                                    block
+                                    className="h-12 rounded-2xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                                    loading={syncLoading}
+                                    onClick={handleSyncOfficialData}
+                                    icon={<ThunderboltOutlined />}
+                                >
+                                    旧版全量同步
+                                </Button>
+                                <Divider className="!my-2" />
+                                <Button
+                                    block
+                                    className="h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 border-none text-white font-black text-sm shadow-lg shadow-emerald-100 transition-all"
+                                    loading={parquetLoading}
+                                    onClick={() => handleUpdateFeatureParquet(false)}
+                                    icon={<LineChartOutlined />}
+                                >
+                                    更新特征快照（补充缺失日期）
+                                </Button>
+                                <Button
+                                    block
+                                    className="h-12 rounded-2xl border-amber-200 text-amber-700 font-bold hover:bg-amber-50 transition-all"
+                                    loading={parquetLoading}
+                                    onClick={() => handleUpdateFeatureParquet(true)}
+                                    icon={<SyncOutlined />}
+                                >
+                                    全量重建特征（覆盖全部日期）
+                                </Button>
+                                {syncTaskProgress && (
+                                    <div className="flex items-center gap-2 p-3 rounded-xl bg-blue-50 border border-blue-100">
+                                        <Spin size="small" />
+                                        <Text className="text-xs text-blue-600 font-medium">{syncTaskProgress}</Text>
+                                    </div>
+                                )}
+                                {parquetResult && (
+                                    <div className={`p-4 rounded-2xl border ${parquetResult.success ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                                        <Text className={`text-xs font-bold ${parquetResult.success ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {parquetResult.success ? '更新成功' : '更新失败'} (exit={parquetResult.exit_code})
+                                        </Text>
+                                        {parquetResult.stdout && (
+                                            <pre className="mt-2 text-[10px] text-slate-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
+                                                {parquetResult.stdout.slice(-1000)}
+                                            </pre>
+                                        )}
+                                        {parquetResult.stderr && !parquetResult.success && (
+                                            <pre className="mt-2 text-[10px] text-rose-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
+                                                {parquetResult.stderr.slice(-1000)}
+                                            </pre>
+                                        )}
+                                    </div>
+                                )}
+                            </Space>
+
                             <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl">
                                 <div className="flex items-start">
                                     <InfoCircleOutlined className="text-amber-500 mt-0.5 mr-2" />
                                     <Text className="text-[11px] text-amber-700 font-medium leading-relaxed">
-                                        注意：当日数据将在收盘后次日 0 点开放同步，您可在服务器设置 Crontab 定时执行该脚本。
+                                        增量同步：investment_data → baostock → akshare → eltdx 多源聚合，自动校准技术指标并更新 Qlib。
+                                        Celery Beat 已配置每日 18:00 自动执行。
                                     </Text>
                                 </div>
                             </div>
                         </div>
+                    </Card>
+
+                    {/* Sync Status Card */}
+                    <Card
+                        className="rounded-[2.5rem] border-none shadow-xl shadow-slate-200/40 bg-white"
+                        styles={{ body: { padding: '32px' } }}
+                    >
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center space-x-3">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+                                    <SyncOutlined className="text-emerald-600 text-xl" />
+                                </div>
+                                <span className="text-slate-800 font-black text-xl uppercase tracking-tight">同步状态</span>
+                            </div>
+                            <Button
+                                type="text"
+                                size="small"
+                                icon={<ReloadOutlined spin={syncStatusLoading} />}
+                                onClick={loadSyncStatus}
+                                className="text-slate-400"
+                            />
+                        </div>
+
+                        {syncStatus ? (
+                            <div className="space-y-4">
+                                {syncStatus.last_sync && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-3 rounded-xl bg-slate-50">
+                                            <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">最后同步</Text>
+                                            <Text className="text-sm font-black text-slate-700">
+                                                {syncStatus.last_sync.time ? dayjs(syncStatus.last_sync.time).format('MM-DD HH:mm') : '—'}
+                                            </Text>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-slate-50">
+                                            <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">模式</Text>
+                                            <Tag color={syncStatus.last_sync.mode === 'incremental' ? 'green' : 'blue'} className="m-0 border-none font-bold rounded-lg">
+                                                {syncStatus.last_sync.mode === 'incremental' ? '增量' : '全量'}
+                                            </Tag>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {syncStatus.last_sync?.sources && (
+                                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                                        <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">数据源同步结果</Text>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {Object.entries(syncStatus.last_sync.sources).map(([name, count]: [string, any]) => (
+                                                <div key={name} className="flex items-center justify-between p-2 bg-white rounded-lg">
+                                                    <Text className="text-xs font-bold text-slate-600">{name}</Text>
+                                                    <Tag color={count > 0 ? 'green' : 'default'} className="m-0 border-none text-[10px] font-bold rounded-md">
+                                                        {count} 条
+                                                    </Tag>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {syncStatus.stock_daily_latest && (
+                                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                                        <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">stock_daily_latest 表</Text>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div>
+                                                <Text className="text-[10px] text-slate-400 block">最新日期</Text>
+                                                <Text className="text-sm font-black text-slate-700">{syncStatus.stock_daily_latest.max_date || '—'}</Text>
+                                            </div>
+                                            <div>
+                                                <Text className="text-[10px] text-slate-400 block">总行数</Text>
+                                                <Text className="text-sm font-black text-indigo-600">{(syncStatus.stock_daily_latest.total_rows || 0).toLocaleString()}</Text>
+                                            </div>
+                                            <div>
+                                                <Text className="text-[10px] text-slate-400 block">股票数</Text>
+                                                <Text className="text-sm font-black text-emerald-600">{syncStatus.stock_daily_latest.symbol_count || '—'}</Text>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {syncStatus.qlib_data && (
+                                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                                        <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Qlib 数据</Text>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <Text className="text-[10px] text-slate-400 block">日历最后日期</Text>
+                                                <Text className="text-sm font-black text-slate-700">{syncStatus.qlib_data.calendar_last_date || '—'}</Text>
+                                            </div>
+                                            <div>
+                                                <Text className="text-[10px] text-slate-400 block">标的数</Text>
+                                                <Text className="text-sm font-black text-indigo-600">{syncStatus.qlib_data.instruments_count || '—'}</Text>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <Empty
+                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                description={
+                                    <Text className="text-slate-400 text-xs">
+                                        {syncStatusLoading ? '加载中...' : '暂无同步记录，点击上方按钮开始同步'}
+                                    </Text>
+                                }
+                            />
+                        )}
                     </Card>
 
                     {/* Issue Tracker cards */}

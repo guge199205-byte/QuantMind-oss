@@ -1,5 +1,5 @@
 /**
- * QuantBot AI 助手客户端 (对接 QuantMind 原生 LLM + RD-Agent)
+ * QuantBot AI 助手客户端 (对接 QuantMind 原生 LLM + AlphaAgent)
  * 路径: electron/src/services/qwenpaw-client.ts
  */
 

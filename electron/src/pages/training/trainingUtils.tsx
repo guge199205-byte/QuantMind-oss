@@ -282,6 +282,10 @@ export const FEATURE_CATEGORY_ICON_MAP: Record<string, React.ReactNode> = {
   style: <ListFilter size={14} />,
   industry: <Filter size={14} />,
   microstructure: <LayoutGrid size={14} />,
+  ohlcv: <BarChart size={14} />,
+  index_membership: <LayoutGrid size={14} />,
+  concept_tags: <Filter size={14} />,
+  fundamental: <Activity size={14} />,
 };
 
 export const TARGET_PRESETS = [1, 3, 5, 10];

@@ -49,11 +49,20 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Sync database pool init failed: {e}")
 
     try:
-        await _bootstrap_qlib_runtime()
-        logger.info("✅ Qlib runtime bootstrap completed")
+        # Skip qlib bootstrap at startup — qlib.init() can get stuck in CPU loops
+        # in containerized environments. Tables will be ensured lazily on first use.
+        # Qlib itself initializes on first backtest request via service.initialize().
+        from backend.services.engine.qlib_app.services.backtest_persistence import (
+            BacktestPersistence,
+        )
+        from backend.services.engine.qlib_app.services.optimization_persistence import (
+            OptimizationPersistence,
+        )
+        await BacktestPersistence().ensure_tables()
+        await OptimizationPersistence().ensure_tables()
+        logger.info("✅ Backtest/Optimization tables ensured (qlib init deferred to first use)")
     except Exception as e:
-        app.state.startup_healthy = False
-        logger.error(f"❌ Qlib runtime bootstrap failed: {e}")
+        logger.error(f"❌ Table ensure failed: {e} (non-fatal)")
 
     try:
         from backend.services.engine.qlib_app.services.rd_agent_persistence import RDAgentFactorPersistence
@@ -61,7 +70,7 @@ async def lifespan(app: FastAPI):
         await RDAgentFactorPersistence().ensure_tables()
     except Exception as e:
         app.state.startup_healthy = False
-        logger.error(f"❌ RD-Agent factors table ensure failed: {e}")
+        logger.error(f"❌ AlphaAgent factors table ensure failed: {e}")
 
     try:
         from backend.services.engine.quantbot.task_store import QuantBotTaskStore
@@ -131,7 +140,7 @@ def _run_ai_strategy_warmup_sync() -> None:
 
 
 async def _bootstrap_qlib_runtime() -> None:
-    """在 engine 生命周期内补齐 qlib 初始化与回测表检查。"""
+    """在后台补齐 qlib 初始化与回测表检查（不阻塞 engine 启动）。"""
     from backend.services.engine.qlib_app import get_qlib_service
     from backend.services.engine.qlib_app.services.backtest_persistence import (
         BacktestPersistence,
@@ -140,10 +149,22 @@ async def _bootstrap_qlib_runtime() -> None:
         OptimizationPersistence,
     )
 
-    qlib_service = get_qlib_service()
-    await asyncio.to_thread(qlib_service.initialize)
-    await BacktestPersistence().ensure_tables()
-    await OptimizationPersistence().ensure_tables()
+    try:
+        qlib_service = get_qlib_service()
+        # 使用线程执行 qlib.init()，设置 90s 超时避免无限卡死
+        await asyncio.wait_for(asyncio.to_thread(qlib_service.initialize), timeout=90)
+        logger.info("✅ Qlib runtime initialized successfully")
+    except asyncio.TimeoutError:
+        logger.error("❌ Qlib runtime initialization timed out after 90s (non-fatal)")
+    except Exception as e:
+        logger.error(f"❌ Qlib runtime initialization failed: {e} (non-fatal)")
+
+    try:
+        await BacktestPersistence().ensure_tables()
+        await OptimizationPersistence().ensure_tables()
+        logger.info("✅ Backtest/Optimization tables ensured")
+    except Exception as e:
+        logger.error(f"❌ Table ensure failed: {e} (non-fatal)")
 
 
 app = FastAPI(
@@ -205,6 +226,7 @@ async def auth_middleware(request: Request, call_next):
             "/api/v1/strategy/",
             "/api/v1/backtest/",
             "/api/v1/rd-agent/",
+            "/api/v1/alpha-agent/",
             "/api/v1/pipeline/",
             "/api/v1/admin/",
         )
@@ -229,6 +251,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 0. 用户策略管理（必须先于 AI 策略路由注册，否则 /strategies/{strategy_id}
+#    动态路由会先于 /strategies/templates 等静态路由匹配，导致 templates 接口
+#    被同步数据库查询阻塞、引发事件循环死锁）
+try:
+    from backend.services.engine.qlib_app.api.user_strategies import router as strategies_router
+
+    app.include_router(strategies_router, prefix="/api/v1/strategies", tags=["Strategies"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load Strategies router: {e}")
 
 # 1. AI 策略生成
 try:
@@ -284,14 +316,6 @@ try:
 except ImportError as e:
     logger.error(f"❌ Failed to load Qlib Analysis router: {e}")
 
-# 5. 用户策略管理
-try:
-    from backend.services.engine.qlib_app.api.user_strategies import router as strategies_router
-
-    app.include_router(strategies_router, prefix="/api/v1/strategies", tags=["Strategies"])
-except ImportError as e:
-    logger.error(f"❌ Failed to load Strategies router: {e}")
-
 # 5.1 管理员策略模板管理
 try:
     from backend.services.engine.qlib_app.api.admin_templates import router as admin_templates_router
@@ -339,6 +363,22 @@ try:
     logger.info("✅ RD-Agent integration routers loaded")
 except ImportError as e:
     logger.error(f"❌ Failed to load RD-Agent routers: {e}")
+
+try:
+    from backend.services.engine.routers.alpha_agent import router as alpha_agent_router
+
+    app.include_router(alpha_agent_router)
+    logger.info("✅ AlphaAgent integration routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load AlphaAgent routers: {e}")
+
+try:
+    from backend.services.engine.routers.trading_agents import router as trading_agents_router
+
+    app.include_router(trading_agents_router)
+    logger.info("✅ TradingAgents routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load TradingAgents routers: {e}")
 
 
 try:

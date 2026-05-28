@@ -89,6 +89,7 @@ class StrategyTemplateService {
     const tenantId = authService.getTenantId?.() || localStorage.getItem('tenant_id') || 'default';
 
     const response = await axios.get(`${this.baseURL}/api/v1/strategies/templates`, {
+      timeout: 15000,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         'X-Tenant-Id': tenantId,

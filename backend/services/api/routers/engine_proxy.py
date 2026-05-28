@@ -33,6 +33,9 @@ def _resolve_timeout_seconds(path: str) -> float:
     # 回测历史/结果查询单独设置超时，避免大数据量时 504
     if path.startswith("/api/v1/backtest/") or path.startswith("/api/v1/qlib/"):
         return max(ENGINE_PROXY_TIMEOUT_SECONDS, 300.0)
+    # 策略/模板/健康检查类接口使用更短超时，避免前端长时间等待
+    if path.startswith("/api/v1/strategies/") or path.endswith("/health"):
+        return 15.0
     return ENGINE_PROXY_TIMEOUT_SECONDS
 
 
@@ -120,6 +123,14 @@ async def _proxy(request: Request, user: dict | None = None) -> Response:
     "/api/v1/rd-agent/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
 )
 @router.api_route("/api/v1/rd-agent", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
+@router.api_route(
+    "/api/v1/alpha-agent/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
+)
+@router.api_route("/api/v1/alpha-agent", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
+@router.api_route(
+    "/api/v1/trading-agents/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
+)
+@router.api_route("/api/v1/trading-agents", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
 @router.api_route(
     "/api/v1/quantbot/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
 )

@@ -537,7 +537,7 @@ async def list_strategy_templates(response: Response):
     """获取所有预置策略模板（动态从 strategy_templates/ 目录加载）。"""
     # 与后端 TTL 对齐，告知客户端最多缓存 60s
     response.headers["Cache-Control"] = "max-age=60, public"
-    templates = get_all_templates()
+    templates = await asyncio.to_thread(get_all_templates)
     return {"templates": [t.model_dump() for t in templates]}
 
 
