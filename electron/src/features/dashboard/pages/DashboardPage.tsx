@@ -115,21 +115,32 @@ const DashboardPage: React.FC = () => {
         [market, loadKline],
     );
 
+    // Convert watchlist symbol to kline API format
+    // SZ300258 → 300258.SZ, SH600519 → 600519.SH, 00700.HK stays
+    const normalizeSymbol = (raw: string): { symbol: string; market: Market } => {
+        const s = raw.trim().toUpperCase();
+        // SZ/SH/BJ prefix: SZ300258 → 300258.SZ
+        const cnMatch = s.match(/^(SZ|SH|BJ)(\d{6})$/);
+        if (cnMatch) return { symbol: `${cnMatch[2]}.${cnMatch[1]}`, market: 'A' };
+        // .HK suffix or 5-digit HK code
+        if (s.includes('.HK')) return { symbol: s, market: 'HK' };
+        if (/^0\d{4}$/.test(s.replace(/\.\w+$/, ''))) return { symbol: `${s.replace(/\.\w+$/, '')}.HK`, market: 'HK' };
+        // .SH/.SZ/.BJ suffix already in correct format
+        if (/\.(SH|SZ|BJ)$/.test(s)) return { symbol: s, market: 'A' };
+        // 6-digit A-stock code without suffix
+        if (/^\d{6}$/.test(s)) return { symbol: `${s}.SZ`, market: 'A' };
+        // Otherwise US
+        return { symbol: s, market: 'US' };
+    };
+
     // Handle watchlist item click
     const handleWatchlistClick = useCallback(
         (item: WatchlistItem) => {
-            // Auto-detect market from symbol
-            const code = item.symbol.replace(/\.\w+$/, '');
-            let m: Market = 'A';
-            if (item.symbol.includes('.HK') || item.symbol.startsWith('0') && code.length === 5) {
-                m = 'HK';
-            } else if (!/^\d{6}$/.test(code)) {
-                m = 'US';
-            }
+            const { symbol: sym, market: m } = normalizeSymbol(item.symbol);
             setMarket(m);
-            setSymbol(item.symbol);
+            setSymbol(sym);
             setSymbolName(item.stockName || item.symbol);
-            loadKline(m, item.symbol);
+            loadKline(m, sym);
         },
         [loadKline],
     );
@@ -218,8 +229,8 @@ const DashboardPage: React.FC = () => {
                                         cursor: 'pointer',
                                         borderRadius: 6,
                                         marginBottom: 2,
-                                        background: symbol === item.symbol ? '#e0f2fe' : 'transparent',
-                                        border: symbol === item.symbol ? '1px solid #7dd3fc' : '1px solid transparent',
+                                        background: normalizeSymbol(item.symbol).symbol === symbol ? '#e0f2fe' : 'transparent',
+                                        border: normalizeSymbol(item.symbol).symbol === symbol ? '1px solid #7dd3fc' : '1px solid transparent',
                                         transition: 'all 0.2s',
                                     }}
                                     onMouseEnter={(e) => {
