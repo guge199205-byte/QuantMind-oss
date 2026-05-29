@@ -430,6 +430,7 @@ services:
       - API_PORT=8005
       - CORS_ORIGINS=http://localhost:3000,http://localhost:8000
       - CORS_ALLOW_ALL=true
+      - ADMIN_AUTH_ENABLED=false
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_API_BASE=${LLM_API_BASE:-}
       - DATABASE_PATH=/app/data/stock_analysis.db

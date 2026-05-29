@@ -10,17 +10,18 @@ from fastapi import APIRouter, Request, Response
 router = APIRouter()
 
 ENGINE_BASE_URL = os.getenv("ENGINE_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
+DSA_SERVICE_URL = os.getenv("DSA_SERVICE_URL", "http://quantmind-dsa:8005").rstrip("/")
 PROXY_TIMEOUT = 120.0
 
 
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-    summary="Proxy Daily Analysis requests to engine service",
+    summary="Proxy Daily Analysis requests to DSA service",
 )
-async def proxy_to_engine(path: str, request: Request) -> Response:
-    """Forward all /admin/daily-analysis/* requests to engine service."""
-    url = f"{ENGINE_BASE_URL}/api/v1/daily-analysis/{path}"
+async def proxy_to_dsa(path: str, request: Request) -> Response:
+    """Forward all /admin/daily-analysis/* requests directly to DSA service."""
+    url = f"{DSA_SERVICE_URL}/api/v1/{path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
 
