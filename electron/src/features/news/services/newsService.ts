@@ -174,6 +174,8 @@ class NewsService {
     departments?: string;
     strong_only?: boolean;
     keyword?: string;
+    since?: string;
+    until?: string;
   } = {}): Promise<NewsEnrichmentStats> {
     const r = await apiClient.get('/news/enrichment/stats', { params });
     return (r as any).data ?? (r as any);

@@ -1212,6 +1212,8 @@ async def enrichment_stats(
     departments: str | None = Query(None),
     strong_only: bool = Query(False),
     keyword: str | None = Query(None),
+    since: str | None = Query(None, description="起始时间 ISO 8601"),
+    until: str | None = Query(None, description="截止时间 ISO 8601"),
 ):
     """聚合统计：返回 enrichment 表里出现频次最高的标签，用于前端 Filter Bar 下拉选项。
 
@@ -1242,27 +1244,55 @@ async def enrichment_stats(
         or want_date_entities or want_provinces or want_cities or want_politicians
         or want_visits or want_departments or (keyword and keyword.strip())
     )
+    has_time_filter = bool(since or until)
 
     try:
         with _pg_conn() as conn, conn.cursor() as cur:
             # 若有筛选, 先取符合条件的 huntly_page_id 集合 -> 后续所有 unnest 统计加 WHERE
             subset_ids: list[int] | None = None
-            if has_filter:
-                subset_ids = _query_enrichment_page_ids(
-                    want_tickers, want_industries, want_event_tags, want_sentiment, strong_only,
-                    want_countries=want_countries,
-                    want_regions=want_regions,
-                    want_key_terms=want_key_terms,
-                    want_date_entities=want_date_entities,
-                    want_provinces=want_provinces,
-                    want_cities=want_cities,
-                    want_politicians=want_politicians,
-                    want_visits=want_visits,
-                    want_departments=want_departments,
-                    keyword=keyword,
-                    limit=10000,
-                )
-                if not subset_ids:
+            if has_filter or has_time_filter:
+                # 时间预过滤: 先从 SQLite 拿时间范围内的候选 IDs
+                time_restrict_ids: list[int] | None = None
+                if has_time_filter and _huntly_sqlite_available():
+                    time_restrict_ids = await asyncio.to_thread(
+                        _sqlite_page_ids_in_range,
+                        source_id=None,
+                        folder_id=None,
+                        starred=None,
+                        since_iso=since,
+                        until_iso=until,
+                        limit=50000,
+                    )
+                    if not time_restrict_ids:
+                        return {
+                            "top_industries": [], "top_events": [], "top_tickers": [],
+                            "top_countries": [], "top_regions": [], "top_key_terms": [],
+                            "top_dates": [], "top_provinces": [], "top_cities": [],
+                            "top_politicians": [], "top_visits": [], "top_departments": [],
+                            "sentiment_counts": {},
+                        }
+
+                if has_filter:
+                    subset_ids = _query_enrichment_page_ids(
+                        want_tickers, want_industries, want_event_tags, want_sentiment, strong_only,
+                        want_countries=want_countries,
+                        want_regions=want_regions,
+                        want_key_terms=want_key_terms,
+                        want_date_entities=want_date_entities,
+                        want_provinces=want_provinces,
+                        want_cities=want_cities,
+                        want_politicians=want_politicians,
+                        want_visits=want_visits,
+                        want_departments=want_departments,
+                        keyword=keyword,
+                        restrict_to_ids=time_restrict_ids,
+                        limit=10000,
+                    )
+                elif time_restrict_ids is not None:
+                    # 仅有时间筛选, 无 enrichment 标签筛选
+                    subset_ids = time_restrict_ids
+
+                if has_filter and not subset_ids:
                     return {
                         "top_industries": [], "top_events": [], "top_tickers": [],
                         "top_countries": [], "top_regions": [], "top_key_terms": [],

@@ -237,12 +237,14 @@ export const NewsPanel: React.FC = () => {
       if (departmentFilter.length) params.departments = departmentFilter.join(',');
       if (strongOnly) params.strong_only = true;
       if (keyword?.trim()) params.keyword = keyword.trim();
+      if (dateRange?.[0]) params.since = dateRange[0].startOf('day').toISOString();
+      if (dateRange?.[1]) params.until = dateRange[1].endOf('day').toISOString();
       const s = await newsService.enrichmentStats(params);
       setStats(s);
     } catch {
       setStats(null);
     }
-  }, [sentimentFilter, industryFilter, tickerFilter, eventTagFilter, countryFilter, regionFilter, keyTermFilter, dateEntFilter, provinceFilter, cityFilter, politicianFilter, visitFilter, departmentFilter, strongOnly, keyword]);
+  }, [sentimentFilter, industryFilter, tickerFilter, eventTagFilter, countryFilter, regionFilter, keyTermFilter, dateEntFilter, provinceFilter, cityFilter, politicianFilter, visitFilter, departmentFilter, strongOnly, keyword, dateRange]);
 
   const handleRebuildTags = useCallback(async () => {
     Modal.confirm({
