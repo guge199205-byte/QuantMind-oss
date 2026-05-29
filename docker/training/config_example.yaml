@@ -1,0 +1,45 @@
+# QuantMind 训练配置示例
+# 用法：docker run -v /host/workspace:/workspace <image> --config /workspace/config.yaml
+
+run_id: train_20250101_001
+job_name: example_lgb_job
+
+data:
+  train_start: "2022-01-01"
+  train_end: "2024-12-31"
+  # 额外特征（基础6列始终自动包含）
+  features:
+    - vol_std_20d
+    - rsi_14d
+    - ma_cross_5_20
+
+model:
+  type: lightgbm
+  num_boost_round: 1000
+  val_ratio: 0.15
+  params:
+    num_leaves: 127
+    learning_rate: 0.05
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 5
+    min_child_samples: 50
+
+explain:
+  enable_shap: true
+  shap_split: valid
+  shap_sample_rows: 30000
+
+output:
+  result_path: /workspace/result.json
+  cos_prefix: "models/candidates/train_20250101_001/"
+
+# CBS 磁盘缓存（可选）：挂载后避免重复从 COS 下载 parquet 文件
+# 须在与训练 CVM 同区（ap-guangzhou-7）购买/迁移 CBS 盘
+# 并将 DiskId 写入 .env 的 TRAINING_CBS_DISK_ID
+cache:
+  dir: /data/quantmind-cache
+
+callback:
+  url: "http://210.16.175.87:8000/api/v1/admin/models/training-runs/train_20250101_001/complete"
+  secret: ""

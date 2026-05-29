@@ -1,0 +1,14 @@
+# AI 和机器学习依赖
+
+# AI/ML Libraries
+openai>=1.12.0
+anthropic>=0.18.1
+zhipuai>=2.0.0
+dashscope>=1.14.0
+google-generativeai>=0.3.0
+
+# Data Science
+numpy<2.0.0
+pandas<2.0.0
+scikit-learn<1.6.0
+pyqlib==0.9.7; platform_machine == "x86_64" or platform_machine == "AMD64"

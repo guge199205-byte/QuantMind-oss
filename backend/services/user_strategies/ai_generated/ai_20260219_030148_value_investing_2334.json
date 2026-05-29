@@ -1,0 +1,22 @@
+{
+  "name": "AI 增强型价值选股策略",
+  "description": "这是您在 AI 向导协助下生成的机器学习增强策略，已同步至云端个人中心。",
+  "author": "AI Wizard",
+  "user_id": "00000001",
+  "category": "ai_generated",
+  "tags": [
+    "Value",
+    "Cloud Sync",
+    "Wizard",
+    "quantmind-gpt-4",
+    "AI",
+    "value_investing",
+    "Machine Learning"
+  ],
+  "original_prompt": "基于机器学习信号帮我写一个稳健的 A 股价值选股策略。",
+  "style_preference": "value_investing",
+  "model_id": "quantmind-gpt-4",
+  "id": "ai_20260219_030148_value_investing_2334",
+  "updated_at": "2026-02-19T03:01:48.590494",
+  "created_at": "2026-02-19T03:01:48.590494"
+}

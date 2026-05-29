@@ -1,0 +1,28 @@
+{
+  "id": "deep_time_series",
+  "name": "深度学习时序策略 (GRU/LSTM)",
+  "description": "利用深度学习模型捕捉市场的长短期记忆效应，原生支持 3D 时序信号加载。",
+  "category": "basic",
+  "difficulty": "advanced",
+  "params": [
+    {
+      "name": "topk",
+      "description": "选股数量",
+      "default": 30,
+      "min": 5,
+      "max": 100
+    },
+    {
+      "name": "n_drop",
+      "description": "最大调仓数",
+      "default": 6,
+      "min": 1,
+      "max": 10
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

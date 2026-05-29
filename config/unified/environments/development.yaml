@@ -1,0 +1,40 @@
+# 开发环境配置
+environment: development
+debug: true
+
+# 应用配置
+app:
+  name: QuantMind
+  version: 1.0.0
+  host: 0.0.0.0
+  log_level: DEBUG
+
+# 数据库配置覆盖
+database:
+  type: postgresql
+  postgresql:
+    host: localhost
+    port: 5432
+    database: quantmind_dev
+    username: postgres
+    password: password
+
+# 监控配置
+monitoring:
+  enabled: true
+  metrics_enabled: true
+  tracing_enabled: false
+  health_check_interval: 30
+
+# 缓存配置
+cache:
+  enabled: true
+  ttl: 300  # 5分钟
+  max_size: 1000
+
+# 开发工具
+dev_tools:
+  auto_reload: true
+  debug_toolbar: true
+  sql_echo: true
+  profiling: false

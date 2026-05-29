@@ -1,0 +1,80 @@
+akshare:
+  max_workers: 4
+  proxy: null
+  rate_limit:
+    burst_size: 20
+    enabled: true
+    requests_per_hour: 1000
+    requests_per_minute: 200
+    requests_per_second: 10.0
+  retry:
+    backoff_factor: 2.0
+    base_delay: 1.0
+    jitter: true
+    max_attempts: 3
+    max_delay: 60.0
+    strategy: {}
+  timeout: 30
+  user_agent: QuantMind/1.0
+  verify_ssl: true
+cache:
+  cleanup_interval: 600
+  default_ttl: 300
+  enabled: true
+  max_size: 1000
+  redis_db: 0
+  redis_password: null
+  redis_url: null
+connection_pool_size: 20
+data_dir: ./data
+database:
+  charset: utf8mb4
+  database: quantmind
+  host: localhost
+  max_overflow: 20
+  password: ''
+  pool_recycle: 3600
+  pool_size: 10
+  pool_timeout: 30
+  port: 3306
+  username: root
+debug: false
+environment: development
+export_dir: ./exports
+logging:
+  backup_count: 5
+  console_output: true
+  file_path: ./logs/akshare.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  json_format: false
+  level: {}
+  max_file_size: 10485760
+max_concurrent_requests: 10
+monitoring:
+  alert_thresholds:
+    cpu_usage: 0.8
+    error_rate: 0.05
+    memory_usage: 0.8
+    response_time: 5.0
+  enabled: true
+  error_tracking: true
+  health_check_endpoint: /health
+  metrics_endpoint: /metrics
+  performance_tracking: true
+request_timeout: 30
+security:
+  access_token_ttl: 3600
+  allowed_ips: []
+  api_key_encryption: true
+  data_encryption: false
+  rate_limit_by_ip: true
+sync:
+  auto_fill_gaps: true
+  db_path: ./data/sync_tasks.db
+  default_schedule: every_1h
+  enabled: true
+  gap_check_interval: 3600
+  gap_detection_enabled: true
+  log_retention_days: 30
+  max_workers: 4
+temp_dir: ./temp

@@ -1,0 +1,7 @@
+# crypto
+
+用途：与 crypto 相关的前端实现。
+
+## 说明
+- 归属路径：electron\src\utils\crypto
+- 修改本目录代码后请同步更新本 README

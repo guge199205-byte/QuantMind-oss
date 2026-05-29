@@ -1,0 +1,27 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY electron/package*.json ./electron/
+COPY scripts/frontend ./scripts/frontend
+
+WORKDIR /app/electron
+# Strip the `overrides` block from package.json — newer npm flags
+# `monaco-editor` override against direct `^0.55.1` dep as EOVERRIDE.
+# Override is only meaningful for transitive dedupe and not needed for the web build.
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.overrides;delete p.scripts.postinstall;fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
+RUN npm install --no-audit --no-fund
+
+COPY electron ./
+# Re-strip after the full electron/ copy overwrites package.json
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.overrides;fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
+RUN node ../scripts/frontend/copy-monaco-assets.js && npx vite build
+
+FROM nginx:1.25-alpine
+
+COPY docker/web/nginx.conf /etc/nginx/nginx.conf
+COPY --from=builder /app/electron/dist-react /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

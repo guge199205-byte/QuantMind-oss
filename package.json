@@ -1,0 +1,50 @@
+{
+  "name": "quantmind",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root meta package for QuantMind project (aggregates frontend dashboard)",
+  "workspaces": [
+    "electron"
+  ],
+  "scripts": {
+    "dev": "npm run dashboard:dev",
+    "dev:web": "cross-env VITE_API_URL=${VITE_API_URL:-http://localhost:8000} npm run dev -w QuantMind -- --host 0.0.0.0",
+    "dashboard:dev": "npm run dev -w QuantMind",
+    "dashboard:build": "npm run build -w QuantMind",
+    "dashboard:preview": "npm run preview -w QuantMind -- --host 0.0.0.0 --port 3000",
+    "dashboard:package:win": "npm run build:package:win -w QuantMind",
+    "dashboard:package:win:dir": "npm run build:package:win:dir -w QuantMind",
+    "clean": "npm run clean -w QuantMind",
+    "clean:all": "npm run clean && rm -rf node_modules && rm -rf electron/node_modules",
+    "electron:dev": "npm run dev -w QuantMind",
+    "electron:build": "npm run build -w QuantMind",
+    "typecheck": "npm run typecheck -w QuantMind",
+    "postinstall": "node scripts/frontend/fix-electron-path.js && node scripts/frontend/copy-monaco-assets.js",
+    "check:platform": "node scripts/check-cross-platform.js",
+    "test:e2e": "playwright test tests/e2e",
+    "test:e2e:ui": "playwright test tests/e2e --ui",
+    "test:e2e:debug": "playwright test tests/e2e --debug",
+    "test:e2e:headed": "playwright test tests/e2e --headed",
+    "test:e2e:report": "playwright show-report tests/e2e/reports"
+  },
+  "devDependencies": {
+    "@types/styled-jsx": "^2.2.9",
+    "@types/testing-library__jest-dom": "^5.14.9",
+    "cross-env": "^7.0.3",
+    "electron": "40.8.0",
+    "electron-is-dev": "^3.0.1",
+    "electron-vite": "^4.0.1"
+  },
+  "dependencies": {
+    "@emotion/is-prop-valid": "^1.4.0",
+    "lightweight-charts": "^5.0.9",
+    "styled-jsx": "^5.1.7"
+  },
+  "overrides": {
+    "esbuild": "0.25.12",
+    "monaco-editor": "0.55.1",
+    "@monaco-editor/react": {
+      "monaco-editor": "0.55.1"
+    }
+  }
+}

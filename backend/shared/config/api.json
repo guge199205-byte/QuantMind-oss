@@ -1,0 +1,37 @@
+{
+  "data_sources": {
+    "akshare": {
+      "enabled": true,
+      "timeout": 30,
+      "retry_count": 3,
+      "rate_limit": 100
+    },
+    "tushare": {
+      "enabled": false,
+      "token": "",
+      "timeout": 30,
+      "retry_count": 3
+    },
+    "eastmoney": {
+      "enabled": true,
+      "timeout": 30,
+      "retry_count": 3
+    }
+  },
+  "external_apis": {
+    "deepseek": {
+      "enabled": true,
+      "base_url": "https://api.deepseek.com",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "model": "deepseek-chat",
+      "timeout": 60
+    },
+    "openai": {
+      "enabled": false,
+      "base_url": "https://api.openai.com",
+      "api_key": "${OPENAI_API_KEY}",
+      "model": "gpt-3.5-turbo",
+      "timeout": 60
+    }
+  }
+}

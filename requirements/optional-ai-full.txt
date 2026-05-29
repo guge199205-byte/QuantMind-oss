@@ -1,0 +1,23 @@
+# 完整AI模型支持（可选）
+# 仅在需要测试所有AI provider时安装
+# 安装: pip install -r requirements/optional-ai-full.txt
+
+# OpenAI (GPT系列)
+openai>=1.0.0
+
+# Anthropic (Claude系列)  
+anthropic>=0.18.0
+
+# 智谱AI (GLM系列)
+zhipuai>=2.0.0
+
+# Google (Gemini系列)
+google-generativeai>=0.3.0
+
+# 向量数据库
+chromadb>=0.4.0
+qdrant-client>=1.7.0
+
+# 额外ML工具
+scikit-learn>=1.4.0
+scipy>=1.11.0

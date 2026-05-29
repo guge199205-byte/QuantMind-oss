@@ -1,0 +1,15 @@
+# 旧训练入口的兼容镜像；新部署建议直接使用 docker/Dockerfile.ml-runtime。
+
+FROM quantmind-ml-runtime:latest
+
+LABEL maintainer="QuantMind" \
+      description="QuantMind LightGBM training container — Local build v1"
+
+# 仅安装缺失的 pyyaml (其余依赖已在基础镜像中)
+RUN pip install --no-cache-dir pyyaml
+
+# 覆盖训练脚本
+COPY docker/training/train.py /app/train.py
+
+# 不设置 ENTRYPOINT，保留默认 CMD 用于本地调试
+CMD ["python", "/app/train.py"]

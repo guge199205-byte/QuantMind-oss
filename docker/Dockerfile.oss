@@ -1,0 +1,83 @@
+# QuantMind OSS Edition - Single Image
+# 构建一个镜像运行所有后端服务
+
+FROM python:3.10-slim-bookworm
+
+# 镜像源参数（构建时可传入）
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
+ARG APT_MIRROR=mirrors.aliyun.com
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
+    PYTHONPATH=/app \
+    SERVICE_MODE=all
+
+WORKDIR /app
+
+# 配置 APT 镜像源
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i "s/deb.debian.org/${APT_MIRROR}/g" /etc/apt/sources.list.d/debian.sources; \
+      sed -i "s/security.debian.org/${APT_MIRROR}/g" /etc/apt/sources.list.d/debian.sources; \
+    else \
+      sed -i "s/deb.debian.org/${APT_MIRROR}/g" /etc/apt/sources.list; \
+      sed -i "s/security.debian.org/${APT_MIRROR}/g" /etc/apt/sources.list; \
+    fi
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      cmake \
+      curl \
+      git \
+      libgomp1 \
+      swig \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Python 依赖
+COPY requirements.txt /tmp/requirements.txt
+COPY requirements/production.txt /tmp/requirements-production.txt
+COPY requirements/ai.txt /tmp/requirements-ai.txt
+
+RUN python -m pip install --upgrade pip setuptools wheel cython \
+    && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt \
+    && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements-production.txt \
+    && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements-ai.txt \
+    && rm -f /tmp/requirements*.txt
+
+# 修复 qlib 0.9.7 bug: position.py 中 price=None 导致 TypeError
+COPY docker/patch_qlib.py /tmp/patch_qlib.py
+RUN python /tmp/patch_qlib.py && rm /tmp/patch_qlib.py
+
+# 安装 rd-agent 因子演化模块（setuptools-scm 需要 SETUPTOOLS_SCM_PRETEND_VERSION 绕过 .git 缺失）
+COPY rd-agent rd-agent
+RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RDAGENT=0.1.dev1 \
+    python -m pip install --no-cache-dir --root-user-action=ignore ./rd-agent \
+    && rm -rf rd-agent
+
+# 复制源代码
+COPY backend backend
+COPY config config
+COPY strategy_templates strategy_templates
+
+# 创建数据目录 & Qlib 符号链接（AlphaAgent 硬编码 ~/.qlib/qlib_data/cn_data）
+RUN mkdir -p /data/models /data/qlib_data /data/uploads /data/strategies /tmp \
+    && mkdir -p /root/.qlib/qlib_data \
+    && ln -sf /app/db/qlib_data/cn_data /root/.qlib/qlib_data/cn_data
+# Qlib features 符号链接在运行时由 entrypoint 或首次访问时创建（数据卷挂载后才存在）
+
+# 暴露端口
+EXPOSE 8000 8001 8002 8003
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 启动所有服务
+CMD ["python", "backend/main_oss.py"]

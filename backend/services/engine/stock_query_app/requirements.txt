@@ -1,0 +1,10 @@
+# QuantMind Stock Query Service Dependencies
+# Uses unified dependency management
+
+# Core dependencies
+-r ../../requirements/base.txt
+-r ../../requirements/database.txt
+-r ../../requirements/data.txt
+
+# Stock Query specific
+# (add specific packages here if needed)

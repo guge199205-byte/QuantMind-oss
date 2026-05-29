@@ -1,0 +1,12 @@
+# ==================== 认证安全依赖层 ====================
+# 继承基础依赖
+-r base.txt
+
+# JWT认证
+python-jose[cryptography]>=3.3.0
+PyJWT>=2.8.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.1.0
+
+# 加密
+cryptography>=41.0.0

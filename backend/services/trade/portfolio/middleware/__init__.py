@@ -1,0 +1,3 @@
+"""
+Portfolio middleware adapter.
+"""

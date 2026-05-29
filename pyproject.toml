@@ -1,0 +1,299 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantmind"
+version = "1.0.0"
+description = "QuantMind - 量化交易系统"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+# A regex preceded by ^/ will apply only to files and directories
+# in the root of the project.
+^/migrations/
+'''
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = [
+    "E203",  # whitespace before ':'
+    "E501",  # line too long (handled by black)
+    "W503",  # line break before binary operator
+    "E402",
+    "D400",
+    "D401",
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    "D105",
+    "D106",
+    "D107",
+    "D200",
+    "D201",
+    "D202",
+    "D205",
+    "B008",
+    "C901",
+    "I100",
+    "I201",
+    "I202",
+    "F841",  # local variable is assigned to but never used
+    "F541",  # f-string is missing placeholders
+]
+exclude = [
+    ".git",
+    "__pycache__",
+    "migrations",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "scripts",
+    "qlib",
+    "research",
+    "node_modules",
+    "tools",
+    "*/site-packages/sympy/*",  # 临时排除 sympy 导致的 flake8 错误
+    "*/site-packages/*",  # 宽松策略：排除所有 site-packages 以避免第三方包导致的递归错误
+]
+max-complexity = 10
+import-order-style = "google"
+application-import-names = ["backend", "routes", "shared"]
+per-file-ignores = [
+    "backend/api_gateway/main.py:D101,D102,D103,D107,D205,B008,I100,I201",
+    "backend/api_gateway/routes/community.py:D200,D202,B008",
+    "backend/community/main.py:I100,I201",
+    "tools/*:E402,F401,F403,F405,E722",
+    "scripts/*:E402,F401,F403,F405,E722",
+    "backend/**:E402,F401,F403,F405,E722",
+    "shared/**:E402,F401,F403,F405,E722",
+    "qlib/**:E402,F401,F403,F405,E722",
+    "research/**:E402,F401,F403,F405,E722",
+    "tests/**:E402,F401,F403,F405,E722",
+    "backend/trading_service/app/schemas/__init__.py:F403,F405",
+    "backend/qlib_service/tests/test_error_handling.py:F403,F405",
+]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+exclude = [
+    ".git",
+    "__pycache__",
+    "migrations",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "scripts",
+    "qlib",
+    "research",
+    "node_modules",
+    "tools",
+    "*/site-packages/*",
+    "user_strategies",
+    "examples/testing",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+]
+ignore = [
+    "E203",  # whitespace before ':'
+    "E501",  # line too long (handled by black)
+    "E402",  # module level import not at top of file
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/api_gateway/main.py" = ["D", "B008"]
+"backend/api_gateway/routes/community.py" = ["D", "B008"]
+"backend/community/main.py" = []
+"tools/*" = ["E402", "F401", "F403", "F405", "E722"]
+"scripts/*" = ["E402", "F401", "F403", "F405", "E722"]
+"backend/**" = ["E402", "F401", "F403", "F405", "E722"]
+"shared/**" = ["E402", "F401", "F403", "F405", "E722"]
+"qlib/**" = ["E402", "F401", "F403", "F405", "E722"]
+"research/**" = ["E402", "F401", "F403", "F405", "E722"]
+"tests/**" = ["E402", "F401", "F403", "F405", "E722"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pandas.*",
+    "numpy.*",
+    "scipy.*",
+    "redis.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["backend.api_gateway.main"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["shared.*", "backend.shared.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.community.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["scripts.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["config.unified_config_manager"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.api_gateway.routes.community"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["config.llm_config_loader"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.user.main"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["config.api_config"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["config.database_manager"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.indicators.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.cache.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.api.batch_query"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["backend.api.batch_indicators"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*", "*Tests"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "-q",
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=backend",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-fail-under=5",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+    "database: Tests requiring real database",
+    "message_broker: Tests requiring Redis/message broker",
+    "performance: Performance tests",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "smoke: Smoke tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::UserWarning",
+    "ignore::ImportWarning",
+    "ignore::pytest.PytestWarning",
+]
+
+[tool.coverage.run]
+source = ["backend", "shared"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

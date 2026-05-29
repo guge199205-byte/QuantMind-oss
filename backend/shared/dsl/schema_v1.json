@@ -1,0 +1,31 @@
+{
+  "$id": "quantmind://dsl/strategy.v1.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["strategy"],
+  "properties": {
+    "dsl_version": {"type": "integer", "const": 1},
+    "strategy": {
+      "type": "object",
+      "required": ["universe", "execution"],
+      "properties": {
+        "universe": {"type": "string", "minLength": 1},
+        "factors": {
+          "type": "array",
+          "items": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}},
+          "maxItems": 32
+        },
+        "signals": {"type": "array", "items": {"type": "string"}, "maxItems": 128},
+        "risk": {"type": "object"},
+        "execution": {
+          "type": "object",
+          "required": ["frequency"],
+            "properties": {
+              "frequency": {"enum": ["daily", "minute", "tick"]},
+              "slippage_bps": {"type": "number", "minimum": 0, "maximum": 100}
+            }
+        }
+      }
+    }
+  }
+}

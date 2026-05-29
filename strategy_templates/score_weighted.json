@@ -1,0 +1,28 @@
+{
+  "id": "score_weighted",
+  "name": "得分加权组合策略",
+  "description": "根据模型预测分自动分配资金权重，分高者重仓，支持单票上限与最低分过滤。",
+  "category": "basic",
+  "difficulty": "intermediate",
+  "params": [
+    {
+      "name": "topk",
+      "description": "参与分配的股票数",
+      "default": 50,
+      "min": 10,
+      "max": 200
+    },
+    {
+      "name": "max_weight",
+      "description": "单只股票持仓上限",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.2
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

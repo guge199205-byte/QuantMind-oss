@@ -1,0 +1,87 @@
+# QuantMind 生产环境依赖（精简版）
+# 从113个依赖减少到~35个核心依赖
+# 预计减少Docker镜像体积60%
+
+# ============ Web Framework ============
+fastapi==0.110.0
+uvicorn[standard]==0.28.0
+python-multipart==0.0.9
+websockets==12.0
+
+# ============ Configuration ============
+python-dotenv==1.0.0
+pydantic==2.6.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+pyyaml==6.0.1
+
+# ============ HTTP & Async ============
+httpx==0.27.0
+aiofiles==23.2.1
+aiohttp>=3.9.0
+tenacity==8.2.3
+
+# ============ Logging & Monitoring ============
+structlog==24.1.0
+prometheus-client==0.20.0
+loguru==0.7.2
+
+# ============ Database Drivers ============
+# PostgreSQL (异步优先)
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Redis
+redis==5.0.1
+celery==5.6.2
+
+# ============ AI/LLM (仅生产使用) ============
+# 阿里云通义千问
+dashscope==1.14.0
+
+# LLM 支持
+openai>=1.12.0
+
+# ============ Payment ============
+python-alipay-sdk==3.4.0
+
+# ============ Data Processing (核心) ============
+numpy==1.26.4
+pandas>=2.0.0
+duckdb>=1.1.0
+baostock>=0.8.9
+lightgbm>=4.3.0
+cryptography>=3.0.0,<45.0.0
+jsonschema>=4.21.0
+psutil>=5.9.0
+
+# ============ Engine Report Generation ============
+reportlab>=4.0.0
+openpyxl>=3.1.0
+matplotlib>=3.8.0
+
+# ============ Trade Calendar ============
+exchange-calendars>=4.5.0
+
+# ============ Authentication ============
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pyjwt==2.8.0
+bcrypt==4.1.2
+
+# ============ Cloud Storage (OSS: Local Storage) ============
+# cos-python-sdk-v5 removed for OSS edition
+
+# ============ SMS (OSS: Disabled) ============
+# alibabacloud_dysmsapi20170525 removed for OSS edition
+# alibabacloud_tea_openapi removed for OSS edition
+# alibabacloud_tea_util removed for OSS edition
+
+# ============ Utils ============
+pytz==2024.1
+python-dateutil==2.8.2
+user-agents>=2.2.0
+slowapi==0.1.9
+docker
+pyarrow>=15.0.0

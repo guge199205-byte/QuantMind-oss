@@ -1,0 +1,77 @@
+# 缓存策略配置
+
+# 压缩配置
+compression:
+  # 启用压缩
+  enabled: true
+
+  # 压缩算法: none, zlib, msgpack, msgpack_zlib
+  algorithm: msgpack_zlib
+
+  # zlib压缩级别 (1-9, 越高压缩率越高但越慢)
+  zlib_level: 6
+
+  # 最小压缩大小(字节)
+  # 小于此大小的数据不压缩
+  min_size_bytes: 1024
+
+# 失效策略配置
+eviction:
+  # 启用智能失效
+  enabled: true
+
+  # 最大内存限制(MB)
+  max_memory_mb: 1024
+
+  # 触发清理阈值(0-1)
+  eviction_threshold: 0.9
+
+  # 最小访问次数
+  # 低于此次数的缓存容易被清理
+  min_access_count: 2
+
+  # 冷数据定义(小时)
+  # 超过此时间未访问视为冷数据
+  cold_data_hours: 24
+
+  # 自动清理调度
+  auto_evict:
+    # 启用自动清理
+    enabled: true
+
+    # 执行间隔(分钟)
+    interval_minutes: 30
+
+# 缓存管理器配置
+manager:
+  # 默认TTL(秒)
+  default_ttl: 3600
+
+  # 启用访问日志
+  enable_access_log: true
+
+  # 启用性能统计
+  enable_stats: true
+
+# 监控配置
+monitoring:
+  # 启用监控
+  enabled: true
+
+  # 监控指标
+  metrics:
+    - compression_ratio
+    - memory_usage
+    - hit_rate
+    - eviction_rate
+
+  # 告警阈值
+  alerts:
+    # 压缩率低于30%告警
+    compression_ratio_threshold: 0.3
+
+    # 内存使用超过85%告警
+    memory_usage_threshold: 0.85
+
+    # 命中率低于50%告警
+    hit_rate_threshold: 0.5

@@ -1,0 +1,181 @@
+# ==============================================================================
+# 1. Environment & Packages
+# ==============================================================================
+.venv/
+env/
+venv/
+ENV/
+.python-version
+node_modules/
+.npm/
+*.local
+/__pycache__/
+# ==============================================================================
+# 2. Caches, Build & OS
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.eslintcache
+.parcel-cache
+.vite/
+.npm-global/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.bak_*
+.project
+.pydevproject
+.settings/
+build/
+dist/
+out/
+electron/dist/
+electron/out/
+.deploy_tmp/
+.deploy_fix/
+*.docker-build-lock
+.docker/
+.qwen
+# ==============================================================================
+# 3. AI, IDE & Local Tools
+# ==============================================================================
+.vscode/
+.idea/
+.trae/
+.codex/
+.codex_logs/
+.copilot/
+.gemini/
+.geminiignore
+.hintrc
+.traeignore
+.antigravityignore
+.workbuddy/
+.claude/
+
+# ==============================================================================
+# 4. Data, ML & Results
+# ==============================================================================
+logs/
+*.log
+# Databases
+*.duckdb
+*.duckdb.tmp/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Qlib & Large Data Files
+db/qlib_data/**/*.bin
+db/qlib_data/**/*.data
+!db/qlib_data/
+!db/qlib_data/**/
+!db/qlib_data/**/*.txt
+db/qlib_bin/
+db/qlib_csv/
+db/*.tar.gz
+db.tar.gz
+*.bin
+*.pkl
+*.parquet
+*.csv
+!backend/tests/**/*.csv
+!data/examples/**/*.csv
+data/backtest_results/
+userdata/
+research/data/
+research/data_adapter/qlib_data/
+research/data_adapter/processed/
+
+# Test Coverage Artifacts
+.coverage
+coverage.xml
+htmlcov/
+
+# Runtime user data
+user_pools_local/
+
+# Temp files
+tmp/
+temp/
+.temp/
+run/*.pid
+
+# ==============================================================================
+# 5. Secrets & Config
+# ==============================================================================
+.env
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+.ssh/
+/db/*.sql
+/redis
+/data/ai_ide/tmp_run
+/electron/icon.iconset
+# ==============================================================================
+# 5. Marketing Files
+# ==============================================================================
+marketing/
+
+# ==============================================================================
+# 6. Repository Specific Exceptions
+# ==============================================================================
+!.github/
+redis/data/appendonlydir/appendonly.aof.2.incr.aof
+# Windows specific build artifacts
+*.exe
+*.msi
+electron/public/fonts/AlibabaPuHuiTi-Bold.ttf
+electron/public/fonts/AlibabaPuHuiTi-Regular.ttf
+data/ai_ide/config.json
+db/diagram/postgresql_schema.dot
+db/backups/*.gz
+!db/feature_snapshots/*.json
+website/download-config.json
+
+# Ignore db subdirectories
+/db/backups/
+/db/custom/
+/db/feature_snapshots/
+/db/qlib_data/
+/models/users/
+data/user_10000001
+db/csmar
+db20260528.tar.gz
+website/
+db/db.zip
+
+# Large data / model / experiment directories — too big for git
+/data/
+/db/
+/models/
+/rd-agent/
+/mlruns/
+/results/
+/results_v*/
+/log/
+/electron/src/data/
+/.cache/
+/.venv*/
+/Untitled*.ipynb
+*.tar.gz
+*.deb
+*.h5
+*.hdf5
+
+# Embedded git repositories (should be added as submodules if needed)
+/TradingAgents-astock/
+/dexter-finance/
+/openbb-cn/

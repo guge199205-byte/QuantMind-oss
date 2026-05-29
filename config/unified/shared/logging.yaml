@@ -1,0 +1,81 @@
+# 日志共享配置
+logging:
+  version: 1
+  disable_existing_loggers: false
+
+  # 日志格式
+  formatters:
+    standard:
+      format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+      datefmt: '%Y-%m-%d %H:%M:%S'
+
+    detailed:
+      format: '%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s'
+      datefmt: '%Y-%m-%d %H:%M:%S'
+
+    json:
+      format: '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
+      datefmt: '%Y-%m-%dT%H:%M:%S'
+
+  # 日志处理器
+  handlers:
+    console:
+      class: logging.StreamHandler
+      level: ${CONSOLE_LOG_LEVEL:INFO}
+      formatter: standard
+      stream: ext://sys.stdout
+
+    file:
+      class: logging.handlers.RotatingFileHandler
+      level: ${FILE_LOG_LEVEL:DEBUG}
+      formatter: detailed
+      filename: ${LOG_FILE_PATH:logs/app.log}
+      maxBytes: ${LOG_FILE_MAX_SIZE:10485760}  # 10MB
+      backupCount: ${LOG_FILE_BACKUP_COUNT:5}
+
+    error_file:
+      class: logging.handlers.RotatingFileHandler
+      level: ERROR
+      formatter: detailed
+      filename: ${LOG_ERROR_FILE_PATH:logs/error.log}
+      maxBytes: ${LOG_ERROR_MAX_SIZE:10485760}  # 10MB
+      backupCount: ${LOG_ERROR_BACKUP_COUNT:5}
+
+  # 日志记录器
+  loggers:
+    # 根日志记录器
+    '':
+      level: ${ROOT_LOG_LEVEL:INFO}
+      handlers: [console, file]
+      propagate: false
+
+    # 应用日志
+    app:
+      level: ${APP_LOG_LEVEL:DEBUG}
+      handlers: [console, file]
+      propagate: false
+
+    # 数据库日志
+    database:
+      level: ${DB_LOG_LEVEL:WARNING}
+      handlers: [file]
+      propagate: false
+
+    # 第三方API日志
+    external_api:
+      level: ${API_LOG_LEVEL:INFO}
+      handlers: [file]
+      propagate: false
+
+    # 安全相关日志
+    security:
+      level: ${SECURITY_LOG_LEVEL:WARNING}
+      handlers: [file, error_file]
+      propagate: false
+
+  # 性能日志
+  performance:
+    enabled: ${PERFORMANCE_LOGGING:true}
+    level: ${PERF_LOG_LEVEL:INFO}
+    handlers: [file]
+    format: '%(asctime)s [PERF] %(name)s: %(message)s (%(duration).3fms)'

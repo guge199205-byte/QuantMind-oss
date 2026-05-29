@@ -1,0 +1,246 @@
+# services
+
+用途：Qlib 服务的回测与分析业务逻辑实现。
+
+## 近期更新
+- 基础风险收益率样本口径修复（2026-04-27）：
+  - `basic_risk_service.py` 计算权益曲线日收益率时，不再将首个 `pct_change` 的 `NaN` 填成 `0%`；
+  - 现改为在清理 `Inf/NaN` 后直接丢弃首个无效样本，避免收益率分布、样本数、均值/中位数等统计被虚假的零收益污染；
+  - 新增 `backend/tests/test_basic_risk_service.py` 回归测试，覆盖“首个日收益不应伪造为 0%”与 histogram 样本数一致性。
+- 交易流水双写去重修复（2026-04-22）：
+  - `RiskAnalyzer` 新增交易去重逻辑（`_deduplicate_trades`），按 `date/symbol/action/amount/commission` 主键优先合并 exchange 与 strategy 的重复记录；
+  - `normalize_trades_for_display` 与 `_build_trades_list` 统一接入去重，解决“当日买入金额统计翻倍（如 163 万）”问题；
+  - 结果构建阶段会在交易统计前先归一化去重，确保新回测保存的 `trades` 与 `total_trades` 不再受 Redis 双写影响。
+- 交易数量复权漂移修复（2026-04-22）：
+  - `RiskAnalyzer.normalize_trades_for_display` 与 `_parse_trades_df` 新增 A 股整手容差纠偏（默认容差 `<=2` 股）；
+  - 当 `adj_quantity * factor` 因交易日因子微漂移出现 `2701/2702` 这类近整手抖动时，会回吸到最近 `100` 股整手，避免“买 2700 卖 2702”；
+  - 同时保持非 A 股或明显非整手场景不受影响。
+- 策略加载与构建日志收口（2026-04-10）：
+  - `user_strategy_loader.py`、`strategy_builder.py` 的关键读写/适配日志已统一为结构化事件格式；
+  - 策略存储回退、文件系统兜底、参数补全与模板构建现在共用同一排障口径。
+- 回测运行与优化日志收口（2026-04-10）：
+  - `backtest_service_runtime.py`、`genetic_optimization_service.py`、`trade_stats_service.py` 的关键日志已统一为结构化事件格式；
+  - 回测执行、遗传优化评估、收敛检测与交易统计回退现在共用同一排障口径。
+- 回测与运维日志收口（2026-04-10）：
+  - `backtest_service.py`、`backtest_persistence.py`、`risk_monitor.py`、`admin_templates.py`、`reports.py`、`ops.py` 的关键日志已统一为结构化事件格式；
+  - 回测初始化、COS 冷备、风险监控、管理员模板变更、报告导出与任务运维现在共用同一排障口径。
+- 工具与查询日志收口（2026-04-10）：
+  - `strategy_templates.py`、`backtest_service_query.py`、`strategy_formatter.py`、`cache_manager.py`、`websocket.py` 的关键日志已统一为结构化事件格式；
+  - 模板加载、缓存读写、信号格式修复、回测结果查询与 WebSocket 访问控制现在共享同一套排障口径。
+- 风险分析日志收口（2026-04-10）：
+  - `risk_analyzer.py` 的关键告警/兜底日志已统一为结构化事件格式；
+  - 因子、交易、持仓、基准与高级统计相关的异常现在都按同一 schema 输出，方便统一检索。
+- 低频分析服务日志收口（2026-04-10）：
+  - 因子分析、回测报告生成、风格归因、绩效分析、持仓分析与市场状态服务的关键日志已统一为结构化事件格式；
+  - 这些服务现在也会优先输出 `event=... key=value`，便于和主回测链路、任务级日志使用同一套排障口径。
+- 日志继续统一（2026-04-10）：
+  - 基础风险、基准对比、实时风控与交易统计服务的关键日志已统一为结构化事件格式；
+  - 这类服务现在会优先输出 `event=... key=value`，避免分析接口与回测主链路采用不同口径。
+- 日志格式统一（2026-04-10）：
+  - 回测主链路、网格优化和遗传优化的关键日志已统一为 `event=... key=value` 结构化格式；
+  - 运行时日志继续通过任务级 Redis handler 写入前端可见日志流，避免同一任务出现多种口径；
+  - 遗传优化链路已去除旧式 Redis 重复推送，确保前端只消费单份任务日志。
+- **回测模型路由收敛（2026-04-06）**：
+  - 当回测 `signal="<PRED>"` 时，`backtest_service` 现优先按 `tenant_id + user_id` 从模型注册表解析有效模型（优先级：显式 `model_id` > 策略绑定 > 用户默认 > 系统兜底）。
+  - 解析到模型后自动读取该模型目录下的 `pred.pkl`（用户模型或系统模型），不再依赖全局单一 `QLIB_PRED_PATH`，实现多租户互不冲突。
+  - 若模型目录缺失 `pred.pkl`，才回退旧 `QLIB_PRED_PATH` 逻辑；信号元数据会记录 `effective_model_id/model_source/fallback_reason` 便于排障。
+- **全量截面 Alpha 新模板（2026-03-29）**：
+  - 新增模板：`strategy_templates/full_alpha_cross_section.py`、`strategy_templates/full_alpha_cross_section.json`。
+  - 新增策略类映射：`RedisFullAlphaStrategy -> backend.services.engine.qlib_app.utils.extended_strategies`。
+  - `StrategyFactory` 新增 `full_alpha_cross_section` Builder，支持“跌出 TopK 全卖 + 涨停/停牌顺延补位”的全量调仓逻辑。
+- **管理员模板“即建即用”执行链路（2026-03-28）**：
+  - 回测服务新增未知策略 ID 解析：当 `strategy_type` 未命中 `StrategyFactory` 时，会自动按模板 ID 查找 `strategy_templates/<id>.py`。
+  - 若模板存在，则自动将该模板代码注入并路由到 `CustomStrategyBuilder` 执行，无需再手工修改 `StrategyFactory` 映射。
+  - 仅当模板也不存在时，才回退 `TopkDropout`，保持历史兼容行为。
+- **高级截面 Alpha 模板下线（2026-03-28）**：
+  - 已下线 `advanced_alpha_strategy` 与 `alpha_quality_focus` 两个模板，删除对应 `strategy_templates/*.py/*.json` 文件。
+  - `StrategyFactory` 移除上述两个策略 ID 的 Builder/alias 映射，避免继续被选择与下发。
+- **截面 Alpha 执行链路与新模板（2026-03-28）**：
+  - `StrategyFactory` 新增 `AdvancedAlphaBuilder`，将 `advanced_alpha_strategy` 显式路由到 `RedisAdvancedAlphaStrategy`，不再回退到 `TopkDropout`。
+  - 新增模板 `alpha_quality_focus`（质量优先截面 Alpha 策略）：
+    - 模板文件：`strategy_templates/alpha_quality_focus.py`、`strategy_templates/alpha_quality_focus.json`
+    - 默认参数：`topk=40`、`n_drop=8`、`min_score=0.01`、`max_weight=0.04`
+  - 目标：在控制换手和回撤的同时，提升夏普并争取跑赢基础“截面 Alpha 预测策略”。
+- **参数优化全局排队执行（2026-03-19）**：
+  - 网格搜索异步任务改为通过全局 Redis 锁串行执行，同一时间仅允许 1 个参数优化任务实际运行。
+  - 新提交的优化任务会先落库为 `pending`，若执行槽位被占用则转为 `queued`，待前序任务完成后自动开始。
+  - 停止排队中的任务时，状态同样会收敛为 `cancelled`，避免“任务未开始但历史仍卡住”的状态漂移。
+- **参数优化组合数后端收敛（2026-03-19）**：
+  - `QlibOptimizationRequest` 新增网格搜索组合数校验，后端统一限制 `<=40` 组。
+  - 超出上限时在请求阶段直接返回 `422`，避免绕过前端后提交过大的优化任务，统一前后端“Beta 受限模式”口径。
+- **基础风险指标年化偏差修复（2026-03-16）**：
+  - 修正了 `BasicRiskService` 中的年化算法：从硬编码交易日（252）改为基于实际日历天数跨度（`days_delta / 365.25`）动态计算。
+  - 解决了由于数据点密度（如 334 点/年）与固定频率不匹配导致的收益率被摊薄、波动率被低估的问题。
+  - 风险指标对齐：波动率、夏普比率、Sortino 比率均同步使用 `annual_freq` 动态缩放。
+  - 强制优先使用自定义计算结果，确保 1 年期回放的总收益与年化收益完美对齐。
+- **策略模板动态化重构（2026-03-16）**：
+  - 新增项目根目录 `strategy_templates/`，每个策略由 `<id>.py`（代码）+ `<id>.json`（元数据）组成。
+  - `strategy_templates.py` 重构为 `StrategyTemplateLoader` 文件系统动态加载器，TTL 缓存由 `STRATEGY_TEMPLATES_CACHE_TTL`（默认 60s）控制。
+  - 后台新增/修改策略文件后，无需重启服务，等待缓存过期即可在前端看到最新模板。
+  - `/api/v1/strategies/templates` 接口新增 `Cache-Control: max-age=60` 响应头；`/sync` 接口现在会同时失效模板文件缓存。
+  - 新增 `invalidate_templates_cache()` 公开函数，供管理员手动刷新。
+  - 公开接口（`get_all_templates/get_template_by_id`）完全向下兼容。
+  - 运营人员维护方式：
+    - **新增策略**：在 `strategy_templates/` 中新建 `<id>.py` 和 `<id>.json`，等 60s 或调用 `POST /api/v1/strategies/sync` 立即生效。
+    - **修改策略代码/元数据**：直接编辑对应文件，缓存过期后自动被前端拉取。
+    - **下线策略**：删除或重命名文件（推荐加 `.bak` 后缀保留备份）。
+  - 相关环境变量：`STRATEGY_TEMPLATES_DIR`（覆盖目录路径）、`STRATEGY_TEMPLATES_CACHE_TTL`（缓存 TTL 秒数）。
+- 多空 TopK Worker 热更新运维说明（2026-03-15）：
+  - 已确认 `long_short_topk` 异常回退为 `TopkDropout` 的根因，不是策略参数或模型数据问题，而是 `engine-worker` 的 Celery 长驻子进程继续持有旧版 `strategy_builder` 模块。
+  - 典型日志特征：
+    - `Unknown strategy type 'long_short_topk', falling back to TopkDropout`
+    - 最终策略参数中只有 `topk/n_drop/rebalance_days`，缺失 `short_topk/long_exposure/short_exposure`
+  - 运维结论：
+    - 修改 `strategy_builder.py`、`backtest_service.py`、`extended_strategies.py`、`margin_position.py` 等策略执行链路代码后，仅同步代码到容器挂载目录还不够。
+    - **必须**对 `engine-worker` 执行容器重建/重建实例（`docker compose up -d engine-worker`），让 Celery worker 进程重新导入最新模块。
+    - 若只更新 `engine-compute` 或只在容器内新开 Python 进程验证，不能代表异步回测链路已经生效。
+  - 快速验收：
+    - 提交一条 `strategy_type=long_short_topk` 的异步回测；
+    - `engine-worker` 日志应出现 `Building LongShortTopK strategy`；
+    - 不应再出现 `Unknown strategy type 'long_short_topk'`；
+    - 最终策略参数中应包含 `short_topk/long_exposure/short_exposure`。
+- 多空 TopK 模板分类修复（2026-03-15）：
+  - `strategy_templates.py` 中 `long_short_topk` 的 `category` 从 `risk_control` 调整为 `advanced`。
+  - 统一前后端模板分组口径，避免前端“高级策略”列表过滤掉多空 TopK。
+- 双向交易模板防串参修复（2026-03-15）：
+  - `backtest_service` 新增双向交易开关保护：仅当 `strategy_type=long_short_topk` 且 `enable_short_selling=true` 时，才切换 `MarginPosition` 与 `CnExchange.allow_short_selling`。
+  - 修复前端模板切换后残留的 `enable_short_selling=true` 污染纯多头 `standard_topk`，导致交易次数异常偏低的问题。
+- 多空 TopK 模板替换（2026-03-15）：
+  - 前后端内置模板已将原“抗下行 Alpha 策略”彻底替换为 `long_short_topk`（多空 TopK 策略）。
+  - 新增 `LongShortTopkBuilder`，原生构建 `RedisLongShortTopkStrategy`，默认启用双向交易、`5` 日调仓。
+  - **同步清理**：移除了过时的 `downside_alpha` 构建器及相关代码。
+- Qlib 空头持仓回测支持（2026-03-15）：
+  - 新增 `MarginPosition`，在 `enable_short_selling=true` 时回测账户允许负仓位。
+  - `CnExchange` 放开做空场景下卖单按现有持仓裁剪的限制，允许 `sell` 直接开空。
+  - `backtest_service` 会自动将 `pos_type` 切换到 `MarginPosition`，无需前端改动。
+- SimpleSignal 股票池解析修复（2026-03-15）：
+  - `SimpleSignal` 读取 `db/qlib_data/instruments/*.txt` 时改为只取首列股票代码，兼容 Qlib `code<TAB>start<TAB>end` 格式。
+  - 修复两融池 `margin.txt` 过滤后信号被误清空，导致回测零成交的问题。
+- CustomStrategy 导入清洗修复（2026-03-15）：
+  - `StrategyFormatterService` 不再把 `from qlib.contrib.strategy.signal_strategy import ...` 错误改写到 `qlib.strategy.base`。
+  - 修复 `WeightStrategyBase` 自定义策略执行时报错 `cannot import name 'WeightStrategyBase'`。
+- CustomStrategy 别名兼容修复（2026-03-15）：
+  - `StrategyFactory` 现在会标准化策略类型，兼容 `custom`、`custom_strategy`、`CustomStrategy` 等写法。
+  - 修复通过脚本/API 发送 `strategy_type=custom` 时被错误回退为 `TopkDropout` 的问题。
+- 策略模板实盘默认配置增强（2026-03-13）：
+  - `strategy_templates.py` 的 `StrategyTemplate` 新增 `execution_defaults/live_defaults/live_config_tips`；
+  - 内置默认策略可直接声明推荐的实盘执行参数，例如 `5` 个交易日调仓、`14:30` 卖出、`14:45` 买入、`LIMIT` 委托；
+  - 交易控制面会优先读取这些模板默认值，为前端实盘执行参数向导提供回填和提示文案。
+- 信号配置健壮性修复（2026-03-12）：
+  - `backtest_service` 对 signal dict 的合法性判断改为“至少包含 `class` 或 `func`”；
+  - 避免仅携带 `module_path` 的无效配置透传到 qlib，触发 `KeyError: 'func'`。
+  - 回测下发前新增二次归一化：`strategy.kwargs.signal` 若来自用户自定义代码且为非法 dict，会自动回退为 `$close`，避免漏网配置进入 qlib。
+- 交易流水复权口径兜底修复（2026-03-12）：
+  - `RiskAnalyzer._parse_trades_df` 现在会在 DataFrame 兜底分支中识别 `factor`，并按 `adj_price/factor` 还原展示成交价、按 `adj_quantity*factor` 还原展示成交量。
+  - 补充输出 `totalAmount/adj_price/adj_quantity/factor` 字段，避免 Redis 交易流水不可用时前端收到的交易明细口径漂移。
+  - `BacktestPersistence.get_result` 新增读取时归一化：历史回测即使未落 `factor` 字段，也会按 `symbol+date` 回查 Qlib `$factor` 后再返回给前端，减少“历史结果需重跑”的影响。
+  - `QlibBacktestService.get_result` 新增缓存命中路径归一化，避免旧缓存结果绕过修复逻辑导致前端仍显示复权口径价格。
+- 股票池 URL 识别增强（2026-03-11）：
+  - 回测服务在策略代码中支持 `POOL_FILE_LOCAL`、`POOL_FILE_URL`、`POOL_FILE_KEY` 三种声明；
+  - 解析优先级：`POOL_FILE_LOCAL`（本地直读） > `POOL_FILE_URL`（URL 归一化后下载） > `POOL_FILE_KEY`（COS key）；
+  - 当策略中存在上述字段时，会自动覆盖 `request.universe`，不再限制仅 `csi300/csi500/all` 才生效。
+- 参数优化停止收敛增强（2026-03-10）：
+  - `OptimizationService.run_optimization` 新增 `cancellation_checker`，执行中会周期检查取消状态，收到取消后主动 `cancel` 未启动组合并快速收敛。
+  - 新增 `OptimizationCancelledError`，Celery 网格优化任务可将“用户取消”落为业务终态 `cancelled`，避免仅依赖进程信号导致状态漂移。
+  - `OptimizationPersistence` 新增 `get_status` 与 `get_optimization_id_by_task_id`，用于取消轮询与 stop 接口回查关联优化任务。
+- 参数优化历史与细粒度进度（2026-03-10）：
+  - 新增 `OptimizationPersistence`，使用独立表 `qlib_optimization_runs` 持久化网格搜索历史，不复用 `qlib_backtest_runs`。
+  - 异步网格搜索提交后会立即落一条 `running` 历史记录，保留 `task_id/user_id/tenant_id/param_ranges/optimization_target/total_tasks`。
+  - `OptimizationService.run_optimization` 新增逐组合进度回调，持续回写 `completed_count/failed_count/current_params/best_params/best_metric_value`。
+  - 停止优化时历史状态会更新为 `cancelled`，完成/失败时分别落 `completed/failed`，支持页面离开后恢复查看。
+- CustomStrategy 调仓周期透传修复（2026-03-09）：
+  - `CustomStrategyBuilder` 现将 `rebalance_days` 作为平台关键参数强制透传给支持 `**kwargs` 的策略类，避免 UI 选择“每5天”时回退到策略默认日调仓。
+  - 回测开始前新增日志：`最终调仓周期参数: rebalance_days=...`，用于排查配置落地问题。
+  - 当 `STRATEGY_CONFIG` 仅引用外部类（不在本地 namespace）时，UI 参数回填增加 fallback 分支，确保 `rebalance_days` 可生效。
+- 回测异步默认模式与多进程并行（2026-03-09）：
+  - API 未显式传入 `async_mode` 时，默认读取 `QLIB_BACKTEST_ASYNC_DEFAULT`（默认 `true`），优先走 Celery 多进程 worker。
+  - 单次回测并行度可通过 `QLIB_BACKTEST_KERNELS` 与 `QLIB_JOBLIB_BACKEND` 调整。
+- 回测信号可观测性与预检（2026-03-05）：
+  - 回测配置落库新增 `deal_price`，避免历史记录无法区分开盘/收盘成交口径。
+  - 回测配置落库新增 `signal_meta`（信号来源、pred 覆盖天数、股票数、空值比例等），便于区分“模型表现差”与“信号质量问题”。
+  - 回测执行前新增信号质量预检（pred 行数/日期覆盖/股票覆盖/NaN 比例），不达标会直接失败并返回明确错误。
+  - 相关阈值环境变量：`QLIB_BACKTEST_REQUIRE_PRED`、`QLIB_SIGNAL_MIN_DATES`、`QLIB_SIGNAL_MIN_INSTRUMENTS`、`QLIB_SIGNAL_MAX_NAN_RATIO`。
+- 回测结果存储分层（2026-03-04）：
+  - `BacktestPersistence` 新增本地结果目录（默认 `data/backtest_results`，可由 `QLIB_BACKTEST_RESULT_DIR` 覆盖），按 `tenant_id/user_id/backtest_id.json` 落盘回测大字段。
+  - PostgreSQL `qlib_backtest_runs` 新增 `result_file_path` 字段，`result_json` 改为仅存摘要指标与状态，降低远程 PG 写入压力。
+  - 回测结果读取改为“PG 摘要 + 本地 JSON 明细”协同模式：先读 `result_json`，再自动合并 `result_file_path` 指向的本地文件。
+  - 删除/历史裁剪时会同步清理本地 JSON 文件，避免遗留脏文件。
+  - 可选启用 COS 冷备（`QLIB_BACKTEST_COS_BACKUP_ENABLED=true`）：本地文件写入后异步上传到 COS，记录 `result_cos_key/result_cos_url`；本地文件缺失时会尝试从 COS 自动回源恢复。
+  - 可通过 `QLIB_BACKTEST_COS_PREFIX` 配置 COS 对象前缀（默认 `backtests/results`）。
+- 后台执行清零（2026-02-25）：
+  - `risk_monitor_service.start_risk_monitoring` 移除 `asyncio.create_task`，改为单次风险评估（无服务内后台协程）。
+  - `user_strategy_loader.get_strategy` 移除 `ThreadPoolExecutor` 分支；事件循环运行中改为直接回退文件系统读取，避免线程池执行。
+- 身份隔离收敛（2026-02-25）：
+  - 回测结果/状态查询在持久化层新增 `user_id + tenant_id` 过滤约束，杜绝“仅凭 backtest_id 或 tenant_id 读取他人数据”。
+  - `BacktestService.get_result/get_status` 增加 `user_id` 维度，内存与 Redis 缓存读取同步按身份隔离。
+- 策略工厂映射（2026-03-15）：
+  - 移除了过时的 `downside_alpha` 策略。
+  - 核心模板完全切换为 `long_short_topk`（多空 TopK 策略）。
+  - 支持 `standard_topk`、`momentum`、`StopLoss`、`LimitFilter` 等原生 Builder。
+- 交易统计指标替换（高级分析）：
+  - 新增真实指标 `profit_loss_days_ratio`（盈亏天数比 = 盈利交易日数 / 亏损交易日数），基于 `equity_curve` 日收益稳定计算。
+  - 旧字段 `profit_loss_ratio` 继续保留用于兼容，但前端主展示切换为盈亏天数比。
+- 交易统计持仓分布分箱标准化（高级分析）：
+  - `holding_days_distribution` 固定为 6 个常用周期：`<=1天`、`1-7天`、`7-30天`、`30-90天`、`90-180天`、`180-365天`。
+  - 超过 365 天的样本归入最后一箱，避免统计丢失。
+- 交易统计持仓天数修复（高级分析）：
+  - `TradeStatsService` 新增基于真实 `buy/sell + symbol + date + quantity` 的 FIFO 持仓天数推导，优先替代“缺失字段时默认 1 天”的退化口径。
+  - 持仓天数输出改为分级回退：`holding_days 字段` -> `交易流水推导` -> `1 天兜底`，保证接口稳定且尽量使用真实数据。
+- 交易统计口径修复（高级分析）：
+  - `TradeStatsService` 不再在缺失 `pnl` 时写入占位 `0` 参与计算，避免胜率/盈亏比被错误压成 `0.00`。
+  - 交易质量指标改为分级回退：`真实 pnl` -> `回测汇总字段(win_rate/profit_factor)` -> `日收益序列估算`。
+  - `pnl` 分布图在无真实成交盈亏时使用收益率近似分布，避免直方图全部堆在 0。
+- 基础风险指标口径修复（高级分析）：
+  - `BasicRiskService` 改为基于 `equity_curve -> 日收益率` 计算核心指标，不再将累计净值误传给 `risk_analysis()`。
+  - 移除不可稳定计算的 `information_ratio` 输出，避免页面出现“0/NaN”误导值。
+  - 统一清洗 `NaN/Inf`，并将累计收益/回撤曲线改为复利与相对峰值口径，和回测总览保持一致。
+- 交易统计稳定性修复：`TradeStatsService` 兼容 `date/datetime/created_at` 等字段并统一映射为 `trade_date`，修复高级分析“交易统计”报错 `KeyError: 'trade_date'`。
+- 基准对比口径修复：`BenchmarkService` 从简单累加改为复利累计曲线（`(1+r).cumprod()-1`），并增加异常收益率清洗（`inf` 去除 + 区间裁剪），修复“超额收益/跟踪误差异常放大”问题。
+- 基准数据源修复：`BenchmarkService` 改为统一使用 `qlib_utils.D`（真实 qlib 优先，按环境变量决定是否回退 mock），避免误用本地 `qlib_mock` 导致基准曲线异常。
+- 基准代码命名空间兼容（2026-05-17）：
+  - 新增 `utils/benchmark_symbol.py`，统一将 `csi300/csi500/csi1000/000300/000905/000852` 等别名映射到 `IDX_SH000300/IDX_SH000905/IDX_SH000852`；
+  - `BacktestRuntime`、`RiskAnalyzer`、`BenchmarkService` 均改为“IDX 优先 + 旧代码兜底”查找，避免指数与个股代码冲突后基准收益读取失败。
+- 风险分析统计回退增强：当交易流水缺少 `pnl/profit` 字段时，`win_rate/profit_factor` 自动回退到日收益序列估算，避免回测详情长期显示 0。
+- 回测持久化增强：`qlib_backtest_runs` 按 `user_id + tenant_id` 自动裁剪，仅保留最近 10 条记录；历史查询服务层也统一按创建时间倒序返回最近 10 条，确保前端“回测历史”稳定展示最新结果。
+- 修复 Celery 进程中 `<PRED>` 信号模块导入失败：
+  - `SimpleSignal` 的 `module_path` 统一改为绝对包路径 `backend.services.engine.qlib_app.utils.simple_signal`；
+  - 避免 worker 运行时出现 `No module named 'qlib_app'`。
+- 回测状态查询修复：`get_status` 先读取持久化状态（pending/running/completed/failed），避免异步任务刚提交时误返回 `not_found` 导致前端轮询卡住。
+- 回测信号构建统一剔除北交所（`BJ*`）股票，避免混入北交所导致口径漂移（2026-02-19）。
+- Qlib 后端加载策略调整（2026-02-18）：
+  - 默认强制使用真实 `qlib`。
+  - 仅当 `ENGINE_ALLOW_MOCK_QLIB=true` 且真实 `qlib` 不可用时，才回退本地 mock。
+  - 健康检查新增 `qlib_backend` 字段（`real`/`mock`），便于前端与运维快速识别当前后端类型。
+- 增加市场状态服务（动态仓位），回测时可按状态动态调整 `risk_degree`。
+- **TopkDropout策略signal处理修复** (2026-01-16): 修复DataFrame signal导致的`module_path=None`错误。由于Qlib配置字典不支持序列化DataFrame对象，当signal为DataFrame时自动回退到`$close`表达式。如需使用预测信号DataFrame，请使用WeightStrategy或自定义策略。
+- WeightedStrategy 回测支持 `topk/min_score/max_weight` 参数，并用于遗传算法优化。
+- 遗传算法优化支持逐代进度上报（max/avg/std fitness），便于前端展示平滑进度。
+- 修复遗传算法初始化时的 `best_fitness` 无穷小值错误。
+- Qlib 并行参数改为环境变量可配置（默认 Linux `joblib_backend=loky`、`kernels=min(cpu,8)`；Windows 默认 `threading`）：
+  - `QLIB_JOBLIB_BACKEND`
+  - `QLIB_BACKTEST_KERNELS`
+  用于提升单次回测并行性能并兼容不同部署环境。
+- `<PRED>` 信号读取 pred.pkl 时做类型校验，异常回退到 `$close`。
+- signal 为空/异常时统一回退为 `$close`，且 signal dict 的 `module_path` 为空时自动补齐。
+- 策略代码返回的 signal 也会进行 module_path 兜底处理，避免回测报错。
+- 回测前对策略配置做递归清理，统一补齐缺失的 `module_path`。
+- signal 为 dict 且缺少 `class/module_path` 时回退为 `$close`，避免无效配置导致 Qlib 报错。
+- signal 构建失败时统一回退为 `$close`，避免残留无效信号配置。
+
+## TopkDropout策略使用说明
+
+### Signal配置限制
+TopkDropout策略的signal参数在回测配置字典中有以下限制：
+
+1. **支持的signal类型**：
+   - 字符串表达式（如`"$close"`, `"$volume"`）
+   - 配置字典（包含`class`和`module_path`字段）
+
+2. **不支持的signal类型**：
+   - DataFrame或Series对象（无法在配置字典中序列化）
+   - 当signal为DataFrame时，系统会自动回退到`"$close"`并记录警告
+
+3. **使用预测信号的替代方案**：
+   - 使用WeightStrategy（支持直接传入DataFrame）
+   - 使用自定义策略代码
+   - 将预测信号保存为Qlib格式数据，使用字符串表达式引用

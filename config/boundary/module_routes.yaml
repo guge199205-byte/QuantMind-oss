@@ -1,0 +1,45 @@
+version: 1
+description: QuantMind 4 服务路由边界契约（P2-10）
+
+services:
+  quantmind-api:
+    prefixes:
+      - /health
+      - /metrics
+      - /api/v1/users
+      - /api/v1/profiles
+      - /api/v1/admin
+  quantmind-engine:
+    prefixes:
+      - /api/v1/strategies
+      - /api/v1/backtest
+      - /api/v1/inference
+      - /api/v1/pipeline
+      - /api/v1/analysis
+      - /api/v1/reports
+      - /api/v1/risk-monitor
+      - /api/v1/generation
+      - /api/v1/wizard
+      - /api/v1/chat
+      - /api/v1/validate
+      - /api/v1/stocks
+      - /api/v1/selection
+      - /api/v1/templates
+      - /api/v1/qlib
+  quantmind-trade:
+    prefixes:
+      - /api/v1/simulation
+      - /api/v1/real-trading
+      - /api/v1/orders
+      - /api/v1/trades
+      - /api/v1/portfolios
+  quantmind-stream:
+    prefixes:
+      - /api/v1/quotes
+      - /health
+      - /metrics
+
+# 允许跨服务共享/重名的前缀（通常为健康检查与指标）
+allowed_overlaps:
+  - /health
+  - /metrics

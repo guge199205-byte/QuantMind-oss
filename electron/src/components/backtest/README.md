@@ -1,0 +1,152 @@
+# backtest
+
+用途：回测相关功能。
+
+## 说明
+- 归属路径：electron\src\components\backtest
+- 修改本目录代码后请同步更新本 README
+
+## 近期更新
+- 快速回测成交量“近整手抖动”修复（2026-04-22）：
+  - `QlibResultComponents` 的交易行归一化改为“显式 `price/quantity` 优先”；
+  - 仅在显式字段缺失时，才按 `adj_price/adj_quantity/factor` 回退还原；
+  - A 股成交量展示新增整手容差纠偏（容差 `<=2` 股），修复“买 2700 卖 2702”这类显示抖动。
+- Qlib 相关提示文案继续统一（2026-04-10）：
+  - `StrategyPicker`、`StrategyTemplateModal`、`QlibStrategyConfigurator` 与 `QlibInfoBanner` 的标题 / 说明统一优化；
+  - `QlibInfoBanner` 不再写死日期范围，改为以当前回测中心配置与后端数据覆盖为准；
+  - 策略模板相关提示统一强调“推荐符合规范的 Qlib 策略”。
+- 回测中心其它入口文案统一（2026-04-10）：
+  - `QlibQuickBacktest` 的模式说明更新为“标准参数模式”，成交价格标签从“基准价格”统一为“成交价格 (Deal Price)”；
+  - `QlibParameterOptimizer` 标题更新为“策略参数优化”，并补充参数优先级说明，避免与专家模式和 AI-IDE 默认值混淆；
+  - 回测中心各入口现在统一以“前端显式参数优先、后端自动补全与兼容修复”为主线。
+  - `QlibExpertBacktest` 内置默认代码与 `docs/QuantMind_Qlib内部策略开发规范.md` 统一为 V2 口径；
+  - 明确当前系统是云端 AI-IDE + Builder/Adapter 自动适配模型，不再沿用旧版“固定函数名/固定模板”的专家模式描述；
+  - 同步说明前端默认初始资金 100 万、后端接口默认 1 亿、成交价默认 close 的口径差异，避免策略开发时误判默认值。
+- 策略对比优劣判定修复（2026-04-08）：
+  - `BacktestComparison` 不再把后端未返回的 `better` 默认填成 `equal`；
+  - 前端会基于数值重新计算“A 更优 / B 更优 / 持平”，避免结果卡片误判；
+  - 这修复了“数值显示正常，但优劣标签一直是持平”的问题。
+- 策略对比加载优化（2026-04-08）：
+  - `BacktestComparison` 兼容 `backtest1/backtest2` 与旧字段 `result_1/result_2`；
+  - 当对比数据不完整时会直接提示，不再卡在长时间加载状态；
+  - 后端比较接口改为只返回摘要字段，避免完整回测结果拖慢首屏。
+- 快速回测“调仓交易日”数字化展示（2026-04-08）：
+  - `QlibResultDisplay` 的“调仓交易日”只显示去重后的数字，不再附带文本单位；
+  - 例如 `81` 表示 81 个交易日；
+  - 交易详情仍保留完整交易流水，可通过弹窗查看明细。
+- 快速回测“调仓交易日”简化展示（2026-04-08）：
+  - `QlibResultDisplay` 的“调仓交易日”改为只显示去重后的交易日数量，格式为 `81个交易日`；
+  - 不再展示具体日期列表，避免统计卡片过长；
+  - 交易详情仍保留完整交易流水，可通过弹窗查看明细。
+- 快速回测交易详情/导出补取完整明细（2026-04-08）：
+  - `QlibResultDisplay` 在结果对象未携带交易明细时，会自动调用 `/api/v1/qlib/results/{backtest_id}/trades` 懒加载完整交易流水；
+  - “导出数据”在本地兜底路径下也会先补取完整交易明细，再生成 CSV，避免摘要结果导致导出为空；
+  - 这样 `交易详情` 和 `导出数据` 不再依赖结果页预加载到完整 `trades`。
+- 快速回测调仓日期数据源兼容修复（2026-04-08）：
+  - `QlibResultDisplay` 统计“调仓交易日”时，同时兼容 `result.trades` 与旧链路的 `result.trade_list`；
+  - 交易明细与日期摘要现在复用同一份交易行数据，避免只显示 `-`；
+  - 若后端仅返回 `trade_list`，前端也能正常统计具体交易日期。
+- 快速回测“调仓交易日”展示修复（2026-04-08）：
+  - `QlibResultDisplay` 的“调仓交易日”不再只显示去重计数，改为展示真实交易日期摘要；
+  - 当交易日较多时，仅展示前 3 个日期并附带总交易日数量，避免统计卡片过宽；
+  - 交易明细仍沿用后端返回的 `trades[].date`，不改数据口径。
+- AI 修复请求收敛（2026-04-08）：
+  - `QlibResultComponents` 的 `ai-fix` 请求改为复用带认证的 `backtestClient`，避免直连 `quantmind-engine` 时因缺少登录态/内部身份头触发 `Authentication required (Invalid internal secret or missing user context)`。
+  - 如果本地联调使用 `VITE_QLIB_SERVICE_URL=http://127.0.0.1:18001` 这类直连引擎地址，仍需要确保当前会话已登录且 token 有效。
+- 回测 CSV 导出口径统一（2026-04-02）：
+  - 快速回测 `QlibResultDisplay` 的“导出数据”按钮改为复用后端统一接口 `/api/v1/qlib/export/{backtest_id}/csv`；
+  - 回测历史导出 CSV 与快速回测导出 CSV 现使用同一后端格式（交易流水 8 列）；
+  - 当 `backtest_id` 缺失或导出接口不可用时，快速回测仍保留前端本地导出兜底。
+- 快速回测参数校验补充（2026-03-29）：
+  - `QlibQuickBacktest` 在执行前新增校验：当 `n_drop > topk` 时前端提示“参数校验失败”，并拒绝发起回测请求。
+- 策略动态参数通用加载规则（2026-03-28）：
+  - `StrategyPicker` 的模板参数提取改为通用类型解析（number/bool/可转数字字符串），不再依赖写死参数名白名单。
+  - `StrategyTemplateModal` 在加载后端模板后会调用 `registerRuntimeTemplates`，确保运行时参数白名单与后端模板元数据一致。
+  - `QlibStrategyConfigurator` 从“按策略类型写死渲染”调整为“按参数存在性动态渲染”；同时新增“模板扩展参数”兜底区，自动渲染未内置的数值/布尔参数。
+- 高级截面 Alpha 模板下线（2026-03-28）：
+  - `BacktestHistory` 的 `STRATEGY_NAME_MAP` 移除 `advanced_alpha_strategy` 与 `alpha_quality_focus` 映射，前端不再将其作为可用策略名称展示。
+- 回测历史策略名映射补充（2026-03-28）：
+  - `BacktestHistory` 的 `STRATEGY_NAME_MAP` 新增 `advanced_alpha_strategy -> 高级截面 Alpha 策略`。
+  - 修复回测历史列表中“高级截面 Alpha 策略”显示为模板 ID 的问题。
+- 快速回测主指标数值居中：
+  - 主指标与辅助指标的数值统一按卡片宽度居中显示；
+  - 标题仍与图标保持同一行并排，不影响当前布局结构。
+- 快速回测主指标卡布局再次微调：
+  - 标题与图标改为同一行并排展示；
+  - 具体数值下移到下一行，强化“标题 -> 参数值”的阅读顺序。
+- 快速回测主指标卡布局微调：
+  - 图标恢复到卡片右上角，尺寸缩小为 `4x4` 容器、`3x3` 图标；
+  - 文字内容继续居中显示，提升卡片标题与数值的对齐感。
+- 快速回测结果卡布局微调：
+  - 右侧指标卡图标缩小为 `5x5` 容器、`3x3` 图标；
+  - 指标标签与数值改为居中排版，减少高密度信息下的视觉偏移。
+- 快速回测结果卡片配色调整：
+  - `QlibResultDisplay` 的收益类指标统一改为 A 股风格，正收益显示红色、负收益显示绿色；
+  - `夏普比率/波动率/信息比率` 等中性指标改为暖色系，避免与涨跌语义混淆；
+  - `最大回撤`、`基准收益` 与 `Alpha` 也按正负方向统一映射，提升回测结果的可读性。
+- 多空 TopK 模板分组修复（2026-03-15）：
+  - `long_short_topk` 模板分类从 `risk_control` 调整为 `advanced`。
+  - 修复策略模板面板切到“高级策略”时，多空 TopK 不在列表中、但底部仍显示“已选择”的错位问题。
+- 快速回测模板切换参数隔离修复（2026-03-15）：
+  - `QlibQuickBacktest` 新增模板参数清洗逻辑，切换到 `standard_topk` 等纯多头模板时会自动移除 `enable_short_selling/short_topk/long_exposure/short_exposure` 等多空残留字段。
+  - 修复“先使用多空模板，再切回默认 Top-K 后，后端仍收到双向交易参数，导致交易次数异常偏低”的状态污染问题。
+- 快速回测进度算法优化（2026-03-15）：
+  - `QlibQuickBacktest` 的前端进度条改为“真实进度优先 + 时间驱动缓进”的混合算法；
+  - 不再在任务后期无依据地冲到 `98%~99%`，避免长时间卡在高位造成假死感；
+  - 新增阶段文案：准备任务、加载信号、执行撮合、汇总指标、写入结果。
+  - 同一套进度算法已同步到 `EnhancedQuickBacktest` 与 `QlibExpertBacktest`，统一整个回测中心的完成前体验。
+- 默认模板文案统一为标准 Top-K 选股（2026-03-15）：
+  - `StrategyPicker`、`QlibQuickBacktest`、`EnhancedQuickBacktest` 默认优先选中 `standard_topk`。
+  - `QlibQuickBacktest` 的提示文案同步更新为“默认使用标准 Top-K 选股模板...”。
+- 快速回测交易明细真实价格展示修复（2026-03-12）：
+  - 交易明细流水与 CSV 导出改为统一使用 `displayPrice/displayQuantity` 口径。
+  - 优先读取后端直接返回的 `price/quantity`（真实展示价）；若缺失则自动回退 `adj_price/adj_quantity/factor` 还原。
+  - 成交金额在 `totalAmount` 缺失时按 `displayPrice * displayQuantity` 回退计算，避免复权口径导致的展示偏差。
+- StockCodeInput / MultiStockCodeInput 搜索链路收敛（2026-03-12）：
+  - 股票搜索降级链路由“浏览器直连腾讯 Smartbox”改为“调用后端网关 `GET /api/v1/stocks/search`”，避免本地开发环境 CORS 拦截。
+  - 兼容后端 `results/data` 两种响应结构，统一映射前端 `symbol/name` 字段并保持标准代码格式（如 `000001.SZ`）。
+- QlibQuickBacktest 股票池输入改造（2026-03-11）：
+  - 移除“股票代码手动输入/搜索框（MultiStockCodeInput）”。
+  - 改为 5 个并排按钮预设：`全部 / 沪深300 / 中证500 / 中证800 / 中证1000`。
+  - 当前按钮值统一传策略关键词：`all`、`csi300`、`csi500`、`csi800`、`csi1000`（避免容器路径差异导致文件池失效）。
+- 回测历史导出能力增强（2026-03-11）：
+  - 历史列表操作区统一为两种导出：`导出CSV` 与 `导出JSON`。
+  - `导出CSV` 保持走后端导出接口；`导出JSON` 直接导出该回测 `getResult` 的原始 JSON 数据，便于排障与复盘。
+  - 兼容旧调用：原有 `exportPDF/useExportPDF` 与 `exportExcel/useExportExcel` 仍可用并映射到 CSV 导出链路。
+- 快速回测基础配置标签统一为中英文双标识（如 `开始日期 (Start Date)`、`结束日期 (End Date)`、`基准指数 (Benchmark)`、`成交价格 (Deal Price)`），并将“基准指数/成交价格”调整为同层双列结构，修复控件高度错位。
+- 快速回测调仓周期选项已改为复用共享常量（`1/3/5` 交易日），与智能策略第三步保持同一口径，避免两处配置漂移。
+- 快速回测基础配置区在“收盘价成交 (Close)”下拉上方新增标签“基准价格”，样式与其他参数标签保持一致。
+- 修复快速回测进度条回退问题：进度改为“单调递增”，轮询进度仅更新到 99%，仅在 `onComplete` 时置为 100%，避免出现“先到 100% 再回退到 93%”的视觉跳变。
+- 快速回测统计概览文案调整：`调仓次数(交易日)` 更名为 `调仓交易日`，并在其右侧新增 `投资胜率` 指标。
+- 回测历史列表精简指标列：移除 `信息比率` 与 `Beta` 两列（当前链路无稳定解析值，避免展示空值）。
+- 快速回测“统计概览”新增 `调仓次数(交易日)` 指标（按 `trades[].date` 去重计算），用于区分“成交笔数（交易次数）”与“实际调仓天数”。
+- 修复个人中心模板策略误报：`StrategyPicker` 选择个人策略时若列表项 `code` 为空，自动调用 `getStrategy(id)` 拉取详情后再做 Qlib 校验，避免出现“检测到非Qlib格式策略代码 / 策略代码不能为空”双错误提示
+- StrategyPicker/策略管理服务的 Qlib 判定逻辑已兼容 Native 模板（`STRATEGY_CONFIG + Redis*Strategy`），个人中心系统模板不再误报“非Qlib格式”
+- 快速回测策略参数区补全：`STANDARD_TOPK` 也显示 `n_drop`（每日最大调仓数）滑块，避免仅显示单一 `topk` 参数
+- QlibQuickBacktest 增加与回测中心共享配置同步：支持读取 `start_date/end_date/initial_capital/qlib_strategy_type/qlib_strategy_params`，参数优化模块“一键回填”后切回快速回测可立即看到参数变更
+- 策略对比配色口径调整为中国股市风格：上涨/正收益显示红色，下跌/负收益显示绿色
+- 策略对比展示重构：选择器下方改为“关键指标精简对比”，仅保留总收益率、年化收益、最大回撤、夏普比率、信息比率、波动率
+- 策略对比模块数据适配修复：兼容后端 `winner/percentage_dif/metric_key` 字段并映射为前端统一结构，修复优势列与差异列显示异常
+- 策略对比选择器与卡片优化：支持按策略名称搜索，列表与卡片优先展示真实策略名称（含 `config.qlib_strategy_type` 映射）
+- 回测历史策略名称识别增强：新增对 `config.qlib_strategy_type` 的映射展示，支持“截面 Alpha 预测策略”“自适应动态调仓策略 (Concept Drift)”等策略在历史列表中正确显示
+- 回测历史导出链路规范化：历史列表支持 `CSV` 和 `JSON原始文件` 两种导出；旧“PDF/Excel”命名保留兼容映射
+- 回测历史交互简化：移除列表行动画与操作列悬停显隐，操作列 4 个图标改为常驻显示
+- 回测历史策略名称兜底调整：当后端未返回名称时，默认显示“默认 Top-K 选股策略”
+- 回测历史表格布局重构：移除“股票”列，扩展表格最小宽度并强化单行展示；新增“回测期间/初始资金”字段兜底显示（支持从 `config` 回退取值）
+- 回测历史策略名展示优化：优先使用后端真实策略名（含 `strategy_display_name` / `config.strategy_name` / `strategy_type` 回退），避免出现“未命名策略”
+- 回测历史配色调整：正收益改为红色、负收益改为绿色；夏普比率统一改为红色
+- 回测中心快速回测右侧“导出数据”按钮已接通：可一键导出当前交易明细为 CSV（含日期、代码、方向、成交价、成交量、成交金额、手续费、权益余额）
+- 交易明细流水优化：成交量按整数展示，新增“成交金额”“手续费”“权益余额”列；权益余额优先按净值曲线 `equity_curve` 的同日权益值展示，确保与净值曲线口径一致，缺失时再回退后端 `equity_after/balance`。
+- Qlib 专家模式 UI 默认初始资金为 100 万（`1000000`），后端回测 Schema 默认值为 1 亿（`100000000`）；如需跨入口保持一致，请显式传入 `initial_capital`
+- QlibQuickBacktest / QlibExpertBacktest 共用错误弹窗新增“复制错误”按钮，支持一键复制完整异常信息
+- QlibQuickBacktest 参数区重排为更宽松的分层布局（策略/基础配置/动态参数/执行），并将执行按钮改为底部粘性操作区
+- QlibStrategyConfigurator 提升参数面板可读性（增大内边距、分组间距、数值标签与滑块触达区）
+- Qlib 策略配置下拉框调整为更小字号并强制单行省略显示，避免长策略描述换行挤压布局
+- BacktestPanel 改为读取真实行情数据（通过 backtestService.getMarketData）
+- QlibQuickBacktest 与参数优化接入统一回测服务接口
+- 参数优化界面支持异步任务进度显示（轮询任务状态）
+- QlibQuickBacktest 仅在 CustomStrategy 时下发 strategy_code，TopkDropout/WeightStrategy 使用参数面板配置
+- 策略模板切换时自动回填 topk/n_drop，手动调整后以用户配置为准
+- 上传/个人策略在校验通过后解析代码里的 topk/n_drop 并回填参数
+- WeightedStrategy 遗传优化默认包含 topk/min_score/max_weight 参数范围
+- WeightedStrategy 遗传优化右侧区域显示进度与日志，移除费用说明模块

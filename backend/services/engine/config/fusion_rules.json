@@ -1,0 +1,70 @@
+{
+  "version": "2026-02-26",
+  "enabled": true,
+  "description": "三层融合规则草案：LGBM日频选股 + TFT中期筛选 + 风控闸门",
+  "layer1_lgbm": {
+    "enabled": true,
+    "universe": "all_a_share",
+    "rebalance_cycle": "1d",
+    "select_top_n": 500,
+    "output_top_n": 50,
+    "score_field": "lgbm_score",
+    "weight_field": "weight"
+  },
+  "layer2_tft": {
+    "enabled": true,
+    "horizon_days": 5,
+    "lookback_days": 30,
+    "prefilter_top_n": 500,
+    "final_top_n": 50,
+    "score_field": "tft_score",
+    "confidence_field": "tft_confidence",
+    "min_confidence": 0.55,
+    "gate_mode": "soft"
+  },
+  "layer3_risk_gate": {
+    "enabled": false,
+    "max_single_weight": 0.05,
+    "max_industry_weight": 0.3,
+    "max_turnover": 0.35,
+    "liquidity_gate": {
+      "enabled": true,
+      "min_avg_turnover_20d": 50000000
+    },
+    "volatility_gate": {
+      "enabled": true,
+      "max_volatility_20d": 0.06
+    },
+    "external_risk_source": {
+      "enabled": false,
+      "provider": "internal",
+      "endpoint": "",
+      "cache_ttl_seconds": 3600,
+      "fallback_risk_weight": 1.0
+    }
+  },
+  "merge": {
+    "mode": "weighted",
+    "lgbm_weight": 0.0,
+    "tft_weight": 1.0,
+    "fallback": "reject"
+  },
+  "regime_weights": {
+    "normal": {
+      "lgbm": 0.65,
+      "tft": 0.35
+    },
+    "trending": {
+      "lgbm": 0.4,
+      "tft": 0.6
+    },
+    "volatile": {
+      "lgbm": 0.8,
+      "tft": 0.2
+    },
+    "crash": {
+      "lgbm": 0.9,
+      "tft": 0.1
+    }
+  }
+}

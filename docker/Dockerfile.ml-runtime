@@ -1,0 +1,53 @@
+FROM python:3.10-slim-bookworm
+
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG SKIP_PYQLIB=auto
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources; \
+      sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources; \
+    else \
+      sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list; \
+      sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list; \
+    fi
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      cmake \
+      curl \
+      git \
+      libgomp1 \
+      swig \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements/production.txt /tmp/requirements-production.txt
+COPY requirements/ai.txt /tmp/requirements-ai.txt
+
+RUN python -m pip install --upgrade pip setuptools wheel cython \
+    && python -m pip install --no-cache-dir -r /tmp/requirements-production.txt \
+    && if [ "${SKIP_PYQLIB}" = "1" ]; then \
+         grep -v '^pyqlib' /tmp/requirements-ai.txt > /tmp/requirements-ai-runtime.txt && \
+         python -m pip install --no-cache-dir -r /tmp/requirements-ai-runtime.txt; \
+       elif [ "${SKIP_PYQLIB}" = "0" ] || [ "$(uname -m)" = "x86_64" ] || [ "$(uname -m)" = "amd64" ]; then \
+         python -m pip install --no-cache-dir -r /tmp/requirements-ai.txt; \
+       else \
+         grep -v '^pyqlib' /tmp/requirements-ai.txt > /tmp/requirements-ai-runtime.txt && \
+         python -m pip install --no-cache-dir -r /tmp/requirements-ai-runtime.txt; \
+       fi \
+    && rm -f /tmp/requirements-production.txt /tmp/requirements-ai.txt /tmp/requirements-ai-runtime.txt
+
+RUN mkdir -p /data/models /data/qlib_data /tmp
+
+CMD ["python", "-c", "print('QuantMind ML runtime image is ready')"]

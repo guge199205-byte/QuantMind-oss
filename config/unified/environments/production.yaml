@@ -1,0 +1,55 @@
+# 生产环境配置
+environment: production
+debug: false
+
+# 应用配置
+app:
+  name: QuantMind
+  version: 1.0.0
+  host: 0.0.0.0
+  log_level: INFO
+
+# 数据库配置覆盖
+database:
+  type: postgresql
+  postgresql:
+    host: ${DB_MASTER_HOST:localhost}
+    port: ${DB_MASTER_PORT:6789}
+    database: ${DB_NAME:quantmind}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:password}
+  pool:
+    size: 20
+    max_overflow: 30
+    timeout: 60
+
+# 监控配置
+monitoring:
+  enabled: true
+  metrics_enabled: true
+  tracing_enabled: true
+  health_check_interval: 60
+  alerting_enabled: true
+
+# 缓存配置
+cache:
+  enabled: true
+  ttl: 1800  # 30分钟
+  max_size: 10000
+
+# 安全配置增强
+security:
+  rate_limit:
+    enabled: true
+    requests_per_minute: 120
+    requests_per_hour: 2000
+
+  security_headers:
+    enabled: true
+    strict_transport_security: "max-age=31536000; includeSubDomains; preload"
+
+# 性能配置
+performance:
+  connection_pool_size: 50
+  max_concurrent_requests: 1000
+  request_timeout: 30

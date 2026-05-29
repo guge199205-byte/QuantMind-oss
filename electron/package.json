@@ -1,0 +1,240 @@
+{
+  "name": "QuantMind",
+  "private": true,
+  "version": "1.0.0",
+  "description": "QuantMind 智能控制中心桌面端 (Electron + React + Vite)",
+  "main": "dist-electron/electron/main.js",
+  "type": "commonjs",
+  "author": "",
+  "scripts": {
+    "dev": "cross-env VITE_PORT=3000 concurrently \"npm:dev:react\" \"npm:dev:electron\"",
+    "dev:react": "vite",
+    "dev:electron": "npm run build:electron && wait-on tcp:3000 && cross-env VITE_DEV=1 electron .",
+    "dev:simple": "node scripts/electron-dev.js",
+    "build": "npm run build:react && npm run build:electron",
+    "build:react": "node ../scripts/frontend/copy-monaco-assets.js && vite build",
+    "build:react:win": "node ../scripts/frontend/copy-monaco-assets.js && vite build",
+    "build:electron": "npx tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');const d='dist-electron/electron';fs.mkdirSync(d,{recursive:true});const cp=(s,t)=>fs.existsSync(s)?(fs.copyFileSync(s,t),true):false;cp('build/logo.ico',d+'/logo.ico')||cp('public/favicon.ico',d+'/logo.ico');cp('public/logo.png',d+'/logo.png');\"",
+    "build:package": "npm run build:react && npm run build:electron && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --publish=never",
+    "build:package:win": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false node scripts/package-win.js",
+    "build:package:win:dir": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false QUANTMIND_WIN_DIR_ONLY=1 node scripts/package-win.js",
+    "build:package:win:builder": "npm run build:react && npm run build:electron && electron-builder --win nsis portable --x64 --publish=never",
+    "build:package:win:publish": "npm run build:react && npm run build:electron && electron-builder --win nsis portable --x64 --publish=always",
+    "clean": "node scripts/clean.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:changed": "node scripts/lint-changed.js",
+    "lint:phase": "node scripts/lint-phase.js",
+    "lint:phase1": "node scripts/lint-phase.js --phase=1",
+    "lint:phase2": "node scripts/lint-phase.js --phase=2",
+    "lint:phase3": "node scripts/lint-phase.js --phase=3",
+    "preview": "vite preview",
+    "start": "electron .",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "postinstall": "node ../scripts/frontend/fix-electron-path.js && node ../scripts/frontend/copy-monaco-assets.js"
+  },
+  "build": {
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
+    "appId": "com.quantmind.dashboard",
+    "productName": "QuantMind量化助手",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://cos.quantmind.cloud/update/oss"
+      }
+    ],
+    "files": [
+      "dist-react/**/*",
+      "dist-electron/**/*"
+    ],
+    "extraResources": [],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "logo.icns",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "logo.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Finance",
+      "icon": "logo.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": true,
+      "displayLanguageSelector": false,
+      "installerIcon": "logo.ico",
+      "uninstallerIcon": "logo.ico",
+      "differentialPackage": true,
+      "compression": "lzma",
+      "compressionLevel": 9
+    },
+    "portable": {
+      "artifactName": "${productName} ${version} Portable.${ext}",
+      "requestExecutionLevel": "user"
+    }
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.2.2",
+    "@dnd-kit/core": "^6.1.0",
+    "@dnd-kit/sortable": "^8.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@monaco-editor/react": "^4.7.0",
+    "@reduxjs/toolkit": "^2.2.5",
+    "@tailwindcss/aspect-ratio": "^0.4.2",
+    "@tailwindcss/forms": "^0.5.7",
+    "@tailwindcss/typography": "^0.5.13",
+    "@tanstack/react-query": "^5.90.2",
+    "@tiptap/extension-character-count": "^2.6.6",
+    "@tiptap/extension-image": "^2.6.6",
+    "@tiptap/extension-link": "^2.6.6",
+    "@tiptap/extension-placeholder": "^2.6.6",
+    "@tiptap/extension-underline": "^2.6.6",
+    "@tiptap/react": "^2.6.6",
+    "@tiptap/starter-kit": "^2.6.6",
+    "@types/lodash": "^4.17.4",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "antd": "^5.18.0",
+    "autoprefixer": "^10.4.19",
+    "axios": "^1.7.2",
+    "bcryptjs": "^3.0.3",
+    "browser-image-compression": "^2.0.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.0.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "date-fns": "^3.6.0",
+    "echarts": "^6.0.0",
+    "echarts-for-react": "^3.0.6",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.6.2",
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "framer-motion": "^11.2.10",
+    "fuse.js": "^7.1.0",
+    "jspdf": "^3.0.3",
+    "jspdf-autotable": "^5.0.2",
+    "lightweight-charts": "^5.0.9",
+    "lodash": "^4.17.21",
+    "lucide-react": "^0.390.0",
+    "monaco-editor": "^0.55.1",
+    "p-limit": "^3.1.0",
+    "papaparse": "^5.5.3",
+    "postcss": "^8.4.38",
+    "prismjs": "^1.30.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-redux": "^9.1.2",
+    "react-router-dom": "^7.9.4",
+    "react-window": "^1.8.8",
+    "recharts": "^2.12.7",
+    "recoil": "^0.7.7",
+    "remark-gfm": "^4.0.1",
+    "socket.io-client": "^4.8.3",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss": "^3.4.4",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.4.5",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14",
+    "wait-on": "^7.2.0",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.0",
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@playwright/test": "^1.57.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^15.0.7",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^24.6.2",
+    "@types/prismjs": "^1.26.5",
+    "@types/react-window": "^1.8.8",
+    "@types/testing-library__jest-dom": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.12.0",
+    "@typescript-eslint/parser": "^7.12.0",
+    "@vitejs/plugin-react-swc": "^3.7.0",
+    "@vitest/coverage-v8": "^4.0.14",
+    "@vitest/ui": "^4.0.14",
+    "baseline-browser-mapping": "^2.10.10",
+    "electron": "40.8.0",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^4.0.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^24.1.0",
+    "playwright": "^1.57.0"
+  },
+  "overrides": {
+    "monaco-editor": "0.55.1"
+  }
+}

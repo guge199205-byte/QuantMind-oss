@@ -1,0 +1,28 @@
+{
+  "id": "momentum",
+  "name": "趋势动量策略 (Momentum)",
+  "description": "基于\"强者恒强\"逻辑，自动筛选过去一段时间涨幅最高且波动稳健的行业或个股。",
+  "category": "basic",
+  "difficulty": "beginner",
+  "params": [
+    {
+      "name": "topk",
+      "description": "选股数量",
+      "default": 30,
+      "min": 5,
+      "max": 100
+    },
+    {
+      "name": "momentum_period",
+      "description": "动量回看周期 (天)",
+      "default": 20,
+      "min": 5,
+      "max": 60
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

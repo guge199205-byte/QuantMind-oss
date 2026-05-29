@@ -1,0 +1,39 @@
+{
+  "id": "full_alpha_cross_section",
+  "name": "全量截面 Alpha 预测策略",
+  "description": "基于截面 Alpha 评分每日全量重构持仓：跌出 TopK 全卖，候选涨停/停牌时自动顺延补位，目标维持 TopK 持仓。",
+  "category": "basic",
+  "difficulty": "intermediate",
+  "params": [
+    {
+      "name": "topk",
+      "description": "目标持仓股票数",
+      "default": 50,
+      "min": 10,
+      "max": 200
+    },
+    {
+      "name": "max_weight",
+      "description": "单票持仓上限 (0~1)",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.2
+    },
+    {
+      "name": "rebalance_days",
+      "description": "调仓周期（交易日）",
+      "default": 1,
+      "min": 1,
+      "max": 60
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 1
+  },
+  "live_config_tips": [
+    "该策略默认按日调仓，跌出 TopK 的标的会在调仓日全部卖出。",
+    "遇到涨停或停牌无法买入时，系统会自动顺延至下一只候选标的补位。"
+  ]
+}
+

@@ -1,0 +1,131 @@
+# AI策略服务配置
+service:
+  name: ai-strategy
+  display_name: AI策略生成服务
+  version: 1.0.0
+  description: 基于大语言模型的量化策略生成服务
+  port: 8008
+
+# AI模型配置
+ai_models:
+  # 默认模型配置
+  default_model: ${AI_DEFAULT_MODEL:gpt-3.5-turbo}
+
+  # 模型提供商配置
+  providers:
+    openai:
+      enabled: ${OPENAI_ENABLED:true}
+      api_key: ${OPENAI_API_KEY:}
+      base_url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      models:
+        - name: gpt-4
+          max_tokens: 4096
+          temperature: 0.7
+          timeout: 120
+        - name: gpt-3.5-turbo
+          max_tokens: 4096
+          temperature: 0.7
+          timeout: 60
+
+    anthropic:
+      enabled: ${ANTHROPIC_ENABLED:false}
+      api_key: ${ANTHROPIC_API_KEY:}
+      base_url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+      models:
+        - name: claude-3-sonnet
+          max_tokens: 4096
+          temperature: 0.7
+          timeout: 120
+
+    tongyi:
+      enabled: ${TONGYI_ENABLED:false}
+      api_key: ${TONGYI_QIANWEN_API_KEY:}
+      base_url: ${TONGYI_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
+      models:
+        - name: qwen-plus
+          max_tokens: 4096
+          temperature: 0.7
+          timeout: 90
+
+    deepseek:
+      enabled: ${DEEPSEEK_ENABLED:false}
+      api_key: ${DEEPSEEK_API_KEY:}
+      base_url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      models:
+        - name: deepseek-chat
+          max_tokens: 4096
+          temperature: 0.7
+          timeout: 90
+
+# 策略生成配置
+strategy_generation:
+  # 提示模板配置
+  prompt_templates:
+    system_prompt: |
+      你是一个专业的量化投资策略开发助手。基于用户的需求描述，生成完整的量化交易策略代码。
+      策略应该包含：入场条件、出场条件、风险管理、资金管理等部分。
+
+      请使用Python编写策略代码，并确保代码的可执行性和安全性。
+
+    user_prompt_template: |
+      策略需求：{user_description}
+
+      市场类型：{market_type}
+      风险偏好：{risk_preference}
+      投资风格：{investment_style}
+
+      {examples}
+
+  # 生成参数
+  generation_params:
+    max_tokens: 4096
+    temperature: 0.7
+    top_p: 0.9
+    frequency_penalty: 0.1
+    presence_penalty: 0.1
+
+  # 内容过滤
+  content_filter:
+    enabled: true
+    max_retries: 3
+    forbidden_patterns:
+      - "exec("
+      - "eval("
+      - "import os"
+      - "subprocess"
+
+# 策略验证配置
+validation:
+  enabled: true
+  syntax_check: true
+  security_check: true
+  logic_check: false  # 需要历史数据，暂不启用
+
+# 缓存配置
+cache:
+  enabled: true
+  strategy_cache_ttl: 86400  # 24小时
+  template_cache_ttl: 3600   # 1小时
+  max_cache_size: 1000
+
+# 性能监控
+monitoring:
+  enabled: true
+  track_token_usage: true
+  track_response_time: true
+  track_success_rate: true
+  alert_threshold:
+    response_time: 30  # 秒
+    error_rate: 0.1    # 10%
+    token_usage_rate: 1000  # tokens/分钟
+
+# 数据库配置
+database:
+  type: postgresql
+  postgresql:
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:6789}
+    database: ${DB_NAME:quantmind}
+    username: ${DB_USER:quantmind}
+    password: ${DB_PASSWORD:admin123}
+

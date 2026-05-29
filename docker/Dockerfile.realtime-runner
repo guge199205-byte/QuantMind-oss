@@ -1,0 +1,49 @@
+# 兼容旧实盘 runner 入口；建议新部署优先使用 docker/Dockerfile.ml-runtime。
+FROM python:3.10-slim
+
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG INSTALL_PYQLIB=1
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
+
+WORKDIR /app
+
+# 优化 Debian 源 (兼容不同版本)
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources || sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libgomp1 \
+        cmake \
+        swig \
+        curl \
+        git \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install \
+        numpy \
+        pandas \
+        redis \
+        requests \
+        pydantic \
+        scikit-learn \
+        lightgbm \
+        fire \
+        exchange_calendars \
+    && if [ "${INSTALL_PYQLIB}" = "1" ]; then python -m pip install pyqlib; fi
+
+RUN mkdir -p /app/strategies /data/models /data/qlib_data /tmp
+
+COPY backend/__init__.py /app/backend/__init__.py
+COPY backend/shared /app/backend/shared
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD python -c "import os,time,sys; p='/tmp/heartbeat'; sys.exit(0 if os.path.exists(p) and (time.time()-os.path.getmtime(p)) < 180 else 1)"

@@ -1,0 +1,423 @@
+import asyncio
+import importlib
+import os
+import sys
+from contextlib import asynccontextmanager
+from typing import Optional
+from urllib.parse import quote_plus
+
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from backend.shared.auth import AuthManager, get_internal_call_secret
+from backend.shared.config_manager import init_unified_config
+from backend.shared.cors import resolve_cors_origins
+from backend.shared.database_pool import init_default_databases as init_sync_db_pool
+from backend.shared.error_contract import install_error_contract_handlers
+from backend.shared.logging_config import get_logger
+from backend.shared.openapi_utils import quantmind_generate_unique_id
+from backend.shared.request_id import install_request_id_middleware
+from backend.shared.request_logging import install_access_log_middleware
+from backend.shared.service_health_metrics import (
+    build_metrics_response,
+    set_service_health,
+)
+
+logger = get_logger(__name__)
+
+
+# 兼容 qlib_app 内部裸导入路径（from qlib_app.*）
+if "qlib_app" not in sys.modules:
+    sys.modules["qlib_app"] = importlib.import_module("backend.services.engine.qlib_app")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.startup_healthy = True
+    try:
+        await init_unified_config(service_name="quantmind-engine")
+        logger.info("✅ QuantMind Engine Unified Config Loaded")
+    except Exception as e:
+        app.state.startup_healthy = False
+        logger.error(f"❌ Unified config load failed: {e}")
+
+    try:
+        init_sync_db_pool(pool_size=20, max_overflow=10)
+    except Exception as e:
+        app.state.startup_healthy = False
+        logger.error(f"❌ Sync database pool init failed: {e}")
+
+    try:
+        # Skip qlib bootstrap at startup — qlib.init() can get stuck in CPU loops
+        # in containerized environments. Tables will be ensured lazily on first use.
+        # Qlib itself initializes on first backtest request via service.initialize().
+        from backend.services.engine.qlib_app.services.backtest_persistence import (
+            BacktestPersistence,
+        )
+        from backend.services.engine.qlib_app.services.optimization_persistence import (
+            OptimizationPersistence,
+        )
+        await BacktestPersistence().ensure_tables()
+        await OptimizationPersistence().ensure_tables()
+        logger.info("✅ Backtest/Optimization tables ensured (qlib init deferred to first use)")
+    except Exception as e:
+        logger.error(f"❌ Table ensure failed: {e} (non-fatal)")
+
+    try:
+        from backend.services.engine.qlib_app.services.rd_agent_persistence import RDAgentFactorPersistence
+
+        await RDAgentFactorPersistence().ensure_tables()
+    except Exception as e:
+        app.state.startup_healthy = False
+        logger.error(f"❌ AlphaAgent factors table ensure failed: {e}")
+
+    try:
+        from backend.services.engine.quantbot.task_store import QuantBotTaskStore
+
+        await QuantBotTaskStore().ensure_tables()
+    except Exception as e:
+        app.state.startup_healthy = False
+        logger.error(f"❌ QuantBot tasks table ensure failed: {e}")
+
+    try:
+        from backend.shared.model_registry import model_registry_service
+
+        await model_registry_service.ensure_tables()
+    except Exception as e:
+        app.state.startup_healthy = False
+        logger.error(f"❌ Model registry table ensure failed: {e}")
+
+    set_service_health("quantmind-engine", bool(getattr(app.state, "startup_healthy", True)))
+
+    # 启动 VectorizedMatcher（受 ENABLE_VECTORIZED_MATCHER 环境变量控制）
+    vm_task: asyncio.Task | None = None
+    try:
+        from backend.services.trade.services.vectorized_matcher import VectorizedMatcher
+        _vm = VectorizedMatcher()
+        vm_task = asyncio.create_task(_vm.start(), name="vectorized_matcher")
+        app.state.vectorized_matcher = _vm
+        logger.info("✅ VectorizedMatcher task created (active if ENABLE_VECTORIZED_MATCHER=true)")
+    except Exception as e:
+        logger.warning(f"⚠️ VectorizedMatcher startup skipped: {e}")
+
+    # 启动预热向量解析/字段检索（2026-05-03：暂时关闭强制预热以加快启动速度）
+    warmup_enabled = os.getenv("AI_STRATEGY_WARMUP", "false").strip().lower() not in ("0", "false", "no", "off")
+    if warmup_enabled:
+        try:
+            from backend.services.engine.ai_strategy.services.startup_health import run_startup_health_checks
+            await run_startup_health_checks()
+            logger.info("✅ AI Strategy Warmup completed successfully")
+        except Exception as e:
+            app.state.startup_healthy = False
+            logger.error(f"❌ AI Strategy Warmup failed: {e}")
+    else:
+        logger.info("AI Strategy Warmup disabled by env")
+
+    # --- 此处 Yield，之后代码在 shutdown 时运行 ---
+    yield
+
+    # --- 停止逻辑 ---
+    if vm_task and not vm_task.done():
+        try:
+            app.state.vectorized_matcher.stop()
+            await asyncio.wait_for(vm_task, timeout=5.0)
+        except Exception:
+            vm_task.cancel()
+    logger.info("🔚 QuantMind Engine shutdown complete")
+
+
+def _run_ai_strategy_warmup_sync() -> None:
+    from backend.services.engine.ai_strategy.services.selection.schema_retriever import (
+        get_schema_retriever,
+    )
+    from backend.services.engine.ai_strategy.services.selection.vector_parser import (
+        get_strategy_vector_parser,
+    )
+
+    asyncio.run(get_strategy_vector_parser())
+    asyncio.run(get_schema_retriever())
+
+
+async def _bootstrap_qlib_runtime() -> None:
+    """在后台补齐 qlib 初始化与回测表检查（不阻塞 engine 启动）。"""
+    from backend.services.engine.qlib_app import get_qlib_service
+    from backend.services.engine.qlib_app.services.backtest_persistence import (
+        BacktestPersistence,
+    )
+    from backend.services.engine.qlib_app.services.optimization_persistence import (
+        OptimizationPersistence,
+    )
+
+    try:
+        qlib_service = get_qlib_service()
+        # 使用线程执行 qlib.init()，设置 90s 超时避免无限卡死
+        await asyncio.wait_for(asyncio.to_thread(qlib_service.initialize), timeout=90)
+        logger.info("✅ Qlib runtime initialized successfully")
+    except asyncio.TimeoutError:
+        logger.error("❌ Qlib runtime initialization timed out after 90s (non-fatal)")
+    except Exception as e:
+        logger.error(f"❌ Qlib runtime initialization failed: {e} (non-fatal)")
+
+    try:
+        await BacktestPersistence().ensure_tables()
+        await OptimizationPersistence().ensure_tables()
+        logger.info("✅ Backtest/Optimization tables ensured")
+    except Exception as e:
+        logger.error(f"❌ Table ensure failed: {e} (non-fatal)")
+
+
+app = FastAPI(
+    title="QuantMind Computational Engine",
+    version="2.0.0",
+    description="收敛后的计算引擎服务（整合了 AI 策略生成、模型推理、回测等模块）",
+    lifespan=lifespan,
+    generate_unique_id_function=quantmind_generate_unique_id,
+)
+
+install_request_id_middleware(app)
+install_error_contract_handlers(app)
+install_access_log_middleware(app, service_name="quantmind-engine")
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """
+    统一认证中间件：支持内部信任 Header (X-User-Id) 或直接通过 JWT 令牌 (Bearer) 校验。
+    """
+    path = request.url.path
+    method = request.method.upper()
+    internal_secret = request.headers.get("X-Internal-Call")
+    expected_secret = get_internal_call_secret()
+
+    # 1. 尝试从网关透传的信任 Header 获取
+    user_id = request.headers.get("X-User-Id")
+    tenant_id = request.headers.get("X-Tenant-Id", "default")
+
+    # 2. 如果没有信任 Header，尝试直接校验 JWT (支持 Nginx 直接转发)
+    auth_header = request.headers.get("Authorization")
+    if not user_id and auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            payload = AuthManager().verify_token(token)
+            user_id = str(payload.get("sub") or payload.get("user_id") or "")
+            tenant_id = str(payload.get("tenant_id") or "default")
+        except Exception:
+            # 校验失败不立即报错，留待具体的路由逻辑（或 internal_secret 检查）决定
+            pass
+
+    # 所有 /api/v1/* 业务路由必须通过内部密钥或有效的用户身份。
+    # 只有在内部密钥不匹配且用户身份也缺失的情况下才报错（OPTIONS 放行）。
+    # 额外：对于需要用户上下文的业务路由（backtest/strategies/inference/analysis/selection），
+    # 即使内部密钥匹配，也必须提供 user_id，否则下游会报 "Missing authenticated user context"。
+    if method != "OPTIONS" and path.startswith("/api/v1/"):
+        if internal_secret != expected_secret and not user_id:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Authentication required (Invalid internal secret or missing user context)"},
+            )
+        # 需要用户上下文的受保护路由列表
+        protected_prefixes = (
+            "/api/v1/qlib/",
+            "/api/v1/strategies/",
+            "/api/v1/inference/",
+            "/api/v1/analysis/",
+            "/api/v1/selection/",
+            "/api/v1/strategy/",
+            "/api/v1/backtest/",
+            "/api/v1/rd-agent/",
+            "/api/v1/alpha-agent/",
+            "/api/v1/pipeline/",
+            "/api/v1/admin/",
+        )
+        if not user_id and any(path.startswith(p) for p in protected_prefixes):
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "需要登录。请确认您的登录状态并重试。"},
+            )
+
+    if user_id:
+        # 注入到 request.state
+        request.state.user = {"user_id": user_id, "tenant_id": tenant_id, "sub": user_id}
+
+    response = await call_next(request)
+    return response
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=resolve_cors_origins(logger=logger),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 0. 用户策略管理（必须先于 AI 策略路由注册，否则 /strategies/{strategy_id}
+#    动态路由会先于 /strategies/templates 等静态路由匹配，导致 templates 接口
+#    被同步数据库查询阻塞、引发事件循环死锁）
+try:
+    from backend.services.engine.qlib_app.api.user_strategies import router as strategies_router
+
+    app.include_router(strategies_router, prefix="/api/v1/strategies", tags=["Strategies"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load Strategies router: {e}")
+
+# 1. AI 策略生成
+try:
+    from backend.services.engine.ai_strategy.api.routes.strategy_backtest_loop import router as strategy_loop_router
+    from backend.services.engine.ai_strategy.api.v1.routes import router as ai_strat_router
+    from backend.services.engine.ai_strategy.api.v1.wizard import router as wizard_router
+
+    app.include_router(ai_strat_router, prefix="/api/v1", tags=["AI Strategy"])
+    app.include_router(wizard_router, prefix="/api/v1", tags=["Strategy Wizard"])
+    app.include_router(strategy_loop_router, prefix="/api/v1", tags=["Strategy Loop"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load AI Strategy routers: {e}")
+
+
+# 2. 模型推理
+try:
+    from backend.services.engine.routers.inference import router as inference_router
+
+    app.include_router(inference_router, prefix="/api/v1/inference", tags=["AI Inference"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load AI Inference router: {e}")
+
+# 3. 闭环编排
+try:
+    from backend.services.engine.routers.pipeline import router as pipeline_router
+
+    app.include_router(pipeline_router, prefix="/api/v1/pipeline", tags=["Pipeline"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load Pipeline router: {e}")
+
+# 3.1 实盘E2E最小契约接口
+try:
+    from backend.services.engine.routers.realtime_contract import router as realtime_contract_router
+
+    app.include_router(realtime_contract_router, prefix="/api/v1")
+except ImportError as e:
+    logger.error(f"❌ Failed to load Realtime Contract router: {e}")
+
+# 4. 量化回测
+try:
+    from backend.services.engine.qlib_app.api.backtest import router as backtest_router
+
+    app.include_router(backtest_router, prefix="/api/v1", tags=["Qlib Backtest"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load Qlib Backtest router: {e}")
+
+# 4.1 高级分析
+try:
+    from backend.services.engine.qlib_app.api.analysis import router as analysis_router
+
+    # analysis_router 自带 /api/v1/analysis 前缀
+    app.include_router(analysis_router, tags=["Qlib Analysis"])
+except ImportError as e:
+    logger.error(f"❌ Failed to load Qlib Analysis router: {e}")
+
+# 5.1 管理员策略模板管理
+try:
+    from backend.services.engine.qlib_app.api.admin_templates import router as admin_templates_router
+
+    app.include_router(
+        admin_templates_router,
+        prefix="/api/v1/admin/strategy-templates",
+        tags=["Admin-StrategyTemplates"],
+    )
+    logger.info("✅ Admin Strategy Templates router loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load Admin Strategy Templates router: {e}")
+
+# 6. 股票查询与智能选股
+try:
+    from backend.services.engine.stock_query_app.routes import router as stock_router
+    from backend.services.engine.stock_query_app.smart_screener_api import router as smart_screener_router
+
+    app.include_router(stock_router)
+    app.include_router(smart_screener_router)
+    logger.info("✅ Stock Query & Smart Screener routers loaded")
+except ImportError as e:
+    logger.warning(f"⚠️ Stock Query router not available: {e}")
+
+
+try:
+    from backend.services.engine.routers.ai_ide.chat import router as ai_chat_router
+    from backend.services.engine.routers.ai_ide.config import router as ai_config_router
+    from backend.services.engine.routers.ai_ide.executor import router as ai_executor_router
+    from backend.services.engine.routers.ai_ide.workspace import router as ai_workspace_router
+
+    app.include_router(ai_chat_router, prefix="/api/v1/ai-ide/ai", tags=["Cloud IDE-AI"])
+    app.include_router(ai_config_router, prefix="/api/v1/ai-ide/config", tags=["Cloud IDE-Config"])
+    app.include_router(ai_executor_router, prefix="/api/v1/ai-ide/execute", tags=["Cloud IDE-Executor"])
+    app.include_router(ai_workspace_router, prefix="/api/v1/ai-ide/files", tags=["Cloud IDE-Workspace"])
+    logger.info("✅ Cloud AI-IDE routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load Cloud AI-IDE routers: {e}")
+
+
+try:
+    from backend.services.engine.routers.rd_agent import router as rd_agent_router
+
+    app.include_router(rd_agent_router)
+    logger.info("✅ RD-Agent integration routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load RD-Agent routers: {e}")
+
+try:
+    from backend.services.engine.routers.alpha_agent import router as alpha_agent_router
+
+    app.include_router(alpha_agent_router)
+    logger.info("✅ AlphaAgent integration routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load AlphaAgent routers: {e}")
+
+try:
+    from backend.services.engine.routers.trading_agents import router as trading_agents_router
+
+    app.include_router(trading_agents_router)
+    logger.info("✅ TradingAgents routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load TradingAgents routers: {e}")
+
+try:
+    from backend.services.engine.routers.daily_analysis import router as daily_analysis_router
+
+    app.include_router(daily_analysis_router)
+    logger.info("✅ Daily Analysis routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load Daily Analysis routers: {e}")
+
+try:
+    from backend.services.engine.routers.quantbot_router import router as quantbot_router
+
+    app.include_router(quantbot_router)
+    logger.info("✅ QuantBot router loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load QuantBot router: {e}")
+
+
+@app.get("/health")
+async def health_check():
+    startup_healthy = bool(getattr(app.state, "startup_healthy", True))
+    set_service_health("quantmind-engine", startup_healthy)
+    return {
+        "status": "healthy" if startup_healthy else "degraded",
+        "service": "quantmind-engine",
+    }
+
+
+@app.get("/")
+async def root():
+    return {"message": "QuantMind Engine Core V2 is running"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return build_metrics_response()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8001, access_log=False)

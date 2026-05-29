@@ -1,0 +1,536 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { analysisApi, DuplicateTaskError } from '../../api/analysis';
+import { historyApi } from '../../api/history';
+import type { TaskInfo, TaskListResponse } from '../../types/analysis';
+import { useStockPoolStore } from '../stockPoolStore';
+
+vi.mock('../../api/history', () => ({
+  historyApi: {
+    getList: vi.fn(),
+    getDetail: vi.fn(),
+    deleteRecords: vi.fn(),
+  },
+}));
+
+vi.mock('../../api/analysis', async () => {
+  const actual = await vi.importActual<typeof import('../../api/analysis')>('../../api/analysis');
+  return {
+    ...actual,
+    analysisApi: {
+      analyzeAsync: vi.fn(),
+      getTasks: vi.fn(),
+    },
+  };
+});
+
+const historyItem = {
+  id: 1,
+  queryId: 'q-1',
+  stockCode: '600519',
+  stockName: '贵州茅台',
+  sentimentScore: 82,
+  operationAdvice: '买入',
+  createdAt: '2026-03-18T08:00:00Z',
+};
+
+const historyReport = {
+  meta: {
+    id: 1,
+    queryId: 'q-1',
+    stockCode: '600519',
+    stockName: '贵州茅台',
+    reportType: 'detailed' as const,
+    createdAt: '2026-03-18T08:00:00Z',
+  },
+  summary: {
+    analysisSummary: '趋势维持强势',
+    operationAdvice: '继续观察买点',
+    trendPrediction: '短线震荡偏强',
+    sentimentScore: 78,
+  },
+};
+
+function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
+  return {
+    taskId: 'task-1',
+    stockCode: '600519',
+    stockName: '贵州茅台',
+    status: 'processing',
+    progress: 50,
+    reportType: 'detailed',
+    createdAt: '2026-03-18T08:00:00Z',
+    ...overrides,
+  };
+}
+
+function createTaskListResponse(
+  tasks: TaskInfo[],
+  counts: Partial<Pick<TaskListResponse, 'pending' | 'processing' | 'total'>> = {},
+): TaskListResponse {
+  const pending = counts.pending ?? tasks.filter((task) => task.status === 'pending').length;
+  const processing = counts.processing ?? tasks.filter((task) => task.status === 'processing').length;
+  return {
+    total: counts.total ?? tasks.length,
+    pending,
+    processing,
+    tasks,
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe('stockPoolStore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useStockPoolStore.getState().resetDashboardState();
+    vi.mocked(analysisApi.getTasks).mockResolvedValue(createTaskListResponse([]));
+  });
+
+  it('loads initial history and auto-selects the first report', async () => {
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 1,
+      page: 1,
+      limit: 20,
+      items: [historyItem],
+    });
+    vi.mocked(historyApi.getDetail).mockResolvedValue(historyReport);
+
+    await useStockPoolStore.getState().loadInitialHistory();
+
+    const state = useStockPoolStore.getState();
+    expect(state.historyItems).toHaveLength(1);
+    expect(state.selectedReport?.meta.stockCode).toBe('600519');
+    expect(state.isLoadingHistory).toBe(false);
+    expect(state.isLoadingReport).toBe(false);
+  });
+
+  it('deletes selected history and clears the selected report when nothing remains', async () => {
+    useStockPoolStore.setState({
+      historyItems: [historyItem],
+      selectedHistoryIds: [1],
+      selectedReport: historyReport,
+    });
+
+    vi.mocked(historyApi.deleteRecords).mockResolvedValue({ deleted: 1 });
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 0,
+      page: 1,
+      limit: 20,
+      items: [],
+    });
+
+    await useStockPoolStore.getState().deleteSelectedHistory();
+
+    const state = useStockPoolStore.getState();
+    expect(state.historyItems).toHaveLength(0);
+    expect(state.selectedHistoryIds).toHaveLength(0);
+    expect(state.selectedReport).toBeNull();
+    expect(historyApi.getList).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the next history report after deleting the currently selected item', async () => {
+    const nextHistoryItem = {
+      ...historyItem,
+      id: 2,
+      queryId: 'q-2',
+      stockCode: 'AAPL',
+      stockName: 'Apple',
+    };
+    const nextHistoryReport = {
+      ...historyReport,
+      meta: {
+        ...historyReport.meta,
+        id: 2,
+        queryId: 'q-2',
+        stockCode: 'AAPL',
+        stockName: 'Apple',
+      },
+    };
+
+    useStockPoolStore.setState({
+      historyItems: [historyItem, nextHistoryItem],
+      selectedHistoryIds: [1],
+      selectedReport: historyReport,
+    });
+
+    vi.mocked(historyApi.deleteRecords).mockResolvedValue({ deleted: 1 });
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 1,
+      page: 1,
+      limit: 20,
+      items: [nextHistoryItem],
+    });
+    vi.mocked(historyApi.getDetail).mockResolvedValue(nextHistoryReport);
+
+    await useStockPoolStore.getState().deleteSelectedHistory();
+
+    const state = useStockPoolStore.getState();
+    expect(state.historyItems).toHaveLength(1);
+    expect(state.historyItems[0].id).toBe(2);
+    expect(state.selectedReport?.meta.id).toBe(2);
+    expect(state.selectedReport?.meta.stockCode).toBe('AAPL');
+  });
+
+  it('surfaces duplicate task errors without replacing the dashboard error state', async () => {
+    vi.mocked(analysisApi.analyzeAsync).mockRejectedValue(
+      new DuplicateTaskError('600519', 'task-1', '股票 600519 正在分析中'),
+    );
+
+    useStockPoolStore.getState().setQuery('600519');
+    await useStockPoolStore.getState().submitAnalysis();
+
+    const state = useStockPoolStore.getState();
+    expect(state.duplicateError).toContain('600519');
+    expect(state.error).toBeNull();
+    expect(state.isAnalyzing).toBe(false);
+  });
+
+  it('rejects obviously invalid mixed alphanumeric input before calling the API', async () => {
+    useStockPoolStore.getState().setQuery('00aaaaa');
+
+    await useStockPoolStore.getState().submitAnalysis();
+
+    const state = useStockPoolStore.getState();
+    expect(state.inputError).toBe('请输入有效的股票代码或股票名称');
+    expect(state.isAnalyzing).toBe(false);
+    expect(analysisApi.analyzeAsync).not.toHaveBeenCalled();
+  });
+
+  it('accepts HK suffix codes from autocomplete without local validation errors', async () => {
+    vi.mocked(analysisApi.analyzeAsync).mockResolvedValue({
+      taskId: 'task-hk-1',
+      stockCode: '00700.HK',
+      status: 'pending',
+      message: 'accepted',
+    } as never);
+
+    await useStockPoolStore.getState().submitAnalysis({
+      stockCode: '00700.HK',
+      stockName: '腾讯控股',
+      originalQuery: '00700',
+      selectionSource: 'autocomplete',
+    });
+
+    const state = useStockPoolStore.getState();
+    expect(state.inputError).toBeUndefined();
+    expect(state.isAnalyzing).toBe(false);
+    expect(analysisApi.analyzeAsync).toHaveBeenCalledWith(expect.objectContaining({
+      stockCode: '00700.HK',
+      reportType: 'detailed',
+      stockName: '腾讯控股',
+      originalQuery: '00700',
+      selectionSource: 'autocomplete',
+      notify: true,
+    }));
+  });
+
+  it('merges newly discovered history items during silent refresh', async () => {
+    useStockPoolStore.setState({
+      historyItems: [historyItem],
+      currentPage: 1,
+      hasMore: true,
+    });
+
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 2,
+      page: 1,
+      limit: 20,
+      items: [
+        { ...historyItem, id: 2, queryId: 'q-2', stockCode: 'AAPL', stockName: 'Apple' },
+        historyItem,
+      ],
+    });
+
+    await useStockPoolStore.getState().refreshHistory(true);
+
+    const state = useStockPoolStore.getState();
+    expect(state.historyItems.map((item) => item.id)).toEqual([2, 1]);
+    expect(state.currentPage).toBe(1);
+  });
+
+  it('ignores late history responses after dashboard reset', async () => {
+    const deferred = createDeferred<{
+      total: number;
+      page: number;
+      limit: number;
+      items: typeof historyItem[];
+    }>();
+
+    vi.mocked(historyApi.getList).mockImplementation(() => deferred.promise);
+
+    const loadPromise = useStockPoolStore.getState().loadInitialHistory();
+    useStockPoolStore.getState().resetDashboardState();
+
+    deferred.resolve({
+      total: 1,
+      page: 1,
+      limit: 20,
+      items: [historyItem],
+    });
+
+    await loadPromise;
+
+    const state = useStockPoolStore.getState();
+    expect(state.historyItems).toHaveLength(0);
+    expect(state.isLoadingHistory).toBe(false);
+    expect(state.currentPage).toBe(1);
+  });
+
+  it('tracks task lifecycle updates and resets all dashboard state', () => {
+    const pendingTask = {
+      taskId: 'task-1',
+      stockCode: '600519',
+      stockName: '贵州茅台',
+      status: 'pending' as const,
+      progress: 0,
+      reportType: 'detailed',
+      createdAt: '2026-03-18T08:00:00Z',
+    };
+
+    useStockPoolStore.getState().syncTaskCreated(pendingTask);
+    useStockPoolStore.getState().syncTaskUpdated({
+      ...pendingTask,
+      status: 'processing',
+      progress: 60,
+    });
+
+    let state = useStockPoolStore.getState();
+    expect(state.activeTasks).toHaveLength(1);
+    expect(state.activeTasks[0].status).toBe('processing');
+
+    useStockPoolStore.getState().removeTask('task-1');
+    state = useStockPoolStore.getState();
+    expect(state.activeTasks).toHaveLength(0);
+
+    useStockPoolStore.setState({
+      query: 'AAPL',
+      selectedHistoryIds: [1],
+      selectedReport: historyReport,
+      markdownDrawerOpen: true,
+      activeTasks: [
+        {
+          ...pendingTask,
+          taskId: 'task-2',
+          status: 'processing',
+          progress: 80,
+        },
+      ],
+    });
+
+    useStockPoolStore.getState().resetDashboardState();
+    state = useStockPoolStore.getState();
+    expect(state.activeTasks).toHaveLength(0);
+    expect(state.query).toBe('');
+    expect(state.selectedHistoryIds).toHaveLength(0);
+    expect(state.selectedReport).toBeNull();
+    expect(state.markdownDrawerOpen).toBe(false);
+  });
+
+  it('ignores late task updates after a task has been removed', () => {
+    const pendingTask = {
+      taskId: 'task-1',
+      stockCode: '600519',
+      stockName: '贵州茅台',
+      status: 'pending' as const,
+      progress: 0,
+      reportType: 'detailed',
+      createdAt: '2026-03-18T08:00:00Z',
+    };
+
+    useStockPoolStore.getState().syncTaskCreated(pendingTask);
+    useStockPoolStore.getState().removeTask('task-1');
+    useStockPoolStore.getState().syncTaskUpdated({
+      ...pendingTask,
+      status: 'processing',
+      progress: 35,
+    });
+    useStockPoolStore.getState().syncTaskCreated(pendingTask);
+
+    expect(useStockPoolStore.getState().activeTasks).toHaveLength(0);
+  });
+
+  it('ignores unknown task updates after dashboard reset', () => {
+    const pendingTask = {
+      taskId: 'task-1',
+      stockCode: '600519',
+      stockName: '贵州茅台',
+      status: 'pending' as const,
+      progress: 0,
+      reportType: 'detailed',
+      createdAt: '2026-03-18T08:00:00Z',
+    };
+
+    useStockPoolStore.getState().syncTaskCreated(pendingTask);
+    useStockPoolStore.getState().resetDashboardState();
+    useStockPoolStore.getState().syncTaskUpdated({
+      ...pendingTask,
+      status: 'processing',
+      progress: 35,
+    });
+
+    const state = useStockPoolStore.getState();
+    expect(state.activeTasks).toHaveLength(0);
+  });
+
+  it('does not backfill unknown failed tasks from SSE updates', () => {
+    useStockPoolStore.getState().syncTaskFailed({
+      taskId: 'task-404',
+      stockCode: 'AAPL',
+      stockName: 'Apple',
+      status: 'failed',
+      progress: 100,
+      reportType: 'detailed',
+      createdAt: '2026-03-18T08:00:00Z',
+      error: '分析失败',
+    });
+
+    const state = useStockPoolStore.getState();
+    expect(state.activeTasks).toHaveLength(0);
+    expect(state.error).toBeTruthy();
+  });
+
+  it('reconciles active tasks from a complete empty backend snapshot without dismissing them', async () => {
+    const staleTask = createTask();
+    useStockPoolStore.getState().syncTaskCreated(staleTask);
+    vi.mocked(analysisApi.getTasks).mockResolvedValue(createTaskListResponse([]));
+
+    await useStockPoolStore.getState().refreshActiveTasks();
+
+    expect(analysisApi.getTasks).toHaveBeenCalledWith({
+      status: 'pending,processing',
+      limit: 100,
+    });
+    expect(useStockPoolStore.getState().activeTasks).toHaveLength(0);
+
+    useStockPoolStore.getState().syncTaskCreated(staleTask);
+    expect(useStockPoolStore.getState().activeTasks).toEqual([staleTask]);
+  });
+
+  it('does not prune tasks created after an active-task refresh request started', async () => {
+    const emptySnapshot = createDeferred<TaskListResponse>();
+    const createdTask = createTask({
+      taskId: 'task-created-after-request',
+      status: 'pending',
+      progress: 0,
+    });
+    const updatedTask = {
+      ...createdTask,
+      status: 'processing' as const,
+      progress: 35,
+    };
+    vi.mocked(analysisApi.getTasks).mockReturnValue(emptySnapshot.promise);
+
+    const refreshPromise = useStockPoolStore.getState().refreshActiveTasks();
+    useStockPoolStore.getState().syncTaskCreated(createdTask);
+
+    emptySnapshot.resolve(createTaskListResponse([]));
+    await refreshPromise;
+
+    expect(useStockPoolStore.getState().activeTasks).toEqual([createdTask]);
+
+    useStockPoolStore.getState().syncTaskUpdated(updatedTask);
+    expect(useStockPoolStore.getState().activeTasks).toEqual([updatedTask]);
+  });
+
+  it('upserts pending and processing tasks from the backend snapshot', async () => {
+    const existingTask = createTask({ taskId: 'task-existing', progress: 30 });
+    const updatedTask = createTask({ taskId: 'task-existing', progress: 80, message: 'LLM 正在生成分析结果' });
+    const newTask = createTask({
+      taskId: 'task-new',
+      stockCode: '000001',
+      stockName: '平安银行',
+      status: 'pending',
+      progress: 0,
+    });
+    useStockPoolStore.getState().syncTaskCreated(existingTask);
+    vi.mocked(analysisApi.getTasks).mockResolvedValue(
+      createTaskListResponse([updatedTask, newTask]),
+    );
+
+    await useStockPoolStore.getState().refreshActiveTasks();
+
+    expect(useStockPoolStore.getState().activeTasks).toEqual([updatedTask, newTask]);
+  });
+
+  it('does not re-add dismissed tasks from backend reconciliation', async () => {
+    const dismissedTask = createTask();
+    useStockPoolStore.getState().syncTaskCreated(dismissedTask);
+    useStockPoolStore.getState().removeTask(dismissedTask.taskId);
+    vi.mocked(analysisApi.getTasks).mockResolvedValue(
+      createTaskListResponse([dismissedTask]),
+    );
+
+    await useStockPoolStore.getState().refreshActiveTasks();
+
+    expect(useStockPoolStore.getState().activeTasks).toHaveLength(0);
+  });
+
+  it('ignores late active-task snapshots from older refreshes', async () => {
+    const staleSnapshot = createDeferred<TaskListResponse>();
+    const freshSnapshot = createDeferred<TaskListResponse>();
+    const staleTask = createTask({ taskId: 'task-stale' });
+    const freshTask = createTask({ taskId: 'task-fresh', stockCode: '000001', stockName: '平安银行' });
+    vi.mocked(analysisApi.getTasks)
+      .mockReturnValueOnce(staleSnapshot.promise)
+      .mockReturnValueOnce(freshSnapshot.promise);
+
+    const staleRefresh = useStockPoolStore.getState().refreshActiveTasks();
+    const freshRefresh = useStockPoolStore.getState().refreshActiveTasks();
+
+    freshSnapshot.resolve(createTaskListResponse([freshTask]));
+    await freshRefresh;
+    expect(useStockPoolStore.getState().activeTasks).toEqual([freshTask]);
+
+    staleSnapshot.resolve(createTaskListResponse([staleTask]));
+    await staleRefresh;
+    expect(useStockPoolStore.getState().activeTasks).toEqual([freshTask]);
+  });
+
+  it('does not prune local tasks when the backend active-task snapshot is incomplete', async () => {
+    const localTask = createTask({ taskId: 'task-local' });
+    const remoteTask = createTask({ taskId: 'task-remote', stockCode: '000001', stockName: '平安银行' });
+    useStockPoolStore.getState().syncTaskCreated(localTask);
+    vi.mocked(analysisApi.getTasks).mockResolvedValue(
+      createTaskListResponse([remoteTask], { processing: 2, total: 2 }),
+    );
+
+    await useStockPoolStore.getState().refreshActiveTasks();
+
+    expect(useStockPoolStore.getState().activeTasks).toEqual([localTask, remoteTask]);
+  });
+
+  it('keeps active tasks unchanged when backend reconciliation fails', async () => {
+    const activeTask = createTask();
+    useStockPoolStore.getState().syncTaskCreated(activeTask);
+    vi.mocked(analysisApi.getTasks).mockRejectedValue(new Error('network failed'));
+
+    await useStockPoolStore.getState().refreshActiveTasks();
+
+    expect(useStockPoolStore.getState().activeTasks).toEqual([activeTask]);
+  });
+
+  it('triggers an analysis with the forceRefresh flag', async () => {
+    vi.mocked(analysisApi.analyzeAsync).mockResolvedValue({
+      taskId: 'task-force-1',
+      status: 'pending',
+    } as never);
+
+    await useStockPoolStore.getState().submitAnalysis({
+      stockCode: '600519',
+      forceRefresh: true,
+    });
+
+    expect(analysisApi.analyzeAsync).toHaveBeenCalledWith(expect.objectContaining({
+      stockCode: '600519',
+      forceRefresh: true,
+    }));
+  });
+});

@@ -1,0 +1,26 @@
+{
+  "id": "adaptive_drift",
+  "name": "自适应动态调仓策略 (Concept Drift)",
+  "description": "集成环境建模，自动识别牛熊阶段。动态调整选股宽度与仓位，应对风格漂移。",
+  "category": "basic",
+  "difficulty": "intermediate",
+  "params": [
+    {
+      "name": "topk",
+      "description": "基准选股数量",
+      "default": 50,
+      "min": 10,
+      "max": 100
+    },
+    {
+      "name": "dynamic_position",
+      "description": "开启环境自适应仓位",
+      "default": "True"
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

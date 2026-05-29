@@ -1,0 +1,55 @@
+# 安全共享配置
+security:
+  # JWT配置
+  jwt:
+    secret_key: ${SECRET_KEY:your-super-secret-key-change-in-production}
+    algorithm: ${ALGORITHM:HS256}
+    access_token_expire_minutes: ${ACCESS_TOKEN_EXPIRE_MINUTES:60}
+    refresh_token_expire_days: ${REFRESH_TOKEN_EXPIRE_DAYS:7}
+
+  # CORS配置
+  cors:
+    allowed_origins: ${CORS_ORIGINS:http://localhost:5173,http://localhost:3001}
+    allowed_methods: ${CORS_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+    allowed_headers: "${CORS_HEADERS:*}"
+    allow_credentials: ${CORS_CREDENTIALS:true}
+    max_age: ${CORS_MAX_AGE:600}
+
+  # 限流配置
+  rate_limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    requests_per_minute: ${RATE_LIMIT_RPM:60}
+    requests_per_hour: ${RATE_LIMIT_RPH:1000}
+    burst_size: ${RATE_LIMIT_BURST:10}
+
+  # 安全头配置
+  security_headers:
+    enabled: ${SECURITY_HEADERS_ENABLED:true}
+    x_frame_options: ${X_FRAME_OPTIONS:DENY}
+    x_content_type_options: ${X_CONTENT_TYPE_OPTIONS:nosniff}
+    x_xss_protection: ${X_XSS_PROTECTION:1; mode=block}
+    strict_transport_security: ${HSTS:max-age=31536000; includeSubDomains}
+
+  # 密码策略
+  password_policy:
+    min_length: ${PASSWORD_MIN_LENGTH:8}
+    require_uppercase: ${PASSWORD_REQUIRE_UPPERCASE:true}
+    require_lowercase: ${PASSWORD_REQUIRE_LOWERCASE:true}
+    require_numbers: ${PASSWORD_REQUIRE_NUMBERS:true}
+    require_special_chars: ${PASSWORD_REQUIRE_SPECIAL:true}
+    max_age_days: ${PASSWORD_MAX_AGE:90}
+
+  # API密钥管理
+  api_keys:
+    openai: ${OPENAI_API_KEY:}
+    anthropic: ${ANTHROPIC_API_KEY:}
+    tongyi_qianwen: ${TONGYI_QIANWEN_API_KEY:}
+    google: ${GOOGLE_API_KEY:}
+    deepseek: ${DEEPSEEK_API_KEY:}
+    akshare: ${AKSHARE_API_KEY:}
+
+  # 数据加密
+  encryption:
+    enabled: ${ENCRYPTION_ENABLED:false}
+    algorithm: ${ENCRYPTION_ALGORITHM:AES-256-GCM}
+    key_source: ${ENCRYPTION_KEY_SOURCE:environment}  # environment, file, kms

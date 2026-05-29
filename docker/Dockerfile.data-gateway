@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 数据源依赖
+RUN pip install --no-cache-dir \
+    akshare \
+    pandas \
+    numpy \
+    ta \
+    httpx \
+    requests \
+    fastapi \
+    uvicorn
+
+# 复制后端代码（需要 shared 模块和 data_gateway 本身）
+COPY backend/ /app/backend/
+
+EXPOSE 8004
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8004/health || exit 1
+
+CMD ["python", "-m", "uvicorn", "backend.services.engine.data_gateway.main:app", "--host", "0.0.0.0", "--port", "8004"]

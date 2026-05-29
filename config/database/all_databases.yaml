@@ -1,0 +1,77 @@
+# Consolidated database configuration map
+
+postgres:
+  role: user-service primary
+  default_url: "postgresql+psycopg2://quantmind:admin123@192.168.1.88:6789/quantmind"
+  defaults:
+    host: "192.168.1.88"
+    port: 6789
+    user: "quantmind"
+    password: "admin123"
+    database: "quantmind"
+  env:
+    host: "DB_HOST|POSTGRES_HOST"
+    port: "DB_PORT|POSTGRES_PORT"
+    user: "DB_USER|POSTGRES_USER"
+    password: "DB_PASSWORD|POSTGRES_PASSWORD"
+    database: "DB_NAME|POSTGRES_DB"
+    url: "DATABASE_URL|USER_DATABASE_URL"
+  used_by:
+    - backend/user/database_user.py
+    - backend/shared/database_pool.py
+
+redis:
+  role: system cache (local docker, ACL nopass for default user)
+  default_url: "redis://localhost:6379/0"
+  defaults:
+    host: "localhost"
+    port: 6379
+    password: ""
+    db: 0
+  env:
+    url: "REDIS_URL"
+    host: "REDIS_HOST"
+    port: "REDIS_PORT"
+    user: "REDIS_USER"
+    password: "REDIS_PASSWORD"
+    db: "REDIS_DB"
+  used_by:
+    - backend/cache/redis_client.py
+    - backend/cache/cache_manager.py
+    - backend/shared/celery_app.py (broker DB1 / backend DB2)
+    - backend/services/engine/qlib_app/celery_config.py (broker DB3 / backend DB4)
+    - backend/services/engine/ai_strategy/ai_strategy_config.py (DB5)
+
+redis_trade:
+  role: trade service dedicated
+  default_url: "redis://:7f3a9c2e8b1d4f605a7c9e2b8d1f4a6c@139.199.75.121:6379/2"
+  defaults:
+    host: "139.199.75.121"
+    port: 6379
+    password: "7f3a9c2e8b1d4f605a7c9e2b8d1f4a6c"
+    db: 2
+  env:
+    host: "REDIS_TRADE_HOST"
+    port: "REDIS_TRADE_PORT"
+    password: "REDIS_TRADE_PASSWORD"
+    db: "REDIS_DB_TRADE"
+  used_by:
+    - backend/services/trade/trade_config.py
+    - backend/services/trade/redis_client.py
+
+redis_market:
+  role: market data dedicated (stream service)
+  default_url: "redis://:${REDIS_MARKET_PASSWORD}@localhost:36379/3"
+  defaults:
+    host: "localhost"
+    port: 36379
+    password: "${REDIS_MARKET_PASSWORD}"
+    db: 3
+  env:
+    host: "REDIS_MARKET_HOST"
+    port: "REDIS_MARKET_PORT"
+    password: "REDIS_MARKET_PASSWORD"
+    db: "REDIS_DB_MARKET"
+  used_by:
+    - backend/services/stream/market_app/market_config.py
+    - backend/services/stream/market_app/database.py

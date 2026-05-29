@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "layouts": {
+    "lg": [
+      { "i": "market-overview", "x": 0, "y": 0, "w": 6, "h": 4 },
+      { "i": "portfolio-summary", "x": 6, "y": 0, "w": 6, "h": 4 },
+      { "i": "strategy-performance", "x": 0, "y": 4, "w": 12, "h": 6 },
+      { "i": "recent-trades", "x": 0, "y": 10, "w": 6, "h": 4 },
+      { "i": "risk-metrics", "x": 6, "y": 10, "w": 6, "h": 4 }
+    ],
+    "md": [
+      { "i": "market-overview", "x": 0, "y": 0, "w": 6, "h": 4 },
+      { "i": "portfolio-summary", "x": 6, "y": 0, "w": 6, "h": 4 },
+      { "i": "strategy-performance", "x": 0, "y": 4, "w": 12, "h": 6 },
+      { "i": "recent-trades", "x": 0, "y": 10, "w": 6, "h": 4 },
+      { "i": "risk-metrics", "x": 6, "y": 10, "w": 6, "h": 4 }
+    ],
+    "sm": [
+      { "i": "market-overview", "x": 0, "y": 0, "w": 4, "h": 4 },
+      { "i": "portfolio-summary", "x": 0, "y": 4, "w": 4, "h": 4 },
+      { "i": "strategy-performance", "x": 0, "y": 8, "w": 4, "h": 6 },
+      { "i": "recent-trades", "x": 0, "y": 14, "w": 4, "h": 4 },
+      { "i": "risk-metrics", "x": 0, "y": 18, "w": 4, "h": 4 }
+    ],
+    "xs": [
+      { "i": "market-overview", "x": 0, "y": 0, "w": 2, "h": 4 },
+      { "i": "portfolio-summary", "x": 0, "y": 4, "w": 2, "h": 4 },
+      { "i": "strategy-performance", "x": 0, "y": 8, "w": 2, "h": 6 },
+      { "i": "recent-trades", "x": 0, "y": 14, "w": 2, "h": 4 },
+      { "i": "risk-metrics", "x": 0, "y": 18, "w": 2, "h": 4 }
+    ]
+  },
+  "enabledComponents": {
+    "market-overview": true,
+    "portfolio-summary": true,
+    "strategy-performance": true,
+    "recent-trades": true,
+    "risk-metrics": true,
+    "news-feed": false,
+    "economic-calendar": false,
+    "watchlist": false
+  },
+  "preferences": {
+    "theme": "light",
+    "autoRefresh": true,
+    "refreshInterval": 30000,
+    "notifications": true,
+    "compactMode": false
+  }
+}

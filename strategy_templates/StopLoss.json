@@ -1,0 +1,35 @@
+{
+  "id": "StopLoss",
+  "name": "止损止盈策略",
+  "description": "在标准 TopK 选股基础上叠加硬性止损/止盈规则，一旦触发立即强制平仓，保护资金安全。",
+  "category": "basic",
+  "difficulty": "beginner",
+  "params": [
+    {
+      "name": "topk",
+      "description": "选股数量",
+      "default": 30,
+      "min": 5,
+      "max": 100
+    },
+    {
+      "name": "stop_loss",
+      "description": "止损触发阈值 (负数, 如 -0.08 = -8%)",
+      "default": -0.08,
+      "min": -0.3,
+      "max": -0.01
+    },
+    {
+      "name": "take_profit",
+      "description": "止盈触发阈值 (正数, 如 0.15 = +15%)",
+      "default": 0.15,
+      "min": 0.05,
+      "max": 0.5
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

@@ -1,0 +1,49 @@
+{
+  "layouts": {
+    "lg": [
+      {
+        "i": "widget1",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      }
+    ],
+    "md": [
+      {
+        "i": "widget1",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      }
+    ],
+    "sm": [
+      {
+        "i": "widget1",
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      }
+    ],
+    "xs": [
+      {
+        "i": "widget1",
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      }
+    ]
+  },
+  "enabledComponents": [
+    "widget1"
+  ],
+  "userPreferences": {
+    "theme": "light"
+  },
+  "version": "1.0.0",
+  "updatedAt": "2025-08-24T20:52:03.827129",
+  "createdAt": "2025-08-24T20:52:03.827137"
+}

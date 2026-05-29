@@ -1,0 +1,21 @@
+{
+  "name": "双均线趋势跟随策略 (Demo)",
+  "description": "基于 5 日和 20 日均线金叉逻辑构建的趋势跟随策略。",
+  "author": "AI 策略向导",
+  "user_id": "00000001",
+  "original_prompt": "帮我写一个基于双均线金叉的 A 股趋势跟随策略，要求持仓 30 只股票。",
+  "model_id": "gpt-4o-quant",
+  "style_preference": "trend_following",
+  "tags": [
+    "趋势",
+    "AI",
+    "演示",
+    "均线",
+    "trend_following",
+    "gpt-4o-quant",
+    "Wizard"
+  ],
+  "id": "ai_20260219_025536_trend_following_4436",
+  "updated_at": "2026-02-19T02:55:36.715099",
+  "created_at": "2026-02-19T02:55:36.715099"
+}

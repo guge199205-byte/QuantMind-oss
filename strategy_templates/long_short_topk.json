@@ -1,0 +1,56 @@
+{
+  "id": "long_short_topk",
+  "name": "多空 TopK 策略",
+  "description": "同时做多最高分 TopK 与做空最低分 TopK，支持固定调仓周期、双向敞口和单票权重上限。",
+  "category": "basic",
+  "difficulty": "advanced",
+  "params": [
+    {
+      "name": "topk",
+      "description": "多头持仓股票数",
+      "default": 50,
+      "min": 10,
+      "max": 200
+    },
+    {
+      "name": "short_topk",
+      "description": "空头持仓股票数",
+      "default": 50,
+      "min": 0,
+      "max": 200
+    },
+    {
+      "name": "rebalance_days",
+      "description": "调仓周期（交易日）",
+      "default": 3,
+      "min": 1,
+      "max": 60
+    },
+    {
+      "name": "max_weight",
+      "description": "单票绝对权重上限 (0~1)",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.2
+    },
+    {
+      "name": "long_exposure",
+      "description": "多头总敞口",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 2.0
+    },
+    {
+      "name": "short_exposure",
+      "description": "空头总敞口",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 2.0
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

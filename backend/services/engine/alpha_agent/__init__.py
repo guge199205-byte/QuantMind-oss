@@ -1,0 +1,1 @@
+"""QuantMind AlphaAgent integration — factor mining with regularized exploration"""

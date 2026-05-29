@@ -1,0 +1,44 @@
+{
+  "id": "VolatilityWeighted",
+  "name": "波动率加权 TopK 策略",
+  "category": "basic",
+  "description": "在 Top-K 选股基础上，以近期实现波动率的倒数分配仓位权重。低波动标的获得更高权重，降低组合整体波动率与尾部风险。",
+  "difficulty": "intermediate",
+  "tags": [
+    "波动率",
+    "风险加权",
+    "Top-K"
+  ],
+  "params": [
+    {
+      "name": "topk",
+      "type": "int",
+      "default": 50,
+      "description": "候选选股数量"
+    },
+    {
+      "name": "rebalance_days",
+      "type": "int",
+      "default": 3,
+      "description": "调仓周期 (天)"
+    },
+    {
+      "name": "vol_lookback",
+      "type": "int",
+      "default": 20,
+      "description": "波动率回看天数"
+    },
+    {
+      "name": "max_weight",
+      "type": "float",
+      "default": 0.1,
+      "description": "单只股票持仓权重上限"
+    },
+    {
+      "name": "min_score",
+      "type": "float",
+      "default": 0.0,
+      "description": "信号最低分过滤阈值"
+    }
+  ]
+}

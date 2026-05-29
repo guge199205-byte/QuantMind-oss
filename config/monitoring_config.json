@@ -1,0 +1,35 @@
+{
+  "_metadata": {
+    "name": "PostgreSQL监控配置",
+    "version": "2.0.0",
+    "description": "PostgreSQL数据库监控和告警配置",
+    "last_updated": "2026-02-22",
+    "author": "QuantMind Database Team"
+  },
+  "monitoring": {
+    "enabled": true,
+    "interval": 60,
+    "metrics_retention_days": 30,
+    "save_to_file": true,
+    "file_path": "/tmp/postgresql_metrics.json"
+  },
+  "alerting": {
+    "enabled": true,
+    "email": {
+      "enabled": false,
+      "smtp_server": "smtp.example.com",
+      "smtp_port": 587,
+      "username": "monitor@quantmind.com",
+      "password": "email_password_here",
+      "from_email": "monitor@quantmind.com",
+      "to_emails": ["admin@quantmind.com", "dba@quantmind.com"],
+      "use_tls": true
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+      "method": "POST",
+      "timeout": 10
+    }
+  }
+}

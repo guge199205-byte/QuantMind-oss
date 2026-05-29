@@ -1,0 +1,51 @@
+{
+  "services": {
+    "api-server": {
+      "name": "Consolidated API",
+      "path": "backend/services/api",
+      "port": 8000,
+      "language": "python",
+      "entry": "main.py",
+      "description": "用户、认证、社区、通知、管理后台"
+    },
+    "engine-compute": {
+      "name": "Compute Engine",
+      "path": "backend/services/engine",
+      "port": 8001,
+      "language": "python",
+      "entry": "main.py",
+      "description": "AI 策略生成、模型推理、Qlib 回测引擎"
+    },
+    "trade-core": {
+      "name": "Trade Core",
+      "path": "backend/services/trade",
+      "port": 8002,
+      "language": "python",
+      "entry": "main.py",
+      "description": "订单管理、持仓核算、模拟撮合、风控核心"
+    },
+    "stream-gateway": {
+      "name": "Stream Gateway",
+      "path": "backend/services/stream",
+      "port": 8003,
+      "language": "python",
+      "entry": "main.py",
+      "description": "实时行情接入、WebSocket 高并发推送"
+    }
+  },
+  "frontend": {
+    "name": "Electron桌面应用",
+    "path": "electron",
+    "port": 3000,
+    "language": "typescript",
+    "entry": "npm run dev",
+    "description": "QuantMind智能控制中心桌面端 (Electron + React + Vite)"
+  },
+  "database": {
+    "redis": {
+      "host": "localhost",
+      "port": 6379,
+      "database": 0
+    }
+  }
+}

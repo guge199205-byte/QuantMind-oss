@@ -1,0 +1,19 @@
+# ==================== 可观测性依赖层 ====================
+# 继承基础依赖
+-r base.txt
+
+# 分布式追踪
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-exporter-otlp-proto-http==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-instrumentation-redis==0.42b0
+opentelemetry-instrumentation-requests==0.42b0
+opentelemetry-instrumentation-sqlalchemy==0.42b0
+opentelemetry-instrumentation-logging==0.42b0
+
+# 监控指标
+prometheus-client==0.17.1
+
+# 结构化日志
+structlog==23.2.0

@@ -1,0 +1,653 @@
+{
+  "version": "1.0.0",
+  "createdAt": "2025-08-24T13:22:16.535Z",
+  "updatedAt": "2025-08-24T21:22:16.543474",
+  "screenType": "medium",
+  "screenName": "中屏设备",
+  "layouts": {
+    "lg": [
+      {
+        "i": "market-overview",
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 10,
+        "minW": 3,
+        "minH": 2
+      },
+      {
+        "i": "watchlist",
+        "x": 0,
+        "y": 35,
+        "w": 6,
+        "h": 9,
+        "minW": 3,
+        "minH": 4
+      },
+      {
+        "i": "top-movers",
+        "x": 6,
+        "y": 44,
+        "w": 6,
+        "h": 12,
+        "minW": 3,
+        "minH": 3
+      },
+      {
+        "i": "my-strategies",
+        "x": 0,
+        "y": 23,
+        "w": 6,
+        "h": 7,
+        "minW": 4,
+        "minH": 5
+      },
+      {
+        "i": "strategy-performance",
+        "x": 0,
+        "y": 44,
+        "w": 6,
+        "h": 12,
+        "minW": 6,
+        "minH": 4
+      },
+      {
+        "i": "backtest-results",
+        "x": 6,
+        "y": 20,
+        "w": 6,
+        "h": 10,
+        "minW": 4,
+        "minH": 4
+      },
+      {
+        "i": "position-overview",
+        "x": 6,
+        "y": 10,
+        "w": 6,
+        "h": 10,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "performance",
+        "x": 0,
+        "y": 10,
+        "w": 6,
+        "h": 13,
+        "minW": 4,
+        "minH": 10
+      },
+      {
+        "i": "news-widget",
+        "x": 6,
+        "y": 35,
+        "w": 6,
+        "h": 9,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "positions",
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 5,
+        "minW": 8,
+        "minH": 4
+      },
+      {
+        "i": "quick-actions",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 10,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "notifications",
+        "x": 0,
+        "y": 56,
+        "w": 6,
+        "h": 9,
+        "minW": 2,
+        "minH": 2
+      },
+      {
+        "i": "community-feed",
+        "x": 6,
+        "y": 56,
+        "w": 6,
+        "h": 9,
+        "minW": 4,
+        "minH": 4
+      }
+    ],
+    "md": [
+      {
+        "i": "market-overview",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 3,
+        "minH": 2
+      },
+      {
+        "i": "watchlist",
+        "x": 0,
+        "y": 17,
+        "w": 6,
+        "h": 6,
+        "minW": 3,
+        "minH": 4
+      },
+      {
+        "i": "top-movers",
+        "x": 6,
+        "y": 40,
+        "w": 4,
+        "h": 4,
+        "minW": 3,
+        "minH": 3
+      },
+      {
+        "i": "my-strategies",
+        "x": 0,
+        "y": 23,
+        "w": 6,
+        "h": 7,
+        "minW": 4,
+        "minH": 5
+      },
+      {
+        "i": "strategy-performance",
+        "x": 0,
+        "y": 4,
+        "w": 10,
+        "h": 6,
+        "minW": 6,
+        "minH": 4
+      },
+      {
+        "i": "backtest-results",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5,
+        "minW": 4,
+        "minH": 4
+      },
+      {
+        "i": "position-overview",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "performance",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 13,
+        "minW": 4,
+        "minH": 10
+      },
+      {
+        "i": "news-widget",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "positions",
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 5,
+        "minW": 8,
+        "minH": 4
+      },
+      {
+        "i": "quick-actions",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "notifications",
+        "x": 0,
+        "y": 0,
+        "w": 3,
+        "h": 3,
+        "minW": 2,
+        "minH": 2
+      },
+      {
+        "i": "community-feed",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 6,
+        "minW": 4,
+        "minH": 4
+      }
+    ],
+    "sm": [
+      {
+        "i": "market-overview",
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4,
+        "minW": 3,
+        "minH": 2
+      },
+      {
+        "i": "watchlist",
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 6,
+        "minW": 3,
+        "minH": 4
+      },
+      {
+        "i": "top-movers",
+        "x": 0,
+        "y": 47,
+        "w": 4,
+        "h": 4,
+        "minW": 3,
+        "minH": 3
+      },
+      {
+        "i": "my-strategies",
+        "x": 0,
+        "y": 26,
+        "w": 6,
+        "h": 7,
+        "minW": 4,
+        "minH": 5
+      },
+      {
+        "i": "strategy-performance",
+        "x": 0,
+        "y": 8,
+        "w": 4,
+        "h": 6,
+        "minW": 6,
+        "minH": 4
+      },
+      {
+        "i": "backtest-results",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5,
+        "minW": 4,
+        "minH": 4
+      },
+      {
+        "i": "position-overview",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "performance",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 13,
+        "minW": 4,
+        "minH": 10
+      },
+      {
+        "i": "news-widget",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "positions",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5,
+        "minW": 6,
+        "minH": 4
+      },
+      {
+        "i": "quick-actions",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4,
+        "minW": 4,
+        "minH": 3
+      },
+      {
+        "i": "notifications",
+        "x": 0,
+        "y": 0,
+        "w": 3,
+        "h": 3,
+        "minW": 2,
+        "minH": 2
+      },
+      {
+        "i": "community-feed",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 6,
+        "minW": 4,
+        "minH": 4
+      }
+    ],
+    "xs": [
+      {
+        "w": 4,
+        "h": 9,
+        "x": 0,
+        "y": 0,
+        "i": "market-overview",
+        "minW": 3,
+        "minH": 2,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 6,
+        "x": 0,
+        "y": 70,
+        "i": "watchlist",
+        "minW": 3,
+        "minH": 4,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 12,
+        "x": 0,
+        "y": 83,
+        "i": "top-movers",
+        "minW": 3,
+        "minH": 3,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 7,
+        "x": 0,
+        "y": 76,
+        "i": "my-strategies",
+        "minW": 4,
+        "minH": 5,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 9,
+        "x": 0,
+        "y": 61,
+        "i": "strategy-performance",
+        "minW": 4,
+        "minH": 4,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 8,
+        "x": 0,
+        "y": 9,
+        "i": "backtest-results",
+        "minW": 4,
+        "minH": 4,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 4,
+        "x": 0,
+        "y": 17,
+        "i": "position-overview",
+        "minW": 4,
+        "minH": 3,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 13,
+        "x": 0,
+        "y": 21,
+        "i": "performance",
+        "minW": 4,
+        "minH": 10,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 4,
+        "x": 0,
+        "y": 34,
+        "i": "news-widget",
+        "minW": 4,
+        "minH": 3,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 5,
+        "x": 0,
+        "y": 38,
+        "i": "positions",
+        "minW": 4,
+        "minH": 4,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 8,
+        "x": 0,
+        "y": 43,
+        "i": "quick-actions",
+        "minW": 4,
+        "minH": 3,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 4,
+        "x": 0,
+        "y": 51,
+        "i": "notifications",
+        "minW": 2,
+        "minH": 2,
+        "moved": false,
+        "static": false
+      },
+      {
+        "w": 4,
+        "h": 6,
+        "x": 0,
+        "y": 55,
+        "i": "community-feed",
+        "minW": 4,
+        "minH": 4,
+        "moved": false,
+        "static": false
+      }
+    ],
+    "xxs": [
+      {
+        "i": "market-overview",
+        "x": 0,
+        "y": 4,
+        "w": 2,
+        "h": 3,
+        "minW": 2,
+        "minH": 2
+      },
+      {
+        "i": "watchlist",
+        "x": 0,
+        "y": 20,
+        "w": 2,
+        "h": 6,
+        "minW": 2,
+        "minH": 4
+      },
+      {
+        "i": "top-movers",
+        "x": 0,
+        "y": 47,
+        "w": 2,
+        "h": 4,
+        "minW": 2,
+        "minH": 3
+      },
+      {
+        "i": "my-strategies",
+        "x": 0,
+        "y": 26,
+        "w": 2,
+        "h": 7,
+        "minW": 2,
+        "minH": 5
+      },
+      {
+        "i": "strategy-performance",
+        "x": 0,
+        "y": 51,
+        "w": 2,
+        "h": 5,
+        "minW": 2,
+        "minH": 4
+      },
+      {
+        "i": "backtest-results",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 5,
+        "minW": 2,
+        "minH": 4
+      },
+      {
+        "i": "position-overview",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 4,
+        "minW": 2,
+        "minH": 3
+      },
+      {
+        "i": "performance",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 13,
+        "minW": 2,
+        "minH": 10
+      },
+      {
+        "i": "news-widget",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 4,
+        "minW": 2,
+        "minH": 3
+      },
+      {
+        "i": "positions",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 5,
+        "minW": 2,
+        "minH": 4
+      },
+      {
+        "i": "quick-actions",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 4,
+        "minW": 2,
+        "minH": 3
+      },
+      {
+        "i": "notifications",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 3,
+        "minW": 2,
+        "minH": 2
+      },
+      {
+        "i": "community-feed",
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 6,
+        "minW": 2,
+        "minH": 4
+      }
+    ]
+  },
+  "enabledComponents": [
+    "market-overview",
+    "watchlist",
+    "top-movers",
+    "my-strategies",
+    "strategy-performance",
+    "backtest-results",
+    "position-overview",
+    "performance",
+    "news-widget",
+    "positions",
+    "quick-actions",
+    "notifications",
+    "community-feed"
+  ],
+  "preferences": {
+    "theme": "light",
+    "autoRefresh": true,
+    "refreshInterval": 30000,
+    "notifications": true,
+    "compactMode": false,
+    "defaultLayout": "pc-fullscreen"
+  }
+}

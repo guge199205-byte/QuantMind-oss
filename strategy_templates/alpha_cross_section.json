@@ -1,0 +1,28 @@
+{
+  "id": "alpha_cross_section",
+  "name": "截面 Alpha 预测策略",
+  "description": "旗舰级机器学习选股策略。根据预测分自动分配资金权重，分高者重仓。",
+  "category": "basic",
+  "difficulty": "intermediate",
+  "params": [
+    {
+      "name": "topk",
+      "description": "参与权重的标的数量",
+      "default": 50,
+      "min": 10,
+      "max": 200
+    },
+    {
+      "name": "max_weight",
+      "description": "单票持仓上限 (0~1)",
+      "default": 0.05,
+      "min": 0.01,
+      "max": 0.2
+    }
+  ],
+  "execution_defaults": {},
+  "live_defaults": {
+    "rebalance_days": 3
+  },
+  "live_config_tips": []
+}

@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "environment": "${ENVIRONMENT:development}",
+  "created_at": "2025-10-15T17:12:03.009804",
+  "includes": [
+    "database.json",
+    "services.json",
+    "api.json",
+    "llm.json"
+  ],
+  "observability": {
+    "tracing": {
+      "enabled": true,
+      "jaeger_endpoint": "${JAEGER_ENDPOINT:http://localhost:14268/api/traces}",
+      "service_name": "${SERVICE_NAME:quantmind}"
+    },
+    "logging": {
+      "level": "${LOG_LEVEL:INFO}",
+      "format": "json",
+      "structured": true
+    },
+    "metrics": {
+      "enabled": true,
+      "prometheus_endpoint": "${PROMETHEUS_ENDPOINT:http://localhost:9090}"
+    }
+  },
+  "security": {
+    "secret_key": "${SECRET_KEY:your-secret-key-here}",
+    "jwt_expiry": "${JWT_EXPIRY:24h}",
+    "cors_origins": "${CORS_ORIGINS:*}"
+  }
+}

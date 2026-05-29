@@ -1,0 +1,106 @@
+# API网关服务配置
+service:
+  name: api-gateway
+  display_name: API网关
+  version: 1.0.0
+  description: 统一API网关服务
+  port: 8000
+
+# 服务特定配置
+gateway:
+  # 路由配置
+  routes:
+    # 用户服务路由
+    user:
+      prefix: /api/v1/user
+      service_url: http://user-service:8002
+      timeout: 30
+
+    # AI策略服务路由
+    ai_strategy:
+      prefix: /api/v1/strategy
+      service_url: http://ai-strategy-service:8008
+      timeout: 120
+
+    # 回测服务路由
+    backtest:
+      prefix: /api/v1/backtest
+      service_url: http://backtest-service:8003
+      timeout: 300
+
+    # 数据服务路由
+    data:
+      prefix: /api/v1/data
+      service_url: http://data-service:8012
+      timeout: 60
+
+    # 市场数据服务路由
+    market_data:
+      prefix: /api/v1/market
+      service_url: http://market-data-service:8006
+      timeout: 30
+
+    # 社区服务路由
+    community:
+      prefix: /api/v1/community
+      service_url: http://community-service:8010
+      timeout: 30
+
+    # 股票查询服务路由
+    stock_query:
+      prefix: /api/v1/stocks
+      service_url: http://stock-query-service:8018
+      timeout: 30
+
+  # 中间件配置
+  middleware:
+    auth:
+      enabled: true
+      excluded_paths:
+        - /health
+        - /metrics
+        - /api/v1/user/login
+        - /api/v1/user/register
+
+    rate_limit:
+      enabled: true
+      default_limit: 100
+      limits:
+        auth_endpoints: 10
+        ai_strategy: 20
+
+    cors:
+      enabled: true
+      credentials: true
+
+    logging:
+      enabled: true
+      log_requests: true
+      log_responses: false
+
+  # 健康检查
+  health_check:
+    enabled: true
+    path: /health
+    interval: 30
+    timeout: 5
+
+  # 服务发现
+  service_discovery:
+    enabled: true
+    check_interval: 60
+    deregister_after: 180
+
+# 负载均衡配置
+load_balancer:
+  strategy: round_robin  # round_robin, least_connections, ip_hash
+  health_check: true
+
+# 缓存配置
+cache:
+  enabled: true
+  ttl: 300  # 5分钟
+  max_size: 10000
+  excluded_paths:
+    - /api/v1/user/login
+    - /api/v1/user/register

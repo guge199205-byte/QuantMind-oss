@@ -1,0 +1,33 @@
+.top-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+}
+
+.top-progress-bar .ant-progress {
+  line-height: 0;
+}
+
+.top-progress-bar .ant-progress-outer {
+  padding-right: 0;
+  margin-right: 0;
+}
+
+.top-progress-bar .ant-progress-bg {
+  height: 2px !important;
+  border-radius: 0;
+}
+
+.step-progress {
+  padding: 16px;
+}
+
+.multi-progress {
+  padding: 8px;
+}
+
+.labeled-progress {
+  padding: 8px 0;
+}

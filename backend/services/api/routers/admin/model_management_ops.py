@@ -1,0 +1,761 @@
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+try:
+    import exchange_calendars as xcals
+except Exception:
+    xcals = None
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import text
+
+from backend.services.api.user_app.middleware.auth import require_admin
+from backend.services.engine.inference.script_runner import InferenceScriptRunner
+from backend.shared.database_manager_v2 import get_session
+from backend.shared.redis_sentinel_client import get_redis_sentinel_client
+from backend.shared.trading_calendar import calendar_service
+
+try:
+    from backend.services.engine.qlib_app.celery_config import celery_app
+except ImportError:
+    celery_app = None
+
+from .model_management_utils import (
+    FEATURE_SNAPSHOT_DIR,
+    MODELS_PRODUCTION,
+    MODELS_ROOT,
+    _enrich_feature_catalog_with_data_coverage,
+    _find_model_directories,
+    _load_feature_catalog_from_db,
+    _load_feature_catalog_from_file,
+    _resolve_expected_feature_dim,
+    _resolve_inference_dates_with_calendar,
+    _resolve_ready_threshold,
+    _scan_model_directory,
+    _scan_feature_snapshots_status,
+)
+
+router = APIRouter()
+
+DAILY_SYNC_SHELL_SCRIPT = (
+    Path(os.getcwd()) / "scripts" / "data" / "maintenance" / "run_daily_pg_parquet_and_qlib_sync.sh"
+)
+
+
+class OfficialDataUpdateRequest(BaseModel):
+    api_base_url: str | None = Field(default=None)
+    access_key: str | None = Field(default=None)
+    secret_key: str | None = Field(default=None)
+    version: str | None = Field(default=None)
+    dry_run: bool = Field(default=False)
+
+
+@router.get("/scan", summary="扫描本地模型目录")
+async def scan_model_directories(
+    current_user: dict = Depends(require_admin),
+):
+    """
+    自动扫描 models/ 下所有有效模型目录，聚合 metadata.json、
+    workflow_config.yaml、best_params.yaml 等元数据文件，返回结构化列表。
+    """
+    try:
+        dirs = _find_model_directories(MODELS_ROOT)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"扫描目录失败: {e}") from e
+
+    results = []
+    for d in dirs:
+        try:
+            results.append(_scan_model_directory(d))
+        except Exception as e:
+            results.append({"model_id": Path(d).name, "dir_path": d, "error": str(e)})
+
+    return {"total": len(results), "models": results}
+
+
+@router.get("/feature-catalog", summary="获取模型训练特征字典（动态）")
+async def get_model_feature_catalog(
+    current_user: dict = Depends(require_admin),
+):
+    """
+    返回训练页第一步所需的特征分类与字段列表：
+    - 优先读取 PostgreSQL 特征注册表
+    - 若注册表未初始化，回退到 config/features/*.json
+    """
+    _ = current_user
+    try:
+        catalog = await _load_feature_catalog_from_db()
+    except Exception:
+        catalog = None
+
+    if catalog:
+        return _enrich_feature_catalog_with_data_coverage(catalog)
+
+    fallback = _load_feature_catalog_from_file()
+    if fallback:
+        return _enrich_feature_catalog_with_data_coverage(fallback)
+
+    raise HTTPException(
+        status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）"
+    )
+
+
+@router.get("/data-status", summary="查看当前数据状态（Qlib + 特征快照）")
+async def get_data_status(
+    refresh: bool = Query(False, description="是否强制刷新（后台异步）"),
+    current_user: dict = Depends(require_admin),
+):
+    """
+    管理后台数据管理接口：
+    - 优先从 Redis 获取缓存结果
+    - Qlib 文件数据（calendar/instruments/features）状态
+    - feature_snapshots 目录下的 parquet 文件状态
+    """
+    _ = current_user
+    redis = None
+    try:
+        redis = get_redis_sentinel_client()
+    except Exception:
+        pass
+
+    # 1. 如果不是强制刷新，尝试读取缓存
+    if not refresh and redis:
+        try:
+            cached = redis.get("qm:admin:data_status")
+            if cached:
+                result = json.loads(cached)
+                result["from_cache"] = True
+                return result
+        except Exception as e:
+            print(f"Redis cache read failed: {e}")
+
+    # 2. 如果强制刷新，或者没缓存，则触发后台任务
+    if celery_app:
+        try:
+            celery_app.send_task("engine.tasks.get_data_status_task")
+        except Exception as e:
+            print(f"Failed to trigger background task: {e}")
+
+    # 3. 实时辅助扫描（作为 fallback 或首次加载的快速反馈）
+    try:
+        now_local = datetime.now(ZoneInfo("Asia/Shanghai"))
+        tenant_id = str(current_user.get("tenant_id") or "default")
+        user_id = str(current_user.get("user_id") or current_user.get("sub") or "admin")
+
+        if now_local.time() < datetime.strptime("09:30", "%H:%M").time():
+            # 未到开盘时间，取上一交易日
+            trade_date_obj = await calendar_service.prev_trading_day(
+                market="SSE",
+                trade_date=now_local.date(),
+                tenant_id=tenant_id,
+                user_id=user_id
+            )
+        else:
+            # 已过开盘时间，取今天（若是交易日）或更早的最后一个交易日
+            is_td = await calendar_service.is_trading_day(
+                market="SSE",
+                trade_date=now_local.date(),
+                tenant_id=tenant_id,
+                user_id=user_id
+            )
+            if is_td:
+                trade_date_obj = now_local.date()
+            else:
+                trade_date_obj = await calendar_service.prev_trading_day(
+                    market="SSE",
+                    trade_date=now_local.date(),
+                    tenant_id=tenant_id,
+                    user_id=user_id
+                )
+        trade_date = trade_date_obj.isoformat()
+
+        # ========== Qlib 数据状态扫描 ==========
+        qlib_data_dir = Path(os.getcwd()) / "db" / "qlib_data"
+        calendars_path = qlib_data_dir / "calendars" / "day.txt"
+        instruments_all_path = qlib_data_dir / "instruments" / "all.txt"
+        features_root = qlib_data_dir / "features"
+
+        qlib_info: dict[str, Any] = {
+            "qlib_dir": str(qlib_data_dir),
+            "exists": qlib_data_dir.exists() and qlib_data_dir.is_dir(),
+            "calendar_total_days": 0,
+            "calendar_start_date": None,
+            "calendar_last_date": None,
+            "instruments": {"total": 0, "sh": 0, "sz": 0, "bj": 0, "other": 0},
+            "feature_dirs_total": 0,
+            "feature_dirs_sh_sz_bj": 0,
+            "latest_date_coverage": {
+                "target_date": None,
+                "at_target_count": 0,
+                "older_count": 0,
+                "invalid_count": 0,
+            },
+        }
+
+        calendar: list[str] = []
+        if calendars_path.exists():
+            try:
+                calendar = [
+                    x.strip()
+                    for x in calendars_path.read_text(encoding="utf-8").splitlines()
+                    if x.strip()
+                ]
+                if calendar:
+                    qlib_info["calendar_total_days"] = len(calendar)
+                    qlib_info["calendar_start_date"] = calendar[0]
+                    qlib_info["calendar_last_date"] = calendar[-1]
+                    qlib_info["latest_date_coverage"]["target_date"] = calendar[-1]
+            except Exception:
+                pass
+
+        if instruments_all_path.exists():
+            try:
+                for line in instruments_all_path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    code = line.split()[0].strip().upper()
+                    qlib_info["instruments"]["total"] += 1
+                    if code.startswith("SH"):
+                        qlib_info["instruments"]["sh"] += 1
+                    elif code.startswith("SZ"):
+                        qlib_info["instruments"]["sz"] += 1
+                    elif code.startswith("BJ"):
+                        qlib_info["instruments"]["bj"] += 1
+                    else:
+                        qlib_info["instruments"]["other"] += 1
+            except Exception:
+                pass
+
+        if features_root.exists() and features_root.is_dir():
+            feature_dirs = [p for p in features_root.iterdir() if p.is_dir()]
+            qlib_info["feature_dirs_total"] = len(feature_dirs)
+            qlib_info["sync_partial"] = True  # 标记为部分同步结果
+
+        # ========== Feature Snapshots 状态扫描 ==========
+        feature_snapshots_info = _scan_feature_snapshots_status(
+            target_date=trade_date,
+            topn=20,
+        )
+
+        return {
+            "checked_at": now_local.isoformat(),
+            "trade_date": trade_date,
+            "qlib_data": qlib_info,
+            "feature_snapshots": feature_snapshots_info,
+            "async_trigger": bool(celery_app),
+            "message": "数据正在后台扫描中，请稍后刷新"
+            if not refresh
+            else "已触发强制刷新任务",
+        }
+    except Exception as e:
+        import traceback
+        error_msg = f"Data status scanning failed: {str(e)}"
+        print(error_msg)
+        print(traceback.format_exc())
+        return {
+            "error": error_msg,
+            "checked_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "qlib_data": {"exists": False},
+            "feature_snapshots": {"exists": False},
+            "message": f"状态扫描异常: {str(e)}"
+        }
+
+
+@router.post(
+    "/sync-stock-daily-latest",
+    summary="手动触发 Baostock 同步基础行情到 stock_daily_latest",
+)
+async def sync_stock_daily_latest(
+    target_date: str | None = Query(None, description="目标日期 YYYY-MM-DD，默认今天"),
+    max_symbols: int = Query(
+        0, ge=0, le=10000, description="仅处理前 N 个标的（0=全部）"
+    ),
+    apply: bool = Query(True, description="是否执行写入（false=dry-run）"),
+    background: bool = Query(
+        True, description="是否在后台执行（解决 504 超时业务推荐）"
+    ),
+    current_user: dict = Depends(require_admin),
+):
+    """
+    [已废弃] 数据现由官方服务器统一推送，不再需要手动从 Baostock 同步。
+    """
+    _ = current_user
+
+    raise HTTPException(
+        status_code=410, detail="该接口已废弃，数据由官方服务器统一推送，无需手动同步"
+    )
+
+
+@router.post(
+    "/sync-official-data-update",
+    summary="一键拉取并应用官方数据增量包",
+)
+async def sync_official_data_update(
+    payload: OfficialDataUpdateRequest,
+    current_user: dict = Depends(require_admin),
+):
+    _ = current_user
+
+    # OSS 部署模式：直接在当前容器内执行 Python 同步脚本
+    # 脚本路径在容器内为 /app/scripts/data/maintenance/
+    scripts_dir = Path("/app/scripts/data/maintenance")
+    processing_dir = Path("/app/scripts/data/processing")
+
+    # 按顺序执行同步步骤（完整流程：远程PG → parquet → qlib/stock_daily → 收益计算）
+    steps = [
+        ("Step 0: 从远程PG拉取最新数据", "sync_parquets_from_remote_pg.py"),
+        ("Step 1: 同步 qlib_data", "sync_qlib_from_fundamental_parquet.py"),
+        ("Step 2: 同步 stock_daily_latest", "sync_stock_daily_latest_from_parquet.py"),
+        ("Step 3: 滚动计算一日/三日收益", "../processing/backfill_return_fields.py"),
+    ]
+
+    results = []
+    for step_name, script_name in steps:
+        # 处理相对路径
+        if script_name.startswith("../"):
+            script_path = processing_dir / script_name[3:]
+        else:
+            script_path = scripts_dir / script_name
+
+        if not script_path.exists():
+            results.append({
+                "step": step_name,
+                "success": False,
+                "error": f"脚本不存在: {script_path}",
+            })
+            continue
+
+        # 收益计算脚本需要 --recent-days 参数
+        cmd = ["python", str(script_path)]
+        if "backfill_return" in script_name:
+            cmd.extend(["--recent-days", "5"])
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd="/app",
+                capture_output=True,
+                text=True,
+                timeout=1800,
+                check=False,
+            )
+            results.append({
+                "step": step_name,
+                "success": proc.returncode == 0,
+                "exit_code": proc.returncode,
+                "stdout": proc.stdout[-2000:] if proc.stdout else "",
+                "stderr": proc.stderr[-2000:] if proc.stderr else "",
+            })
+        except subprocess.TimeoutExpired as exc:
+            results.append({
+                "step": step_name,
+                "success": False,
+                "error": f"执行超时: {exc}",
+            })
+        except Exception as exc:
+            results.append({
+                "step": step_name,
+                "success": False,
+                "error": str(exc),
+            })
+
+    all_success = all(r.get("success", False) for r in results)
+    return {
+        "success": all_success,
+        "steps": results,
+    }
+
+
+@router.post(
+    "/update-feature-parquet",
+    summary="更新特征快照 Parquet（从 DB 计算全部 51 个模型特征）",
+)
+async def update_feature_parquet(
+    rebuild: bool = Query(False, description="是否重建全部日期的特征（默认仅补充缺失日期）"),
+    current_user: dict = Depends(require_admin),
+):
+    """
+    运行 update_feature_parquet.py 脚本，从 stock_daily_latest 读取 OHLCV 数据，
+    计算全部 51 个模型特征（动量、波动率、流动性、资金流、风格因子等），
+    更新 /app/db/feature_snapshots/model_features_2026.parquet。
+    """
+    _ = current_user
+
+    script_path = Path("/app/backend/scripts/update_feature_parquet.py")
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail=f"脚本不存在: {script_path}")
+
+    cmd = ["python", str(script_path)]
+    if rebuild:
+        cmd.append("--rebuild")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd="/app",
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        return {
+            "success": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout[-3000:] if proc.stdout else "",
+            "stderr": proc.stderr[-3000:] if proc.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="特征更新超时（>600s），请稍后重试")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post(
+    "/sync-stock-daily-full",
+    summary="日常全量同步：从本地 parquet 补齐 stock_daily_latest 所有列（含 is_st/指数成分/技术指标等）",
+)
+async def sync_stock_daily_full(
+    max_days: int = Query(30, ge=1, le=365, description="同步最近 N 个交易日（默认30）"),
+    current_user: dict = Depends(require_admin),
+):
+    """
+    从 /app/db/custom/fundamental_aligned.parquet 全量同步所有列到 stock_daily_latest。
+    包含 is_st、idx_hs300、idx_zz1000、idx_margin、各类技术指标、概念标签等。
+    """
+    _ = current_user
+
+    script_path = Path("/app/scripts/data/maintenance/sync_stock_daily_full.py")
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail=f"同步脚本不存在: {script_path}")
+
+    try:
+        env = os.environ.copy()
+        env["SYNC_MAX_DAYS"] = str(max_days)
+        proc = subprocess.run(
+            ["python", str(script_path)],
+            cwd="/app",
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+            env=env,
+        )
+        return {
+            "success": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout[-3000:] if proc.stdout else "",
+            "stderr": proc.stderr[-3000:] if proc.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="同步超时，请检查数据量是否过大")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"同步执行异常: {exc}")
+
+
+@router.get("/precheck-inference", summary="生成明日信号前置检查")
+async def precheck_inference(
+    current_user: dict = Depends(require_admin),
+):
+    """
+    在执行“生成明日信号”前检查关键依赖是否存在。
+    仅返回可读检查结果，不执行实际推理。
+    """
+    checks: list[dict[str, Any]] = []
+
+    production_dir = Path(MODELS_PRODUCTION)
+    production_exists = production_dir.exists() and production_dir.is_dir()
+    checks.append(
+        {
+            "key": "production_model_dir",
+            "label": "生产模型目录存在",
+            "passed": production_exists,
+            "detail": str(production_dir),
+        }
+    )
+
+    model_files = []
+    for ext in ["bin", "txt", "pkl", "pth", "onnx", "pt"]:
+        model_files.extend(list(production_dir.glob(f"model.{ext}")))
+
+    model_exists = len(model_files) > 0
+    checks.append(
+        {
+            "key": "model_file",
+            "label": "模型文件存在（model.txt/bin/pkl/etc）",
+            "passed": model_exists,
+            "detail": str(model_files[0]) if model_files else "None",
+        }
+    )
+
+    metadata_file = production_dir / "metadata.json"
+    metadata_exists = metadata_file.exists() and metadata_file.is_file()
+    checks.append(
+        {
+            "key": "metadata",
+            "label": "模型元数据存在（metadata.json）",
+            "passed": metadata_exists,
+            "detail": str(metadata_file),
+        }
+    )
+
+    qlib_data_dir = Path(os.path.join(os.getcwd(), "db", "qlib_data"))
+    qlib_data_exists = qlib_data_dir.exists() and qlib_data_dir.is_dir()
+    checks.append(
+        {
+            "key": "qlib_data_dir",
+            "label": "Qlib 数据目录存在",
+            "passed": qlib_data_exists,
+            "detail": str(qlib_data_dir),
+        }
+    )
+
+    # 业务门禁：统一日期口径（数据交易日 + 预测生效交易日）
+    tz = ZoneInfo("Asia/Shanghai")
+    now_local = datetime.now(tz)
+    (
+        requested_data_trade_date_str,
+        data_trade_date_str,
+        prediction_trade_date_str,
+        calendar_adjusted,
+    ) = await _resolve_inference_dates_with_calendar(
+        current_user=current_user, now_local=now_local
+    )
+    trade_date_obj = date.fromisoformat(data_trade_date_str)
+    checks.append(
+        {
+            "key": "calendar_trade_date",
+            "label": "交易日历校验",
+            "passed": True,
+            "detail": (
+                f"候选 {requested_data_trade_date_str} 非交易日，已回退到 {data_trade_date_str}"
+                if calendar_adjusted
+                else f"{data_trade_date_str} 为交易日"
+            ),
+        }
+    )
+
+    checks.append(
+        {
+            "key": "data_trade_date",
+            "label": "检测数据交易日",
+            "passed": True,
+            "detail": data_trade_date_str,
+        }
+    )
+    checks.append(
+        {
+            "key": "prediction_trade_date",
+            "label": "预测生效交易日（明日）",
+            "passed": True,
+            "detail": prediction_trade_date_str,
+        }
+    )
+
+    runner = InferenceScriptRunner(MODELS_PRODUCTION)
+    primary_script_exists = runner.check_script_exists()
+    fallback_script_exists = runner.check_fallback_script_exists()
+    inference_script_exists = primary_script_exists or fallback_script_exists
+    checks.append(
+        {
+            "key": "inference_script",
+            "label": "推理脚本存在（主/兜底至少一套）",
+            "passed": inference_script_exists,
+            "detail": (
+                f"primary={Path(runner.primary_model_dir) / runner.primary_script_name} exists={primary_script_exists}; "
+                f"fallback={Path(runner.fallback_model_dir) / runner.fallback_script_name} exists={fallback_script_exists}"
+            ),
+        }
+    )
+
+    expected_feature_dim = _resolve_expected_feature_dim(production_dir)
+    checks.append(
+        {
+            "key": "expected_feature_dim",
+            "label": "生产模型期望特征维度",
+            "passed": True,
+            "detail": str(expected_feature_dim),
+        }
+    )
+
+    # 业务门禁：检查当日数据是否已落库
+    data_stats: dict[str, Any] = {}
+    dim_ready_rows = 0
+    feature_cols_count = 0
+    has_features_json = False
+    dim_source = "none"
+    try:
+        async with get_session(read_only=True) as session:
+            stat_sql = text("""
+                SELECT
+                    MAX(trade_date) AS latest_trade_date,
+                    MAX(updated_at) AS latest_updated_at,
+                    COUNT(*) FILTER (WHERE trade_date = :trade_date) AS today_rows
+                FROM stock_daily_latest
+                """)
+            row = (
+                (
+                    await session.execute(
+                        stat_sql,
+                        {
+                            "trade_date": trade_date_obj,
+                        },
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            data_stats = dict(row or {})
+
+            schema_columns = (
+                (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public'
+                              AND table_name = 'stock_daily_latest'
+                            """
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            column_names = {
+                str((row or {}).get("column_name") or "") for row in schema_columns
+            }
+            has_features_json = "features" in column_names
+            feature_columns = sorted(
+                [c for c in column_names if re.fullmatch(r"feature_\d+", c)],
+                key=lambda c: int(c.split("_", 1)[1]),
+            )
+            feature_cols_count = len(feature_columns)
+
+            dim_expr_candidates: list[str] = []
+            if has_features_json:
+                dim_expr_candidates.append(
+                    "CASE WHEN jsonb_typeof(features) = 'array' THEN jsonb_array_length(features) ELSE 0 END"
+                )
+            if feature_columns:
+                cols_dim_expr = " + ".join(
+                    [
+                        f"(CASE WHEN {col} IS NULL THEN 0 ELSE 1 END)"
+                        for col in feature_columns
+                    ]
+                )
+                dim_expr_candidates.append(f"({cols_dim_expr})")
+
+            if len(dim_expr_candidates) >= 2:
+                dim_source = "features_json+feature_columns"
+                dim_expr = f"GREATEST({', '.join(dim_expr_candidates)})"
+            elif len(dim_expr_candidates) == 1:
+                dim_source = "features_json" if has_features_json else "feature_columns"
+                dim_expr = dim_expr_candidates[0]
+            else:
+                # 表中既没有 features 也没有 feature_* 时，维度门禁必然不通过（但不应报 SQL 错）
+                dim_source = "none"
+                dim_expr = "0"
+
+            dim_condition = f"({dim_expr}) >= :expected_feature_dim"
+
+            dim_row = (
+                (
+                    await session.execute(
+                        text(
+                            f"""
+                            SELECT COUNT(*) FILTER (
+                                WHERE trade_date = :trade_date AND ({dim_condition})
+                            ) AS dim_ready_rows
+                            FROM stock_daily_latest
+                            """
+                        ),
+                        {
+                            "trade_date": trade_date_obj,
+                            "expected_feature_dim": expected_feature_dim,
+                        },
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            dim_ready_rows = int((dim_row or {}).get("dim_ready_rows") or 0)
+    except Exception as e:
+        checks.append(
+            {
+                "key": "market_data_daily_query",
+                "label": "market_data_daily 可查询",
+                "passed": False,
+                "detail": f"query_error={e}",
+            }
+        )
+
+    if data_stats:
+        latest_trade_date = data_stats.get("latest_trade_date")
+        today_rows = int(data_stats.get("today_rows") or 0)
+        required_ready_symbols, min_ready_symbols, min_ready_ratio, min_ready_floor = (
+            _resolve_ready_threshold(today_rows)
+        )
+
+        checks.append(
+            {
+                "key": "latest_trade_date_today",
+                "label": "最新特征交易日已就绪",
+                "passed": str(latest_trade_date) >= data_trade_date_str,
+                "detail": f"latest_trade_date={latest_trade_date} expected={data_trade_date_str}",
+            }
+        )
+        checks.append(
+            {
+                "key": "today_rows_exists",
+                "label": f"目标日({data_trade_date_str})数据已入库",
+                "passed": today_rows > 0,
+                "detail": (
+                    f"rows={today_rows}"
+                    if today_rows > 0
+                    else f"stock_daily_latest 未发现 {data_trade_date_str} 数据"
+                ),
+            }
+        )
+        checks.append(
+            {
+                "key": "ready_symbols_threshold",
+                "label": f"今日数据覆盖数 >= {required_ready_symbols}（自适应）",
+                "passed": today_rows >= required_ready_symbols,
+                "detail": (
+                    f"actual={today_rows}, threshold={required_ready_symbols}, "
+                    f"min_symbols={min_ready_symbols}, ratio={min_ready_ratio:.2f}, floor={min_ready_floor}"
+                ),
+            }
+        )
+        checks.append(
+            {
+                "key": "feature_dim_ready_threshold",
+                "label": f"今日满足模型维度({expected_feature_dim})覆盖数 >= {required_ready_symbols}（自适应）",
+                "passed": dim_ready_rows >= required_ready_symbols,
+                "detail": (
+                    f"dim_ready_rows={dim_ready_rows}, threshold={required_ready_symbols}, "
+                    f"feature_columns={feature_cols_count}, features_json={has_features_json}, "
+                    f"dim_source={dim_source}, min_symbols={min_ready_symbols}, "
+                    f"ratio={min_ready_ratio:.2f}, floor={min_ready_floor}"
+                ),
+            }
+        )
+
+    return {
+        "passed": all(bool(item.get("passed")) for item in checks),
+        "checked_at": datetime.now().isoformat(),
+        "requested_inference_date": requested_data_trade_date_str,
+        "calendar_adjusted": calendar_adjusted,
+        "data_trade_date": data_trade_date_str,
+        "prediction_trade_date": prediction_trade_date_str,
+        "items": checks,
+    }

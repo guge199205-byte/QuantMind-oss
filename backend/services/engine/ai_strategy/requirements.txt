@@ -1,0 +1,14 @@
+# QuantMind AI 策略服务依赖
+# 使用统一依赖管理
+
+# 核心依赖 (本目录内 requirements 引用，支持模块内构建)
+-r /app/requirements/base.txt
+-r /app/requirements/database.txt
+-r /app/requirements/ai.txt
+-r /app/requirements/auth.txt
+
+# AI 策略服务特定依赖
+# 注：仅使用阿里云 Qwen (千问) 大语言模型
+alembic==1.13.1
+prometheus-client>=0.20.0
+anyio==3.7.1

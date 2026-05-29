@@ -1,0 +1,97 @@
+{
+  "common": {
+    "appName": "QuantMind 智能控制中心",
+    "loading": "加载中...",
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "delete": "删除",
+    "edit": "编辑",
+    "search": "搜索",
+    "refresh": "刷新",
+    "export": "导出",
+    "import": "导入",
+    "settings": "设置",
+    "help": "帮助",
+    "about": "关于"
+  },
+  "menu": {
+    "file": "文件",
+    "newWindow": "新建窗口",
+    "closeWindow": "关闭窗口",
+    "quit": "退出",
+    "edit": "编辑",
+    "undo": "撤销",
+    "redo": "重做",
+    "cut": "剪切",
+    "copy": "复制",
+    "paste": "粘贴",
+    "selectAll": "全选",
+    "view": "视图",
+    "reload": "重新加载",
+    "forceReload": "强制重新加载",
+    "actualSize": "实际大小",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "toggleFullscreen": "切换全屏",
+    "developerTools": "开发者工具",
+    "window": "窗口",
+    "minimize": "最小化",
+    "zoom": "缩放",
+    "bringToFront": "置于最前",
+    "help": "帮助",
+    "userManual": "用户手册",
+    "reportIssue": "报告问题",
+    "about": "关于项目主页",
+    "checkUpdates": "检查更新"
+  },
+  "dashboard": {
+    "title": "智能控制中心",
+    "subtitle": "实时数据 · 智能分析 · 精准决策",
+    "marketOverview": "大盘概览",
+    "fundOverview": "资金概览",
+    "strategyMonitor": "策略监控",
+    "intelligenceAlerts": "智能提醒",
+    "intelligenceCharts": "智能图表",
+    "tradeRecords": "交易记录",
+    "aiStrategy": "AI策略中心"
+  },
+  "status": {
+    "apiConnected": "API已连接",
+    "apiDisconnected": "API断开",
+    "apiChecking": "API检查中",
+    "realtimeData": "实时数据",
+    "dataPaused": "数据暂停",
+    "marketOpen": "市场开盘",
+    "marketClosed": "市场闭盘"
+  },
+  "buttons": {
+    "performanceMonitor": "性能监控",
+    "exportData": "导出数据",
+    "generateStrategy": "生成策略",
+    "startBacktest": "开始回测",
+    "saveLayout": "保存布局",
+    "resetLayout": "重置布局"
+  },
+  "notifications": {
+    "dataUpdated": "数据已更新",
+    "strategyGenerated": "策略生成成功",
+    "exportSuccess": "导出成功",
+    "exportFailed": "导出失败",
+    "connectionLost": "连接丢失",
+    "connectionRestored": "连接恢复"
+  },
+  "errors": {
+    "networkError": "网络错误",
+    "serverError": "服务器错误",
+    "timeout": "请求超时",
+    "unknownError": "未知错误"
+  },
+  "tabs": {
+    "dashboard": "仪表盘",
+    "strategy": "策略中心",
+    "backtest": "回测分析",
+    "data": "数据中心",
+    "profile": "个人中心"
+  }
+}

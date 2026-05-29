@@ -1,0 +1,6 @@
+pandas<2.0.0
+numpy<2.0.0
+pyqlib==0.9.7; platform_machine == "x86_64" or platform_machine == "AMD64"
+akshare
+scikit-learn<1.6.0
+matplotlib

@@ -1,0 +1,44 @@
+{
+  "app": {
+    "name": "quantmind",
+    "version": "2.0.0",
+    "debug": false,
+    "log_level": "INFO",
+    "environment": "production"
+  },
+  "api": {
+    "prefix": "/api/v1",
+    "cors_origins": [
+      "*"
+    ],
+    "secret_key": "your-secret-key-here",
+    "request_timeout": 30,
+    "max_request_size": "10MB"
+  },
+  "services": {
+    "market_data": {
+      "port": 8003,
+      "enabled": true
+    },
+    "ai_strategy": {
+      "port": 8008,
+      "enabled": true
+    },
+    "data_service": {
+      "port": 8012,
+      "enabled": true
+    },
+    "stock_query": {
+      "port": 8018,
+      "enabled": true
+    },
+    "user": {
+      "port": 8002,
+      "enabled": true
+    },
+    "backtest": {
+      "port": 8003,
+      "enabled": true
+    }
+  }
+}

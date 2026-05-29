@@ -1,0 +1,233 @@
+# QuantMind服务依赖关系图
+# 定义服务间的依赖关系和启动顺序
+
+services:
+  # 基础服务（无依赖）
+  user-service:
+    display_name: 用户服务
+    description: 用户认证、授权和用户信息管理
+    port: 8000
+    dependencies: []
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 1
+
+  data-service:
+    display_name: 数据服务
+    description: 数据获取、处理和存储
+    port: 8012
+    dependencies: []
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 2
+
+  market-data-service:
+    display_name: 市场数据服务
+    description: 实时市场数据提供和WebSocket连接
+    port: 8003
+    dependencies: []
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 3
+
+  # 中间层服务（依赖基础服务）
+  ai-strategy-service:
+    display_name: AI策略服务
+    description: 基于AI的量化策略生成
+    port: 8008
+    dependencies:
+      - user-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 10
+    startup_order: 4
+
+  backtest-service:
+    display_name: 回测服务
+    description: 策略回测引擎
+    port: 8003
+    dependencies:
+      - user-service
+      - data-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 5
+
+  stock-query-service:
+    display_name: 股票查询服务
+    description: 股票信息查询和搜索
+    port: 8018
+    dependencies:
+      - data-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 6
+
+  community-service:
+    display_name: 社区服务
+    description: 用户社区和策略分享
+    port: 8010
+    dependencies:
+      - user-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 7
+
+  notification-service:
+    display_name: 通知服务
+    description: 消息通知和推送
+    port: 8019
+    dependencies:
+      - user-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 8
+
+  data-management-service:
+    display_name: 数据管理服务
+    description: 数据管理和维护
+    port: 8011
+    dependencies:
+      - data-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 9
+
+  user-center-service:
+    display_name: 用户中心服务
+    description: 用户个人中心和设置
+    port: 8002
+    dependencies:
+      - user-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 10
+
+  dashboard-service:
+    display_name: 仪表板服务
+    description: 数据可视化仪表板
+    port: 8013
+    dependencies:
+      - user-service
+      - market-data-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 5
+    startup_order: 11
+
+  # 应用层服务（依赖中间层服务）
+  api-gateway:
+    display_name: API网关
+    description: 统一API入口和路由
+    port: 8000
+    dependencies:
+      - user-service
+      - ai-strategy-service
+      - backtest-service
+      - data-service
+      - market-data-service
+      - community-service
+      - stock-query-service
+    health_check:
+      path: /health
+      interval: 30
+      timeout: 10
+    startup_order: 12
+
+# 启动组配置（用于批量启动相关服务）
+startup_groups:
+  core:
+    name: 核心服务组
+    description: 基础核心服务，必须首先启动
+    services:
+      - user-service
+      - data-service
+      - market-data-service
+
+  ai:
+    name: AI服务组
+    description: AI相关服务
+    services:
+      - ai-strategy-service
+    dependencies:
+      - core
+
+  trading:
+    name: 交易服务组
+    description: 交易和回测相关服务
+    services:
+      - backtest-service
+      - stock-query-service
+    dependencies:
+      - core
+
+  user:
+    name: 用户服务组
+    description: 用户相关服务
+    services:
+      - community-service
+      - notification-service
+      - user-center-service
+    dependencies:
+      - core
+
+  application:
+    name: 应用服务组
+    description: 应用层服务
+    services:
+      - data-management-service
+      - dashboard-service
+      - api-gateway
+    dependencies:
+      - core
+      - ai
+      - trading
+      - user
+
+# 停止顺序（与启动顺序相反）
+shutdown_groups:
+  - application
+  - user
+  - trading
+  - ai
+  - core
+
+# 环境特定配置
+environments:
+  development:
+    # 开发环境可以并行启动更多服务
+    parallel_startup: true
+    startup_delay: 2  # 服务间启动延迟（秒）
+    health_check_retries: 10
+
+  production:
+    # 生产环境更保守的启动策略
+    parallel_startup: false
+    startup_delay: 5
+    health_check_retries: 30
+
+  testing:
+    # 测试环境快速启动
+    parallel_startup: true
+    startup_delay: 1
+    health_check_retries: 5

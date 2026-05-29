@@ -1,0 +1,97 @@
+{
+  "common": {
+    "appName": "QuantMind Intelligent Control Center",
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "search": "Search",
+    "refresh": "Refresh",
+    "export": "Export",
+    "import": "Import",
+    "settings": "Settings",
+    "help": "Help",
+    "about": "About"
+  },
+  "menu": {
+    "file": "File",
+    "newWindow": "New Window",
+    "closeWindow": "Close Window",
+    "quit": "Quit",
+    "edit": "Edit",
+    "undo": "Undo",
+    "redo": "Redo",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select All",
+    "view": "View",
+    "reload": "Reload",
+    "forceReload": "Force Reload",
+    "actualSize": "Actual Size",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "toggleFullscreen": "Toggle Fullscreen",
+    "developerTools": "Developer Tools",
+    "window": "Window",
+    "minimize": "Minimize",
+    "zoom": "Zoom",
+    "bringToFront": "Bring to Front",
+    "help": "Help",
+    "userManual": "User Manual",
+    "reportIssue": "Report Issue",
+    "about": "About Project Homepage",
+    "checkUpdates": "Check Updates"
+  },
+  "dashboard": {
+    "title": "Intelligent Control Center",
+    "subtitle": "Real-time Data · Intelligent Analysis · Precise Decision",
+    "marketOverview": "Market Overview",
+    "fundOverview": "Fund Overview",
+    "strategyMonitor": "Strategy Monitor",
+    "intelligenceAlerts": "Intelligence Alerts",
+    "intelligenceCharts": "Intelligence Charts",
+    "tradeRecords": "Trade Records",
+    "aiStrategy": "AI Strategy Center"
+  },
+  "status": {
+    "apiConnected": "API Connected",
+    "apiDisconnected": "API Disconnected",
+    "apiChecking": "API Checking",
+    "realtimeData": "Realtime Data",
+    "dataPaused": "Data Paused",
+    "marketOpen": "Market Open",
+    "marketClosed": "Market Closed"
+  },
+  "buttons": {
+    "performanceMonitor": "Performance Monitor",
+    "exportData": "Export Data",
+    "generateStrategy": "Generate Strategy",
+    "startBacktest": "Start Backtest",
+    "saveLayout": "Save Layout",
+    "resetLayout": "Reset Layout"
+  },
+  "notifications": {
+    "dataUpdated": "Data Updated",
+    "strategyGenerated": "Strategy Generated Successfully",
+    "exportSuccess": "Export Successful",
+    "exportFailed": "Export Failed",
+    "connectionLost": "Connection Lost",
+    "connectionRestored": "Connection Restored"
+  },
+  "errors": {
+    "networkError": "Network Error",
+    "serverError": "Server Error",
+    "timeout": "Request Timeout",
+    "unknownError": "Unknown Error"
+  },
+  "tabs": {
+    "dashboard": "Dashboard",
+    "strategy": "Strategy Center",
+    "backtest": "Backtest Analysis",
+    "data": "Data Center",
+    "profile": "Profile"
+  }
+}

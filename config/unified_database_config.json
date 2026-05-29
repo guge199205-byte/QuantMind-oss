@@ -1,0 +1,50 @@
+{
+  "database_configurations": {
+    "postgresql": {
+      "description": "PostgreSQL数据库配置 - 生产标准",
+      "connection": {
+        "host": "192.168.1.88",
+        "port": 6789,
+        "database": "quantmind",
+        "username": "postgres",
+        "password": "",
+        "sslmode": "prefer"
+      },
+      "performance": {
+        "pool_size": 20,
+        "max_overflow": 10,
+        "pool_timeout": 30,
+        "pool_recycle": 3600,
+        "connect_timeout": 10,
+        "description": "PostgreSQL连接池标准配置"
+      }
+    }
+  },
+  "alignment_mapping": {
+    "description": "PostgreSQL配置参数参考",
+    "connection_limits": {
+      "postgresql_pool_size": 20,
+      "alignment_status": "已对齐"
+    },
+    "timeout_settings": {
+      "postgresql_connect_timeout": 10,
+      "alignment_status": "已对齐"
+    }
+  },
+  "usage_guidelines": {
+    "postgresql_reference": [
+      "建议连接池大小 20，按负载调整",
+      "启用 pool_pre_ping 防止僵尸连接",
+      "定期执行 VACUUM 和 ANALYZE",
+      "将 DATABASE_URL 统一指向 PostgreSQL"
+    ],
+    "best_practices": [
+      "优先使用根目录 .env 配置数据库连接",
+      "生产环境通过密钥管理器注入凭据",
+      "在迁移前执行备份与回滚验证"
+    ]
+  },
+  "version": "2.0",
+  "last_updated": "2026-02-22",
+  "author": "QuantMind Database Team"
+}

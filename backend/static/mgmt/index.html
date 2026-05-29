@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantMind 运维管理系统 v2.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .modal-backdrop { background-color: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen p-4 flex items-center justify-center">
+    <div id="app" class="w-full max-w-md transition-all duration-500">
+        <!-- 登录容器 -->
+        <div id="login-panel" class="bg-white border border-slate-200 p-10 rounded-3xl shadow-xl">
+            <div class="mb-10 text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg shadow-blue-500/30">
+                    <span class="text-white font-black text-2xl">Q</span>
+                </div>
+                <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">运维管理后台</h1>
+                <p class="text-slate-500 text-sm mt-2">内部系统，非授权禁止进入</p>
+            </div>
+
+            <form id="login-form" class="space-y-6">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">管理员账号</label>
+                    <input type="text" id="username" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" placeholder="Admin Username">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">安全密码</label>
+                    <input type="password" id="password" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" placeholder="••••••••">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">网关验证密钥</label>
+                    <input type="password" id="admin_key" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all" placeholder="Security Key">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all active:scale-95">
+                    进入控制台
+                </button>
+            </form>
+            <div id="message" class="mt-4 text-center text-xs text-rose-500 font-medium hidden"></div>
+        </div>
+
+        <!-- 核心管理面板 -->
+        <div id="admin-panel" class="hidden w-full max-w-6xl bg-white border border-slate-200 rounded-3xl shadow-2xl flex flex-col overflow-hidden" style="height: 800px;">
+            <div class="flex flex-1 overflow-hidden">
+                <!-- 侧边导航 -->
+                <aside class="w-64 bg-slate-50 border-r border-slate-200 p-6 flex flex-col">
+                    <div class="flex items-center gap-3 mb-10">
+                        <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-black text-white">Q</div>
+                        <span class="font-bold text-slate-900 tracking-tight">QuantMind</span>
+                    </div>
+                    
+                    <nav class="space-y-2 flex-1">
+                        <button onclick="switchTab('dashboard')" id="tab-dashboard" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-500 hover:text-slate-900">
+                            <span>📊 系统概览</span>
+                        </button>
+                        <button onclick="switchTab('users')" id="tab-users" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-500 hover:text-slate-900">
+                            <span>👥 用户管理</span>
+                        </button>
+                    </nav>
+
+                    <div class="pt-6 border-t border-slate-200">
+                        <div class="text-[10px] text-slate-400 uppercase font-black mb-4">Current Admin</div>
+                        <div class="flex items-center justify-between">
+                            <span id="admin-display-name" class="text-xs font-bold text-slate-700">Admin</span>
+                            <button id="logout-btn" class="text-rose-500 hover:text-rose-600 text-[10px] font-black underline uppercase tracking-tighter">Logout</button>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- 主内容区 -->
+                <main class="flex-1 flex flex-col overflow-hidden bg-white">
+                    <header class="h-16 border-b border-slate-100 px-8 flex items-center justify-between">
+                        <h2 id="view-title" class="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">Dashboard</h2>
+                        <div class="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full border border-emerald-100">
+                            <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                            <span class="text-[10px] font-bold text-emerald-600 uppercase">Live</span>
+                        </div>
+                    </header>
+
+                    <div id="content-area" class="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/30">
+                        <!-- 仪表盘视图 -->
+                        <div id="view-dashboard" class="space-y-8">
+                            <div id="stats-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+                            <div class="p-12 text-center border-2 border-dashed border-slate-200 rounded-3xl text-slate-400 font-medium">
+                                <div class="mb-2">📊</div>
+                                实时监控图表正在从数据节点同步...
+                            </div>
+                        </div>
+
+                        <!-- 用户列表视图 -->
+                        <div id="view-users" class="hidden space-y-6">
+                            <div class="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-sm">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                                        <tr>
+                                            <th class="px-6 py-4">USER ID</th>
+                                            <th class="px-6 py-4">USERNAME</th>
+                                            <th class="px-6 py-4">ROLE</th>
+                                            <th class="px-6 py-4">STATUS</th>
+                                            <th class="px-6 py-4 text-right">ACTIONS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="user-table-body" class="divide-y divide-slate-100 text-slate-700"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const loginForm = document.getElementById('login-form');
+        const loginPanel = document.getElementById('login-panel');
+        const adminPanel = document.getElementById('admin-panel');
+        const adminDisplayName = document.getElementById('admin-display-name');
+        const logoutBtn = document.getElementById('logout-btn');
+        const appContainer = document.getElementById('app');
+
+        const TABS = ['dashboard', 'users'];
+
+        function switchTab(tabId) {
+            const titles = {
+                dashboard: 'Dashboard',
+                users: 'User Management'
+            };
+            document.getElementById('view-title').textContent = titles[tabId];
+
+            TABS.forEach(id => {
+                document.getElementById(`view-${id}`).classList.add('hidden');
+                const btn = document.getElementById(`tab-${id}`);
+                if(btn) btn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-slate-500 hover:text-slate-900 hover:bg-slate-200/50";
+            });
+
+            document.getElementById(`view-${tabId}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-${tabId}`);
+            if(activeBtn) activeBtn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-blue-600 bg-white shadow-sm border border-slate-200";
+
+            if (tabId === 'dashboard') loadStats();
+            if (tabId === 'users') loadUsers();
+        }
+
+        async function defApi(url, method = 'GET', body = null) {
+            const token = localStorage.getItem('admin_token');
+            const options = {
+                method,
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            };
+            if (body) options.body = JSON.stringify(body);
+            const resp = await fetch(url, options);
+            if (resp.status === 401) logout();
+            return await resp.json();
+        }
+
+        async function loadStats() {
+            const container = document.getElementById('stats-grid');
+            try {
+                const stats = [
+                    { label: 'Total Users', val: '1,284', color: 'text-slate-900' },
+                    { label: 'Active Today', val: '328', color: 'text-emerald-600' },
+                    { label: 'System Health', val: '99.9%', color: 'text-blue-600' }
+                ];
+                container.innerHTML = stats.map(s => `
+                    <div class="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                        <div class="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">${s.label}</div>
+                        <div class="text-3xl font-black ${s.color}">${s.val}</div>
+                    </div>
+                `).join('');
+            } catch(e) { console.error('loadStats error:', e); }
+        }
+
+        async function loadUsers() {
+            const tbody = document.getElementById('user-table-body');
+            tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-10 text-center text-slate-400">正在拉取用户信息...</td></tr>';
+            try {
+                const result = await defApi('/api/v1/admin/users/');
+                if (result.success && result.data) {
+                    tbody.innerHTML = result.data.map(u => `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-mono text-xs text-slate-400">${u.user_id}</td>
+                            <td class="px-6 py-4">
+                                <div class="font-bold text-slate-900">${u.username}</div>
+                                <div class="text-[10px] text-slate-400">Joined: ${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}</div>
+                            </td>
+                            <td class="px-6 py-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${u.is_admin ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}">${u.is_admin ? 'ADMIN' : 'USER'}</span></td>
+                            <td class="px-6 py-4">
+                                <span class="flex items-center gap-2 font-medium">
+                                    <span class="w-2 h-2 rounded-full ${u.is_active ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+                                    ${u.is_active ? 'Active' : 'Disabled'}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <button onclick="toggleUserStatus('${u.user_id}', ${u.is_active})" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                                    u.is_active 
+                                    ? 'bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white' 
+                                    : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white'
+                                }">
+                                    ${u.is_active ? 'Disable' : 'Enable'}
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) { console.error('loadUsers error:', e); }
+        }
+
+        async function toggleUserStatus(userId, currentStatus) {
+            const action = currentStatus ? '禁用' : '启用';
+            if (!confirm(`确定要${action}该用户吗？`)) return;
+            try {
+                const res = await defApi(`/api/v1/admin/users/${userId}/toggle-status`, 'POST');
+                if (res.code === 200) loadUsers();
+                else alert('操作失败: ' + res.message);
+            } catch (e) { alert('网络异常'); }
+        }
+
+        loginForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const payload = {
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                admin_key: document.getElementById('admin_key').value,
+                tenant_id: 'default'
+            };
+            const resp = await fetch('/api/v1/auth/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await resp.json();
+            if (resp.ok) {
+                localStorage.setItem('admin_token', result.access_token);
+                localStorage.setItem('admin_user', JSON.stringify(result.user));
+                enterDashboard(result.user);
+            } else {
+                document.getElementById('message').textContent = result.detail || '用户名、密码或安全密钥错误';
+                document.getElementById('message').classList.remove('hidden');
+            }
+        };
+
+        function enterDashboard(user) {
+            adminDisplayName.textContent = user.username;
+            loginPanel.classList.add('hidden');
+            adminPanel.classList.remove('hidden');
+            appContainer.classList.remove('max-w-md');
+            appContainer.classList.add('max-w-6xl');
+            switchTab('dashboard');
+        }
+
+        function logout() {
+            localStorage.removeItem('admin_token');
+            localStorage.removeItem('admin_user');
+            location.reload();
+        }
+
+        logoutBtn.onclick = logout;
+        const savedToken = localStorage.getItem('admin_token');
+        const savedUser = localStorage.getItem('admin_user');
+        if (savedToken && savedUser) enterDashboard(JSON.parse(savedUser));
+    </script>
+</body>
+</html>

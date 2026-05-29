@@ -1,0 +1,207 @@
+import os
+from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from backend.services.api.routers import (
+    auth,
+    inquiry,
+    notifications,
+    profiles,
+    trading_calendar,
+    users,
+)
+from backend.services.api.routers.asset import router as asset_router
+from backend.services.api.routers.admin import admin_router
+from backend.services.api.routers.ai_ide_proxy import router as ai_ide_proxy_router
+from backend.services.api.routers.community.router import router as community_router
+from backend.services.api.routers.qwenpaw_proxy import router as qwenpaw_proxy_router
+from backend.services.api.routers.qwenpaw_ui_proxy import router as qwenpaw_ui_proxy_router
+from backend.services.api.routers.dashboard_proxy import router as dashboard_proxy_router
+from backend.services.api.routers.data_gateway_proxy import router as data_gateway_proxy_router
+from backend.services.api.routers.data_dashboard import router as data_dashboard_router
+from backend.services.api.routers.news import router as news_router
+from backend.services.api.routers.engine_proxy import router as engine_proxy_router
+from backend.services.api.routers.files import router as files_router
+from backend.services.api.routers.model_training import router as model_training_router
+from backend.services.api.routers.research import router as research_router
+from backend.services.api.routers.market_kline import router as market_kline_router
+from backend.services.api.routers.stocks_search import router as stocks_search_router
+from backend.services.api.routers.trade_proxy import router as trade_proxy_router
+from backend.services.api.routers.public_sync import router as public_sync_router
+from backend.services.api.routers.ws_proxy import router as ws_proxy_router
+from backend.services.api.user_app.api.v1.api_keys import router as api_keys_router
+from backend.services.api.user_app.api.v1.subscriptions import (
+    router as subscriptions_router,
+)
+from backend.shared.config_manager import init_unified_config
+from backend.shared.cors import resolve_cors_origins
+from backend.shared.database_pool import init_default_databases as init_sync_db_pool
+from backend.shared.error_contract import install_error_contract_handlers
+from backend.shared.logging_config import get_logger, setup_logging
+from backend.shared.openapi_utils import quantmind_generate_unique_id
+from backend.shared.request_id import install_request_id_middleware
+from backend.shared.request_logging import install_access_log_middleware
+from backend.shared.service_health_metrics import (
+    build_metrics_response,
+    set_service_health,
+)
+
+setup_logging(service_name="quantmind-api")
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.started_at = datetime.now(timezone.utc)
+    app.state.startup_healthy = True
+    try:
+        await init_unified_config(service_name="quantmind-api")
+        init_sync_db_pool(pool_size=20)
+
+        from backend.shared.database_manager_v2 import init_database
+
+        await init_database()
+
+        from backend.services.api.routers.admin.model_management import (
+            ensure_admin_tables,
+        )
+
+        await ensure_admin_tables()
+        from backend.shared.model_registry import model_registry_service
+
+        await model_registry_service.ensure_tables()
+        from backend.services.engine.services.model_inference_persistence import (
+            model_inference_persistence,
+        )
+
+        await model_inference_persistence.ensure_tables()
+        # from backend.services.api.routers.research import ensure_research_tables
+        # await ensure_research_tables()
+
+        # Pre-initialize data platform aggregator in main thread
+        # (register_all uses signal.signal which only works in main thread)
+        try:
+            from backend.services.engine.data_platform.adapters import register_all
+            from backend.services.engine.data_platform.aggregator import (
+                FieldAggregator, FieldRoutingTable,
+            )
+            from backend.services.engine.data_platform.cleaner import DataCleaner
+            from backend.services.engine.data_platform.monitor import get_monitor
+            from backend.services.engine.data_platform.registry import get_registry
+
+            register_all()
+            _agg = FieldAggregator(
+                registry=get_registry(),
+                routing=FieldRoutingTable(),
+                monitor=get_monitor(),
+                cleaner=DataCleaner(),
+            )
+            # Store in module-level cache for both routers
+            import backend.services.api.routers.data_dashboard as dd_mod
+            import backend.services.api.routers.market_kline as mk_mod
+            dd_mod._AGG_CACHE = _agg
+            mk_mod._AGG_CACHE = _agg
+            logger.info("✅ Data platform aggregator pre-initialized")
+        except Exception as agg_err:
+            logger.warning(f"⚠️ Aggregator pre-init failed (will lazy-init): {agg_err}")
+
+        logger.info("✅ QuantMind API initialized")
+    except Exception as e:
+        app.state.startup_healthy = False
+        logger.error(f"❌ API initialization failed: {e}", exc_info=True)
+
+    set_service_health("quantmind-api", bool(app.state.startup_healthy))
+    yield
+    logger.info("🔚 QuantMind API shutdown complete")
+
+
+app = FastAPI(
+    title="QuantMind Consolidated API",
+    version="2.0.0",
+    description="用户、认证、交易、引擎统一网关服务",
+    lifespan=lifespan,
+    generate_unique_id_function=quantmind_generate_unique_id,
+)
+
+# 1. 中间件
+install_request_id_middleware(app)
+install_error_contract_handlers(app)
+install_access_log_middleware(app, service_name="quantmind-api")
+
+# 2. 注册具体业务路由 (高优先级)
+# 使用环境变量或默认路径，Docker 容器中 /data/uploads，本地开发 data/uploads
+uploads_dir = os.environ.get("UPLOADS_DIR", "/data/uploads" if os.path.exists("/data/uploads") else "data/uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
+app.include_router(community_router)
+app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(profiles.router, prefix="/api/v1/profiles", tags=["Profiles"])
+app.include_router(notifications.router, prefix="/api/v1", tags=["Notifications"])
+app.include_router(inquiry.router, prefix="/api/v1", tags=["Inquiry"])
+app.include_router(files_router, prefix="/api/v1")
+app.include_router(public_sync_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1/admin")
+app.include_router(
+    model_training_router, prefix="/api/v1/models", tags=["ModelTraining"]
+)
+app.include_router(research_router)
+app.include_router(market_kline_router)
+app.include_router(stocks_search_router)
+app.include_router(trading_calendar.router)
+app.include_router(api_keys_router, prefix="/api/v1")
+app.include_router(asset_router, prefix="/api/v1/asset", tags=["Asset"])
+app.include_router(
+    subscriptions_router, prefix="/api/v1/subscription", tags=["Subscriptions"]
+)
+
+# 3. 注册代理路由 (低优先级，兜底捕获)
+app.include_router(ws_proxy_router)  # WebSocket 代理，优先级最高
+app.include_router(engine_proxy_router)
+app.include_router(trade_proxy_router)
+app.include_router(ai_ide_proxy_router)
+app.include_router(qwenpaw_proxy_router)
+app.include_router(qwenpaw_ui_proxy_router)
+app.include_router(dashboard_proxy_router)
+app.include_router(data_gateway_proxy_router)
+app.include_router(data_dashboard_router)
+app.include_router(news_router)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=resolve_cors_origins(logger=logger),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+async def health_check():
+    startup_healthy = bool(getattr(app.state, "startup_healthy", True))
+    set_service_health("quantmind-api", startup_healthy)
+    return {
+        "status": "healthy" if startup_healthy else "degraded",
+        "service": "quantmind-api",
+    }
+
+
+@app.get("/")
+async def root():
+    return {"message": "QuantMind API Service V2 is running"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return build_metrics_response()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False)

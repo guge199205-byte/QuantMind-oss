@@ -1,0 +1,66 @@
+# 核心 Web 框架
+fastapi
+uvicorn
+pydantic
+pydantic[email]
+pydantic-settings
+python-dotenv
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+httpx
+loguru
+tenacity
+user-agents
+aiofiles
+pyyaml
+
+# 数据库与存储
+sqlalchemy
+psycopg2-binary
+asyncpg
+alembic
+docker>=6.0
+
+# 数据分析与计算
+pandas>=2.0.0
+numpy==1.26.4
+baostock>=0.8.9
+akshare>=1.18.0
+efinance>=0.5.0
+qstock>=1.3.0
+mootdx>=0.11.0
+eltdx>=0.5.0
+duckdb>=1.4.4
+plotly
+statsmodels
+PyJWT
+cryptography>=3.0.0,<45.0.0
+jsonschema>=4.21.0
+psutil>=5.9.0
+aiohttp>=3.9.0
+websockets>=12.0
+exchange-calendars>=4.5.0
+reportlab>=4.0.0
+openpyxl>=3.1.0
+matplotlib>=3.8.0
+
+# 系统与监控
+prometheus_client
+amqp==5.3.1
+billiard==4.2.4
+celery==5.6.2
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.3.0
+kombu==5.6.2
+redis==6.4.0
+vine==5.1.0
+
+# AI-IDE 核心依赖
+openai==1.10.0
+anthropic==0.15.0
+astor==0.8.1
+pyarrow>=15.0.0
+python-alipay-sdk>=3.4.0
+pyahocorasick
