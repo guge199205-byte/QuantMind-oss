@@ -55,6 +55,7 @@ import {
   NewsSource,
   newsService,
 } from '../services/newsService';
+import '../styles/news-panel.css';
 
 const { Text, Title, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -457,7 +458,7 @@ export const NewsPanel: React.FC = () => {
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
               {f.folder_name || '未分组'}
             </span>
-            <Text type="secondary" style={{ fontSize: 10 }}>{items.length}</Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>{items.length}</Text>
             {f.unread_count > 0 && <Badge count={f.unread_count} size="small" />}
           </div>
         ),
@@ -465,7 +466,7 @@ export const NewsPanel: React.FC = () => {
           key: `source-${s.source_id}`,
           title: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                 {s.source_name}
               </span>
               {(s.unread_count ?? 0) > 0 && <Badge count={s.unread_count} size="small" />}
@@ -525,6 +526,7 @@ export const NewsPanel: React.FC = () => {
   // —— 渲染 ——
   return (
     <div
+      className="news-panel"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -533,7 +535,6 @@ export const NewsPanel: React.FC = () => {
         minHeight: 0,
         background: '#ffffff',
         overflow: 'hidden',
-        // 底部留出 84px 给 FloatingNavBar (位于 bottom:14px, 约 56px 高 + 14px 间距)
         paddingBottom: 84,
         boxSizing: 'border-box',
       }}
@@ -644,18 +645,19 @@ export const NewsPanel: React.FC = () => {
 
       {/* 第二排：金融过滤器（情感 / 行业 / 股票 / 事件 / 时间 / 强信号） */}
       <div
+        className="news-filter-bar"
         style={{
           display: 'flex',
           alignItems: 'center',
-          padding: '8px 20px',
+          padding: '10px 20px',
           gap: 10,
           borderBottom: '1px solid #e2e8f0',
           background: '#ffffff',
           flexWrap: 'wrap',
-          fontSize: 12,
+          fontSize: 14,
         }}
       >
-        <Text type="secondary" style={{ fontSize: 12 }}>情感:</Text>
+        <Text type="secondary" style={{ fontSize: 14 }}>情感:</Text>
         <Segmented
           size="small"
           value={sentimentFilter}
@@ -678,7 +680,7 @@ export const NewsPanel: React.FC = () => {
             强信号
           </Button>
         </Tooltip>
-        <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>时间:</Text>
+        <Text type="secondary" style={{ fontSize: 14, marginLeft: 4 }}>时间:</Text>
         <Segmented
           size="small"
           value={(() => {
@@ -716,7 +718,7 @@ export const NewsPanel: React.FC = () => {
           allowClear
           style={{ width: 240 }}
         />
-        <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>行业:</Text>
+        <Text type="secondary" style={{ fontSize: 14, marginLeft: 4 }}>行业:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -731,7 +733,7 @@ export const NewsPanel: React.FC = () => {
           style={{ minWidth: 200, maxWidth: 320 }}
           maxTagCount="responsive"
         />
-        <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>股票:</Text>
+        <Text type="secondary" style={{ fontSize: 14, marginLeft: 4 }}>股票:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -789,8 +791,8 @@ export const NewsPanel: React.FC = () => {
           const total = (stats.sentiment_counts.bullish || 0) + (stats.sentiment_counts.bearish || 0) + (stats.sentiment_counts.neutral || 0);
           return (
             <Tooltip title={filtered ? `当前筛选条件下: 共 ${total} 篇文章 (红=利好 / 绿=利空 A股配色)` : '全部 enrich 文章的情感分布'}>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {filtered && <Text type="warning" style={{ fontSize: 11, marginRight: 4 }}>筛选后</Text>}
+              <Text type="secondary" className="news-stats-text" style={{ fontSize: 13 }}>
+                {filtered && <Text type="warning" style={{ fontSize: 13, marginRight: 4 }}>筛选后</Text>}
                 <span style={{ color: COLOR_BULLISH }}>利好 {stats.sentiment_counts.bullish || 0}</span>
                 {' · '}
                 <span style={{ color: COLOR_BEARISH }}>利空 {stats.sentiment_counts.bearish || 0}</span>
@@ -804,18 +806,19 @@ export const NewsPanel: React.FC = () => {
 
       {/* 第三排：常用市场快捷标签 (多选 toggle) */}
       <div
+        className="news-chip-bar"
         style={{
           display: 'flex',
           alignItems: 'center',
-          padding: '6px 20px',
+          padding: '8px 20px',
           gap: 8,
           borderBottom: '1px solid #f1f5f9',
           background: '#fafbff',
           flexWrap: 'wrap',
-          fontSize: 12,
+          fontSize: 13,
         }}
       >
-        <Text type="secondary" style={{ fontSize: 11 }}>板块:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>板块:</Text>
         {QUICK_EVENT_CHIPS.map((chip) => {
           const active = eventTagFilter.includes(chip.value);
           return (
@@ -827,7 +830,7 @@ export const NewsPanel: React.FC = () => {
                   c ? [...cur, chip.value] : cur.filter((x) => x !== chip.value),
                 );
               }}
-              style={{ fontSize: 11, padding: '2px 10px', borderRadius: 12 }}
+              style={{ fontSize: 13, padding: '3px 12px', borderRadius: 12 }}
             >
               {chip.label}
             </Tag.CheckableTag>
@@ -848,7 +851,7 @@ export const NewsPanel: React.FC = () => {
                     c ? [...cur, e.name] : cur.filter((x) => x !== e.name),
                   );
                 }}
-                style={{ fontSize: 11, padding: '2px 10px', borderRadius: 12 }}
+                style={{ fontSize: 13, padding: '3px 12px', borderRadius: 12 }}
               >
                 {e.name} <span style={{ opacity: 0.6 }}>({e.count})</span>
               </Tag.CheckableTag>
@@ -858,18 +861,19 @@ export const NewsPanel: React.FC = () => {
 
       {/* 第四排：地理 / 政情 / 关键词 / 部门 筛选（合并为一行） */}
       <div
+        className="news-geo-bar"
         style={{
           display: 'flex',
           alignItems: 'center',
-          padding: '6px 20px',
+          padding: '8px 20px',
           gap: 8,
           borderBottom: '1px solid #f1f5f9',
           background: '#fafbff',
           flexWrap: 'wrap',
-          fontSize: 12,
+          fontSize: 13,
         }}
       >
-        <Text type="secondary" style={{ fontSize: 11 }}>国家:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>国家:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -884,7 +888,7 @@ export const NewsPanel: React.FC = () => {
           style={{ minWidth: 120, maxWidth: 200 }}
           maxTagCount="responsive"
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>地区:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>地区:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -899,7 +903,7 @@ export const NewsPanel: React.FC = () => {
           style={{ minWidth: 120, maxWidth: 200 }}
           maxTagCount="responsive"
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>省份:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>省份:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -918,7 +922,7 @@ export const NewsPanel: React.FC = () => {
             String(opt?.label || '').toLowerCase().includes(input.toLowerCase())
           }
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>城市:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>城市:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -937,7 +941,7 @@ export const NewsPanel: React.FC = () => {
             String(opt?.label || '').toLowerCase().includes(input.toLowerCase())
           }
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>领导人:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>领导人:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -956,7 +960,7 @@ export const NewsPanel: React.FC = () => {
             String(opt?.label || '').toLowerCase().includes(input.toLowerCase())
           }
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>调研:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>调研:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -971,7 +975,7 @@ export const NewsPanel: React.FC = () => {
           style={{ minWidth: 120, maxWidth: 200 }}
           maxTagCount="responsive"
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>部门:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>部门:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -986,7 +990,7 @@ export const NewsPanel: React.FC = () => {
           style={{ minWidth: 120, maxWidth: 200 }}
           maxTagCount="responsive"
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>关键词:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>关键词:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -1005,7 +1009,7 @@ export const NewsPanel: React.FC = () => {
             String(opt?.label || '').toLowerCase().includes(input.toLowerCase())
           }
         />
-        <Text type="secondary" style={{ fontSize: 11 }}>日期:</Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>日期:</Text>
         <Select
           mode="multiple"
           allowClear
@@ -1124,18 +1128,19 @@ export const NewsPanel: React.FC = () => {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                             {a.is_financial_event && (
-                              <Tag color="gold" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px' }}>
+                              <Tag color="gold" style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px' }}>
                                 <ThunderboltOutlined /> 事件
                               </Tag>
                             )}
                             {a.enrichment?.sentiment_label === 'bullish' && (
                               <Tag
                                 color="red"
+                                className="news-sentiment-tag"
                                 style={{
                                   margin: 0,
-                                  fontSize: 10,
-                                  padding: '0 4px',
-                                  lineHeight: '15px',
+                                  fontSize: 12,
+                                  padding: '1px 6px',
+                                  lineHeight: '17px',
                                   fontWeight: (a.enrichment.sentiment_score ?? 0) >= 0.5 ? 700 : 500,
                                 }}
                               >
@@ -1146,11 +1151,12 @@ export const NewsPanel: React.FC = () => {
                             {a.enrichment?.sentiment_label === 'bearish' && (
                               <Tag
                                 color="green"
+                                className="news-sentiment-tag"
                                 style={{
                                   margin: 0,
-                                  fontSize: 10,
-                                  padding: '0 4px',
-                                  lineHeight: '15px',
+                                  fontSize: 12,
+                                  padding: '1px 6px',
+                                  lineHeight: '17px',
                                   fontWeight: (a.enrichment.sentiment_score ?? 0) <= -0.5 ? 700 : 500,
                                 }}
                               >
@@ -1158,12 +1164,12 @@ export const NewsPanel: React.FC = () => {
                                 {a.enrichment.sentiment_score != null && ` ${a.enrichment.sentiment_score.toFixed(2)}`}
                               </Tag>
                             )}
-                            <Text style={{ fontSize: 13, fontWeight: a.read ? 400 : 600, lineHeight: 1.4 }}>
+                            <Text className="news-article-title" style={{ fontSize: 15, fontWeight: a.read ? 400 : 600, lineHeight: 1.5 }}>
                               {a.title}
                             </Text>
                           </div>
                           {a.summary && (
-                            <Text style={{ color: '#64748b', fontSize: 11, display: 'block', lineHeight: 1.5 }}>
+                            <Text className="news-article-summary" style={{ color: '#64748b', fontSize: 13, display: 'block', lineHeight: 1.6 }}>
                               {a.summary.length > 120 ? `${a.summary.slice(0, 120)}...` : a.summary}
                             </Text>
                           )}
@@ -1186,7 +1192,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`tk-${t}`}
                                   color="blue"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setTickerFilter((cur) => cur.includes(t) ? cur : [...cur, t]);
@@ -1199,7 +1205,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`ind-${ind}`}
                                   color="geekblue"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setIndustryFilter((cur) => cur.includes(ind) ? cur : [...cur, ind]);
@@ -1212,7 +1218,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`co-${co}`}
                                   color="purple"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setCountryFilter((cur) => cur.includes(co) ? cur : [...cur, co]);
@@ -1225,7 +1231,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`rg-${rg}`}
                                   color="cyan"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setRegionFilter((cur) => cur.includes(rg) ? cur : [...cur, rg]);
@@ -1238,7 +1244,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`ev-${ev}`}
                                   color="orange"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setEventTagFilter((cur) => cur.includes(ev) ? cur : [...cur, ev]);
@@ -1251,7 +1257,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`kt-${kt}`}
                                   color="magenta"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setKeyTermFilter((cur) => cur.includes(kt) ? cur : [...cur, kt]);
@@ -1264,7 +1270,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`pv-${pv}`}
                                   color="volcano"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setProvinceFilter((cur) => cur.includes(pv) ? cur : [...cur, pv]);
@@ -1277,7 +1283,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`ct-${ct}`}
                                   color="gold"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setCityFilter((cur) => cur.includes(ct) ? cur : [...cur, ct]);
@@ -1290,7 +1296,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`pl-${pl}`}
                                   color="red"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setPoliticianFilter((cur) => cur.includes(pl) ? cur : [...cur, pl]);
@@ -1303,7 +1309,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`vs-${vs}`}
                                   color="lime"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setVisitFilter((cur) => cur.includes(vs) ? cur : [...cur, vs]);
@@ -1316,7 +1322,7 @@ export const NewsPanel: React.FC = () => {
                                 <Tag
                                   key={`dp-${dp}`}
                                   color="geekblue"
-                                  style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '15px', cursor: 'pointer' }}
+                                  style={{ margin: 0, fontSize: 11, padding: '1px 6px', lineHeight: '17px', cursor: 'pointer' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setDepartmentFilter((cur) => cur.includes(dp) ? cur : [...cur, dp]);
@@ -1327,7 +1333,7 @@ export const NewsPanel: React.FC = () => {
                               ))}
                             </div>
                           )}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 11, color: '#94a3b8' }}>
+                          <div className="news-article-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 12, color: '#94a3b8' }}>
                             <span>{a.source_name || '未知来源'}</span>
                             <span>·</span>
                             <span>{formatRelative(a.published_at)}</span>
@@ -1369,7 +1375,7 @@ export const NewsPanel: React.FC = () => {
                     下页
                   </Button>
                 </Tooltip>
-                <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                <Text type="secondary" className="news-pagination-bar" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
                   第 <Text strong>{currentPage}</Text> / {Math.max(1, Math.ceil(totalArticles / pageSize))} 页
                   <span style={{ marginLeft: 8, color: '#94a3b8' }}>·</span>
                   <span style={{ marginLeft: 8 }}>共 <Text strong style={{ color: '#6366f1' }}>{totalArticles.toLocaleString()}</Text> 条</span>
@@ -1430,10 +1436,10 @@ export const NewsPanel: React.FC = () => {
             />
           ) : (
             <div>
-              <Title level={4} style={{ marginTop: 0, lineHeight: 1.4 }}>
+              <Title className="news-detail-title" level={4} style={{ marginTop: 0, lineHeight: 1.4, fontSize: 20 }}>
                 {articleDetail.title}
               </Title>
-              <div style={{ marginBottom: 14, fontSize: 12, color: '#64748b' }}>
+              <div className="news-detail-meta" style={{ marginBottom: 14, fontSize: 13, color: '#64748b' }}>
                 {articleDetail.source_name} · {formatRelative(articleDetail.published_at)}
                 {articleDetail.url && (
                   <a
@@ -1470,15 +1476,16 @@ export const NewsPanel: React.FC = () => {
                 <div
                   style={{
                     marginBottom: 16,
-                    padding: 12,
+                    padding: 14,
                     background: '#f8fafc',
                     border: '1px solid #e2e8f0',
                     borderRadius: 6,
+                    fontSize: 13,
                   }}
                 >
                   {articleDetail.enrichment.sentiment_label && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>情感:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>情感:</Text>
                       <Tag
                         color={
                           articleDetail.enrichment.sentiment_label === 'bullish' ? 'red'
@@ -1504,103 +1511,103 @@ export const NewsPanel: React.FC = () => {
                   )}
                   {articleDetail.enrichment.tickers.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>相关股票:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>相关股票:</Text>
                       {articleDetail.enrichment.tickers.map((t) => (
-                        <Tag key={`d-tk-${t}`} color="blue" style={{ marginBottom: 4 }}>{t}</Tag>
+                        <Tag key={`d-tk-${t}`} color="blue" style={{ marginBottom: 4, fontSize: 12 }}>{t}</Tag>
                       ))}
                     </div>
                   )}
                   {articleDetail.enrichment.industries.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>行业:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>行业:</Text>
                       {articleDetail.enrichment.industries.map((ind) => (
-                        <Tag key={`d-ind-${ind}`} color="geekblue" style={{ marginBottom: 4 }}>{ind}</Tag>
+                        <Tag key={`d-ind-${ind}`} color="geekblue" style={{ marginBottom: 4, fontSize: 12 }}>{ind}</Tag>
                       ))}
                     </div>
                   )}
                   {articleDetail.enrichment.event_tags.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>事件:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>事件:</Text>
                       {articleDetail.enrichment.event_tags.map((ev) => (
-                        <Tag key={`d-ev-${ev}`} color="orange" style={{ marginBottom: 4 }}>{ev}</Tag>
+                        <Tag key={`d-ev-${ev}`} color="orange" style={{ marginBottom: 4, fontSize: 12 }}>{ev}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.countries?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>国家:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>国家:</Text>
                       {(articleDetail.enrichment.countries ?? []).map((co) => (
-                        <Tag key={`d-co-${co}`} color="purple" style={{ marginBottom: 4 }}>{co}</Tag>
+                        <Tag key={`d-co-${co}`} color="purple" style={{ marginBottom: 4, fontSize: 12 }}>{co}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.regions?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>地区:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>地区:</Text>
                       {(articleDetail.enrichment.regions ?? []).map((rg) => (
-                        <Tag key={`d-rg-${rg}`} color="cyan" style={{ marginBottom: 4 }}>{rg}</Tag>
+                        <Tag key={`d-rg-${rg}`} color="cyan" style={{ marginBottom: 4, fontSize: 12 }}>{rg}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.key_terms?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>关键词:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>关键词:</Text>
                       {(articleDetail.enrichment.key_terms ?? []).map((kt) => (
-                        <Tag key={`d-kt-${kt}`} color="magenta" style={{ marginBottom: 4 }}>{kt}</Tag>
+                        <Tag key={`d-kt-${kt}`} color="magenta" style={{ marginBottom: 4, fontSize: 12 }}>{kt}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.date_entities?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>提及日期:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>提及日期:</Text>
                       {(articleDetail.enrichment.date_entities ?? []).map((dt) => (
-                        <Tag key={`d-dt-${dt}`} color="default" style={{ marginBottom: 4 }}>{dt}</Tag>
+                        <Tag key={`d-dt-${dt}`} color="default" style={{ marginBottom: 4, fontSize: 12 }}>{dt}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.provinces?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>省份:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>省份:</Text>
                       {(articleDetail.enrichment.provinces ?? []).map((pv) => (
-                        <Tag key={`d-pv-${pv}`} color="volcano" style={{ marginBottom: 4 }}>{pv}</Tag>
+                        <Tag key={`d-pv-${pv}`} color="volcano" style={{ marginBottom: 4, fontSize: 12 }}>{pv}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.cities?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>城市:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>城市:</Text>
                       {(articleDetail.enrichment.cities ?? []).map((ct) => (
-                        <Tag key={`d-ct-${ct}`} color="gold" style={{ marginBottom: 4 }}>{ct}</Tag>
+                        <Tag key={`d-ct-${ct}`} color="gold" style={{ marginBottom: 4, fontSize: 12 }}>{ct}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.politicians?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>领导人:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>领导人:</Text>
                       {(articleDetail.enrichment.politicians ?? []).map((pl) => (
-                        <Tag key={`d-pl-${pl}`} color="red" style={{ marginBottom: 4 }}>{pl}</Tag>
+                        <Tag key={`d-pl-${pl}`} color="red" style={{ marginBottom: 4, fontSize: 12 }}>{pl}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.visits?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>调研:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>调研:</Text>
                       {(articleDetail.enrichment.visits ?? []).map((vs) => (
-                        <Tag key={`d-vs-${vs}`} color="lime" style={{ marginBottom: 4 }}>{vs}</Tag>
+                        <Tag key={`d-vs-${vs}`} color="lime" style={{ marginBottom: 4, fontSize: 12 }}>{vs}</Tag>
                       ))}
                     </div>
                   )}
                   {(articleDetail.enrichment.departments?.length ?? 0) > 0 && (
                     <div style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>部门:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>部门:</Text>
                       {(articleDetail.enrichment.departments ?? []).map((dp) => (
-                        <Tag key={`d-dp-${dp}`} color="geekblue" style={{ marginBottom: 4 }}>{dp}</Tag>
+                        <Tag key={`d-dp-${dp}`} color="geekblue" style={{ marginBottom: 4, fontSize: 12 }}>{dp}</Tag>
                       ))}
                     </div>
                   )}
                   {articleDetail.enrichment.entity_sentiments && Object.keys(articleDetail.enrichment.entity_sentiments).length > 0 && (
                     <div>
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>实体级情感:</Text>
+                      <Text type="secondary" style={{ fontSize: 13, marginRight: 8 }}>实体级情感:</Text>
                       {Object.entries(articleDetail.enrichment.entity_sentiments)
                         .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
                         .map(([key, score]) => {
@@ -1634,12 +1641,12 @@ export const NewsPanel: React.FC = () => {
               )}
               {articleDetail.content_html ? (
                 <div
-                  className="news-content"
-                  style={{ fontSize: 14, lineHeight: 1.75 }}
+                  className="news-content news-detail-content"
+                  style={{ fontSize: 15, lineHeight: 1.8 }}
                   dangerouslySetInnerHTML={{ __html: articleDetail.content_html }}
                 />
               ) : (
-                <Paragraph style={{ fontSize: 14, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
+                <Paragraph className="news-detail-content" style={{ fontSize: 15, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
                   {articleDetail.content || articleDetail.summary || '(正文为空)'}
                 </Paragraph>
               )}

@@ -1,0 +1,98 @@
+/* RSS 信息流 — 自适应字体 */
+
+.news-panel {
+  font-size: 14px;
+}
+
+/* 顶部工具栏 */
+.news-panel .news-toolbar {
+  font-size: 14px;
+}
+.news-panel .news-toolbar .ant-tag {
+  font-size: 13px;
+}
+
+/* 筛选栏 */
+.news-panel .news-filter-bar {
+  font-size: 14px;
+}
+.news-panel .news-filter-bar .ant-segmented {
+  font-size: 13px;
+}
+.news-panel .news-filter-bar .ant-select {
+  font-size: 13px;
+}
+.news-panel .news-filter-bar .ant-btn {
+  font-size: 13px;
+}
+
+/* 快捷标签栏 */
+.news-panel .news-chip-bar {
+  font-size: 13px;
+}
+.news-panel .news-chip-bar .ant-tag-checkable {
+  font-size: 13px;
+  padding: 3px 12px;
+}
+
+/* 地理筛选栏 */
+.news-panel .news-geo-bar {
+  font-size: 13px;
+}
+.news-panel .news-geo-bar .ant-select {
+  font-size: 13px;
+}
+
+/* 文章列表 */
+.news-panel .news-article-title {
+  font-size: 15px;
+  line-height: 1.5;
+}
+.news-panel .news-article-summary {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.news-panel .news-article-meta {
+  font-size: 12px;
+}
+.news-panel .news-article-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  line-height: 17px;
+}
+
+/* 情感标签 */
+.news-panel .news-sentiment-tag {
+  font-size: 12px;
+  padding: 1px 6px;
+  line-height: 17px;
+}
+
+/* 分页栏 */
+.news-panel .news-pagination-bar {
+  font-size: 13px;
+}
+
+/* 正文区域 */
+.news-panel .news-detail-title {
+  font-size: 20px;
+  line-height: 1.4;
+}
+.news-panel .news-detail-meta {
+  font-size: 13px;
+}
+.news-panel .news-detail-enrichment {
+  font-size: 13px;
+}
+.news-panel .news-detail-enrichment .ant-tag {
+  font-size: 12px;
+}
+.news-panel .news-detail-content {
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+/* 统计数字 */
+.news-panel .news-stats-text {
+  font-size: 13px;
+}
