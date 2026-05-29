@@ -112,7 +112,7 @@ class DataDashboardService {
             params: { market },
         });
         const d = this.unwrap<{ fields: FieldInfo[] }>(resp);
-        return d.fields || [];
+        return d?.fields || [];
     }
 
     /** 获取日K线数据（复用已有的 /market/kline 端点） */
@@ -155,7 +155,7 @@ class DataDashboardService {
         if (market) params.market = market;
         const resp = await this.client.get('/data-dashboard/search', { params });
         const d = this.unwrap<{ results: SearchResult[] }>(resp);
-        return d.results || [];
+        return d?.results || [];
     }
 
     /** 实时行情 */
@@ -168,7 +168,7 @@ class DataDashboardService {
                 params: { market, symbol },
             });
             const d = this.unwrap<{ quote: RealtimeQuote }>(resp);
-            return d.quote || null;
+            return d?.quote || null;
         } catch {
             return null;
         }
@@ -181,7 +181,7 @@ class DataDashboardService {
                 params: { market, symbol },
             });
             const d = this.unwrap<{ data: Record<string, any>[] }>(resp);
-            return d.data || [];
+            return d?.data || [];
         } catch {
             return [];
         }
@@ -197,7 +197,7 @@ class DataDashboardService {
                 params: { market, symbol },
             });
             const d = this.unwrap<{ data: Record<string, any>[] }>(resp);
-            return d.data || [];
+            return d?.data || [];
         } catch {
             return [];
         }

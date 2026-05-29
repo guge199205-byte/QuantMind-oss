@@ -417,7 +417,36 @@ services:
     networks:
       - quantmind-net
 
-  # 5b. Dashboard (OpenBB + Streamlit 数据看板)
+  # 5b. Daily Stock Analysis (A股/港股/美股智能分析)
+  dsa:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dsa
+    container_name: quantmind-dsa
+    ports:
+      - "${DSA_PORT:-8005}:8005"
+    environment:
+      - TZ=Asia/Shanghai
+      - API_PORT=8005
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+      - CORS_ALLOW_ALL=true
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_API_BASE=${LLM_API_BASE:-}
+      - DATABASE_PATH=/app/data/stock_analysis.db
+    volumes:
+      - dsa-data:/app/data
+      - dsa-logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8005/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - quantmind-net
+
+  # 5c. Dashboard (OpenBB + Streamlit 数据看板)
   dashboard:
     build:
       context: .
@@ -588,3 +617,5 @@ volumes:
   qwenpaw-secrets:
   qwenpaw-backups:
   qwenpaw-shared:
+  dsa-data:
+  dsa-logs:

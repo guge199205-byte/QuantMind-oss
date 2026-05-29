@@ -380,6 +380,13 @@ try:
 except ImportError as e:
     logger.error(f"❌ Failed to load TradingAgents routers: {e}")
 
+try:
+    from backend.services.engine.routers.daily_analysis import router as daily_analysis_router
+
+    app.include_router(daily_analysis_router)
+    logger.info("✅ Daily Analysis routers loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load Daily Analysis routers: {e}")
 
 try:
     from backend.services.engine.routers.quantbot_router import router as quantbot_router

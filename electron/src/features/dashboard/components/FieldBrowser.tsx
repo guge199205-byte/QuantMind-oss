@@ -80,9 +80,10 @@ export const FieldBrowser: React.FC<FieldBrowserProps> = ({ market, symbol }) =>
         dataDashboardService
             .getFields(market)
             .then((f) => {
-                setFields(f);
-                if (f.length > 0 && !selectedField) {
-                    setSelectedField(f[0].field);
+                const list = Array.isArray(f) ? f : [];
+                setFields(list);
+                if (list.length > 0 && !selectedField) {
+                    setSelectedField(list[0].field);
                 }
             })
             .finally(() => setFieldsLoading(false));

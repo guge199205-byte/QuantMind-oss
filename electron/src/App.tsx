@@ -55,6 +55,7 @@ const AdminDataPlatform = lazy(() => import('./features/admin/components/AdminDa
 const AdminTagManagement = lazy(() => import('./features/admin/components/AdminTagManagement').then(m => ({ default: m.AdminTagManagement })));
 const AlphaResearchPage = lazy(() => import('./features/alpha-research/pages/AlphaResearchPage'));
 const TradingAgentsPage = lazy(() => import('./features/trading-agents/pages/TradingAgentsPage'));
+const DailyAnalysisPage = lazy(() => import('./features/daily-analysis/pages/DailyAnalysisPage'));
 const DashboardPage = lazy(() => import('./features/dashboard/pages/DashboardPage'));
 
 // 主题切换hook
@@ -126,6 +127,7 @@ export default function App() {
       'rss-news': '/rss-news',
       'alpha-research': '/alpha-research',
       'trading-agents': '/trading-agents',
+      'daily-analysis': '/daily-analysis',
       'data-dashboard': '/dashboard',
       'profile': '/user-center',
       'admin': '/admin',
@@ -164,6 +166,8 @@ export default function App() {
       dispatch(setCurrentTab('research' as DashboardTab));
     } else if (location.pathname.startsWith('/trading-agents')) {
       dispatch(setCurrentTab('trading-agents' as DashboardTab));
+    } else if (location.pathname.startsWith('/daily-analysis')) {
+      dispatch(setCurrentTab('daily-analysis' as DashboardTab));
     } else if (location.pathname.startsWith('/trading')) {
       dispatch(setCurrentTab('trading' as DashboardTab));
     } else if (location.pathname.startsWith('/rss-news')) {
@@ -522,6 +526,16 @@ export default function App() {
                       <ProtectedRoute>
                         <Suspense fallback={<Spin size="large" />}>
                           <TradingAgentsPage />
+                        </Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/daily-analysis"
+                    element={
+                      <ProtectedRoute>
+                        <Suspense fallback={<Spin size="large" />}>
+                          <DailyAnalysisPage />
                         </Suspense>
                       </ProtectedRoute>
                     }

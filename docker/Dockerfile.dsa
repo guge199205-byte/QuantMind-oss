@@ -1,0 +1,44 @@
+# Daily Stock Analysis - Docker Image
+# A股/港股/美股自选股智能分析系统
+
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    curl \
+    wkhtmltopdf \
+    fontconfig \
+    libjpeg62-turbo \
+    libxrender1 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY daily_stock_analysis/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY daily_stock_analysis/ .
+
+# Create data directories
+RUN mkdir -p /app/data /app/logs /app/reports
+
+# Environment
+ENV PYTHONUNBUFFERED=1
+ENV DATABASE_PATH=/app/data/stock_analysis.db
+ENV API_PORT=8005
+
+EXPOSE 8005
+
+VOLUME ["/app/data", "/app/logs", "/app/reports"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8005/api/health || exit 1
+
+CMD ["python", "server.py"]
