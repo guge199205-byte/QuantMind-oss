@@ -6,7 +6,7 @@
 
 ```bash
 # 一键部署
-curl -fsSL https://gitee.com/qusong0627/quantmind/raw/master/deploy/quick-deploy.sh | sudo bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/guge199205-byte/QuantMind-oss/main/deploy/quick-deploy.sh | sudo bash -s -- --yes
 ```
 
 ## 指定服务器IP
@@ -34,7 +34,7 @@ sudo ./deploy.sh
 ### 1. 克隆代码
 
 ```bash
-sudo git clone https://gitee.com/qusong0627/quantmind.git /opt/quantmind
+sudo git clone https://github.com/guge199205-byte/QuantMind-oss.git /opt/quantmind
 cd /opt/quantmind
 ```
 

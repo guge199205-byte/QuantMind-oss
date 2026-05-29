@@ -149,14 +149,14 @@
 ### 一键部署（推荐）
 
 ```bash
-git clone https://gitee.com/qusong0627/quantmind.git
-cd quantmind
+git clone https://github.com/guge199205-byte/QuantMind-oss.git
+cd QuantMind-oss
 chmod +x setup.sh && ./setup.sh
 ```
 
 脚本会自动完成：环境检查 → 生成 `.env`（随机密钥）→ 构建镜像 → 启动服务 → 初始化。
 
-部署完成后访问 `http://<服务器IP>:3000`，默认账号 `admin` / `admin123`。
+部署完成后访问 `http://<服务器IP>:3080`，默认账号 `admin` / `admin123`。
 
 ### 手动部署
 
@@ -165,8 +165,8 @@ chmod +x setup.sh && ./setup.sh
 #### Step 1: 克隆项目
 
 ```bash
-git clone https://gitee.com/qusong0627/quantmind.git
-cd quantmind
+git clone https://github.com/guge199205-byte/QuantMind-oss.git
+cd QuantMind-oss
 ```
 
 > **重要**: 首次克隆后需要同步 RD-Agent 子项目：

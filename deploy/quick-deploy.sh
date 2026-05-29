@@ -18,7 +18,7 @@ fi
 # 下载部署脚本（使用临时目录，避免提前占用 /opt/quantmind）
 TMP_DEPLOY_DIR="$(mktemp -d /tmp/quantmind-deploy.XXXXXX)"
 DEPLOY_SCRIPT="$TMP_DEPLOY_DIR/deploy.sh"
-DEPLOY_URL="https://gitee.com/qusong0627/quantmind/raw/master/deploy/deploy.sh"
+DEPLOY_URL="https://raw.githubusercontent.com/guge199205-byte/QuantMind-oss/main/deploy/deploy.sh"
 EXPECTED_SHA256="${QUANTMIND_DEPLOY_SHA256:-}"
 cleanup() {
     rm -rf "$TMP_DEPLOY_DIR"

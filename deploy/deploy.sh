@@ -44,7 +44,7 @@ NC='\033[0m'
 # 配置变量
 PROJECT_DIR="/opt/quantmind"
 DATA_DIR="${PROJECT_DIR}/data"
-REPO_URL="https://gitee.com/qusong0627/quantmind.git"
+REPO_URL="https://github.com/guge199205-byte/QuantMind-oss.git"
 NODE_VERSION="20.19.0"
 PROGRESS_FILE="/tmp/quantmind_deploy_progress"
 DOCKER_DAEMON_FILE="/etc/docker/daemon.json"
@@ -1232,7 +1232,7 @@ confirm_deploy() {
             ;;
         *)
             echo ""
-            log_info "部署已取消。如需帮助请访问: https://gitee.com/qusong0627/quantmind"
+            log_info "部署已取消。如需帮助请访问: https://github.com/guge199205-byte/QuantMind-oss"
             exit 0
             ;;
     esac
