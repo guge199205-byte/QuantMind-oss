@@ -57,7 +57,6 @@ const AlphaResearchPage = lazy(() => import('./features/alpha-research/pages/Alp
 const TradingAgentsPage = lazy(() => import('./features/trading-agents/pages/TradingAgentsPage'));
 const DailyAnalysisPage = lazy(() => import('./features/daily-analysis/pages/DailyAnalysisPage'));
 const GoStockPage = lazy(() => import('./features/go-stock/pages/GoStockPage'));
-const DSAPage = lazy(() => import('./features/dsa/pages/DSAPage'));
 const DashboardPage = lazy(() => import('./features/dashboard/pages/DashboardPage'));
 
 // 主题切换hook
@@ -131,7 +130,6 @@ export default function App() {
       'trading-agents': '/trading-agents',
       'daily-analysis': '/daily-analysis',
       'go-stock': '/go-stock',
-      'dsa': '/dsa',
       'data-dashboard': '/dashboard',
       'profile': '/user-center',
       'admin': '/admin',
@@ -174,8 +172,6 @@ export default function App() {
       dispatch(setCurrentTab('daily-analysis' as DashboardTab));
     } else if (location.pathname.startsWith('/go-stock')) {
       dispatch(setCurrentTab('go-stock' as DashboardTab));
-    } else if (location.pathname.startsWith('/dsa')) {
-      dispatch(setCurrentTab('dsa' as DashboardTab));
     } else if (location.pathname.startsWith('/trading')) {
       dispatch(setCurrentTab('trading' as DashboardTab));
     } else if (location.pathname.startsWith('/rss-news')) {
@@ -554,16 +550,6 @@ export default function App() {
                       <ProtectedRoute>
                         <Suspense fallback={<Spin size="large" />}>
                           <GoStockPage />
-                        </Suspense>
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/dsa"
-                    element={
-                      <ProtectedRoute>
-                        <Suspense fallback={<Spin size="large" />}>
-                          <DSAPage />
                         </Suspense>
                       </ProtectedRoute>
                     }
