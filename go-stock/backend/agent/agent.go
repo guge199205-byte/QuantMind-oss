@@ -1,0 +1,1044 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"go-stock/backend/agent/tools"
+	"go-stock/backend/data"
+	"go-stock/backend/db"
+	"go-stock/backend/logger"
+	"go-stock/backend/models"
+	"runtime/debug"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/flow/agent/react"
+	"github.com/cloudwego/eino/schema"
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+type AgentMode string
+
+const (
+	AgentModeReact       AgentMode = "react"
+	AgentModePlanExecute AgentMode = "plan_execute"
+)
+
+type AgentInstance struct {
+	Mode       AgentMode
+	ReactAgent *react.Agent
+	AdkAgent   adk.ResumableAgent
+}
+
+func classifyComplexity(question string) AgentMode {
+	lowerQ := strings.ToLower(question)
+
+	simplePatterns := []string{
+		"今天", "当前", "最新", "现在", "实时",
+		"查询", "查一下", "帮我查", "告诉我",
+		"什么是", "是什么", "多少", "几号",
+		"是否", "有没有", "能不能",
+		"开盘价", "收盘价", "最高价", "最低价",
+		"停牌", "复牌", "上市",
+		"代码", "名称", "简称",
+	}
+
+	for _, p := range simplePatterns {
+		if strings.Contains(lowerQ, p) {
+			wordCount := len([]rune(question))
+			if wordCount < 30 {
+				return AgentModeReact
+			}
+		}
+	}
+
+	complexPatterns := []string{
+		"全面分析", "综合分析", "深度分析", "详细分析",
+		"多维度", "全方位", "系统分析",
+		"投资建议", "操作建议", "买卖建议",
+		"对比分析", "比较分析", "横向对比",
+		"行业分析", "赛道分析", "产业链",
+		"投资组合", "资产配置", "仓位",
+		"风险评估", "风险分析",
+		"研究报告", "投资报告",
+		"宏观", "政策", "周期",
+	}
+
+	for _, p := range complexPatterns {
+		if strings.Contains(lowerQ, p) {
+			return AgentModePlanExecute
+		}
+	}
+
+	toolGroupCount := 0
+	groups := tools.ClassifyQuestion(question)
+	for range groups {
+		toolGroupCount++
+	}
+	if toolGroupCount >= 4 {
+		return AgentModePlanExecute
+	}
+
+	wordCount := len([]rune(question))
+	if wordCount > 80 {
+		return AgentModePlanExecute
+	}
+
+	return AgentModeReact
+}
+
+func GetStockAiAgent(ctx *context.Context, aiConfig data.AIConfig, question string, agentMode string) *AgentInstance {
+	logger.SugaredLogger.Infof("GetStockAiAgent aiConfig: %v", aiConfig)
+	toolableChatModel, err := createChatModel(*ctx, aiConfig)
+	if err != nil {
+		logger.SugaredLogger.Error(err.Error())
+		return nil
+	}
+
+	//allTools := getAllTools()
+	allTools := getToolsByQuestion(question)
+
+	var mode AgentMode
+	switch AgentMode(agentMode) {
+	case AgentModeReact:
+		mode = AgentModeReact
+	case AgentModePlanExecute:
+		mode = AgentModePlanExecute
+	default:
+		mode = classifyComplexity(question)
+	}
+
+	logger.SugaredLogger.Infof("Agent mode selected: %s (user=%q), question=%q, tools=%d", mode, agentMode, question, len(allTools))
+
+	switch mode {
+	case AgentModePlanExecute:
+		return createPlanExecuteAgent(*ctx, toolableChatModel, allTools, aiConfig)
+	default:
+		return createReactAgent(*ctx, toolableChatModel, allTools, aiConfig)
+	}
+}
+
+func createReactAgent(ctx context.Context, chatModel model.ToolCallingChatModel, allTools []tool.BaseTool, aiConfig data.AIConfig) *AgentInstance {
+	aiTools := compose.ToolsNodeConfig{
+		Tools:               allTools,
+		ToolCallMiddlewares: []compose.ToolMiddleware{errorRecoveryMiddleware()},
+		UnknownToolsHandler: func(ctx context.Context, name string, input string) (string, error) {
+			return fmt.Sprintf("工具 '%s' 不存在，请使用可用的工具列表中的工具。", name), nil
+		},
+	}
+
+	agent, err := react.NewAgent(ctx, &react.AgentConfig{
+		ToolCallingModel: chatModel,
+		ToolsConfig:      aiTools,
+		MaxStep:          len(allTools) + 15,
+		MessageRewriter: func(ctx context.Context, input []*schema.Message) []*schema.Message {
+			maxTokens := getMaxInputTokens(aiConfig.MaxTokens)
+			return compressMessages(input, maxTokens)
+		},
+		StreamToolCallChecker: func(ctx context.Context, modelOutput *schema.StreamReader[*schema.Message]) (bool, error) {
+			hasToolCall := false
+			for {
+				msg, err := modelOutput.Recv()
+				if err != nil {
+					break
+				}
+				if len(msg.ToolCalls) > 0 {
+					hasToolCall = true
+				}
+			}
+			return hasToolCall, nil
+		},
+	})
+	if err != nil {
+		logger.SugaredLogger.Errorf("创建React Agent失败: %v", err)
+		return nil
+	}
+
+	return &AgentInstance{
+		Mode:       AgentModeReact,
+		ReactAgent: agent,
+	}
+}
+
+func createPlanExecuteAgent(ctx context.Context, chatModel model.ToolCallingChatModel, allTools []tool.BaseTool, aiConfig data.AIConfig) *AgentInstance {
+	planner, err := planexecute.NewPlanner(ctx, &planexecute.PlannerConfig{
+		ToolCallingChatModel: chatModel,
+		GenInputFn:           genPlannerInput,
+	})
+	if err != nil {
+		logger.SugaredLogger.Errorf("创建Planner失败: %v", err)
+		return nil
+	}
+
+	executor, err := planexecute.NewExecutor(ctx, &planexecute.ExecutorConfig{
+		Model: chatModel,
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools:               allTools,
+				ToolCallMiddlewares: []compose.ToolMiddleware{errorRecoveryMiddleware()},
+				UnknownToolsHandler: func(ctx context.Context, name string, input string) (string, error) {
+					return fmt.Sprintf("工具 '%s' 不存在，请使用可用的工具列表中的工具。", name), nil
+				},
+			},
+		},
+		MaxIterations: 40,
+		GenInputFn:    genExecutorInput,
+	})
+	if err != nil {
+		logger.SugaredLogger.Errorf("创建Executor失败: %v", err)
+		return nil
+	}
+
+	replanner, err := planexecute.NewReplanner(ctx, &planexecute.ReplannerConfig{
+		ChatModel:  chatModel,
+		GenInputFn: genReplannerInput,
+	})
+	if err != nil {
+		logger.SugaredLogger.Errorf("创建Replanner失败: %v", err)
+		return nil
+	}
+
+	peAgent, err := planexecute.New(ctx, &planexecute.Config{
+		Planner:       planner,
+		Executor:      executor,
+		Replanner:     replanner,
+		MaxIterations: 12,
+	})
+	if err != nil {
+		logger.SugaredLogger.Errorf("创建PlanExecute Agent失败: %v", err)
+		return nil
+	}
+
+	return &AgentInstance{
+		Mode:     AgentModePlanExecute,
+		AdkAgent: peAgent,
+	}
+}
+
+func errorRecoveryMiddleware() compose.ToolMiddleware {
+	return compose.ToolMiddleware{
+		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+			return func(ctx context.Context, input *compose.ToolInput) (output *compose.ToolOutput, err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.SugaredLogger.Errorf("工具调用 panic: %v\n%s", r, debug.Stack())
+						output = &compose.ToolOutput{
+							Result: fmt.Sprintf("工具调用异常: %v。请尝试其他方法或修正参数后重试。", r),
+						}
+						err = nil
+					}
+				}()
+				output, err = next(ctx, input)
+				if err != nil {
+					logger.SugaredLogger.Warnf("工具调用出错: %v", err)
+					return &compose.ToolOutput{
+						Result: fmt.Sprintf("工具调用出错: %v。请尝试其他方法或修正参数后重试。", err),
+					}, nil
+				}
+				if output != nil && len(output.Result) > 8000 {
+					output.Result = trimToolResult(output.Result, 4000)
+				}
+				return output, nil
+			}
+		},
+		Streamable: func(next compose.StreamableToolEndpoint) compose.StreamableToolEndpoint {
+			return func(ctx context.Context, input *compose.ToolInput) (output *compose.StreamToolOutput, err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.SugaredLogger.Errorf("工具调用(stream) panic: %v\n%s", r, debug.Stack())
+						output = &compose.StreamToolOutput{
+							Result: schema.StreamReaderFromArray([]string{
+								fmt.Sprintf("工具调用异常: %v。请尝试其他方法或修正参数后重试。", r),
+							}),
+						}
+						err = nil
+					}
+				}()
+				output, err = next(ctx, input)
+				if err != nil {
+					logger.SugaredLogger.Warnf("工具调用出错(stream): %v", err)
+					return &compose.StreamToolOutput{
+						Result: schema.StreamReaderFromArray([]string{
+							fmt.Sprintf("工具调用出错: %v。请尝试其他方法或修正参数后重试。", err),
+						}),
+					}, nil
+				}
+				return output, nil
+			}
+		},
+	}
+}
+
+func buildSkillPrompt(question string) string {
+	skills := data.NewSkillApi().GetEnabledSkills()
+	if len(skills) == 0 {
+		return ""
+	}
+
+	var matched []models.Skill
+	for _, skill := range skills {
+		if skill.TriggerKeywords == "" {
+			matched = append(matched, skill)
+			continue
+		}
+		keywords := strings.Split(skill.TriggerKeywords, ",")
+		for _, kw := range keywords {
+			kw = strings.TrimSpace(kw)
+			if kw != "" && strings.Contains(question, kw) {
+				matched = append(matched, skill)
+				break
+			}
+		}
+	}
+
+	if len(matched) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 你具备以下专业技能：\n")
+	for _, skill := range matched {
+		sb.WriteString(fmt.Sprintf("\n### %s\n", skill.Name))
+		if skill.Description != "" {
+			sb.WriteString(fmt.Sprintf("描述：%s\n", skill.Description))
+		}
+		if skill.SystemPrompt != "" {
+			sb.WriteString(fmt.Sprintf("%s\n", skill.SystemPrompt))
+		}
+		if skill.TriggerKeywords != "" {
+			sb.WriteString(fmt.Sprintf("触发关键词：%s\n", skill.TriggerKeywords))
+		}
+		if skill.Examples != "" {
+			sb.WriteString(fmt.Sprintf("示例对话：\n%s\n", skill.Examples))
+		}
+	}
+	return sb.String()
+}
+
+func GetAllTools() []tool.BaseTool {
+	var allTools []tool.BaseTool
+	allTools = append(allTools, tools.GetQueryStockCodeInfoTool())
+	allTools = append(allTools, tools.GetQueryStockNewsTool())
+	//allTools = append(allTools, tools.GetIndustryResearchReportTool())
+	allTools = append(allTools, tools.GetQueryBKDictTool())
+
+	allTools = append(allTools, tools.GetAllDataTools()...)
+
+	allTools = append(allTools, tools.GetHolidayTools()...)
+
+	allTools = append(allTools, tools.GetMCPServerTools()...)
+	//allTools = append(allTools, tools.GetSkillTools()...)
+
+	mcpTools := getMCPTools()
+	if len(mcpTools) > 0 {
+		allTools = append(allTools, mcpTools...)
+	}
+
+	return allTools
+}
+
+func getToolsByQuestion(question string) []tool.BaseTool {
+	var allTools []tool.BaseTool
+
+	allTools = append(allTools, tools.GetQueryStockCodeInfoTool())
+	allTools = append(allTools, tools.GetQueryStockNewsTool())
+	//allTools = append(allTools, tools.GetIndustryResearchReportTool())
+	allTools = append(allTools, tools.GetQueryBKDictTool())
+
+	allTools = append(allTools, tools.GetAllDataTools()...)
+
+	allTools = append(allTools, tools.GetHolidayTools()...)
+
+	allTools = append(allTools, tools.GetMCPServerTools()...)
+	//allTools = append(allTools, tools.GetSkillTools()...)
+
+	mcpTools := getMCPTools()
+	if len(mcpTools) > 0 {
+		allTools = append(allTools, mcpTools...)
+	}
+
+	groups := tools.ClassifyQuestion(question)
+	filtered := tools.FilterToolsByGroups(allTools, groups)
+
+	logger.SugaredLogger.Infof("tool grouping: question=%q, matched_groups=%v, total=%d, filtered=%d",
+		question, groupNames(groups), len(allTools), len(filtered))
+
+	return filtered
+}
+
+func groupNames(groups map[tools.ToolGroup]bool) []string {
+	var names []string
+	for g := range groups {
+		names = append(names, string(g))
+	}
+	return names
+}
+
+func getMCPTools() []tool.BaseTool {
+	var mcpTools []tool.BaseTool
+
+	var servers []models.MCPServer
+	err := db.Dao.Where("enable = ? AND status = ?", true, "available").Find(&servers).Error
+	if err != nil {
+		logger.SugaredLogger.Errorf("获取MCP服务器列表失败: %v", err)
+		return mcpTools
+	}
+
+	skillServerIDs := getSkillMCPServerIDs()
+	for _, id := range skillServerIDs {
+		found := false
+		for _, s := range servers {
+			if s.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			var server models.MCPServer
+			if err := db.Dao.Where("id = ? AND status = ?", id, "available").First(&server).Error; err == nil {
+				servers = append(servers, server)
+			}
+		}
+	}
+
+	if len(servers) == 0 {
+		return mcpTools
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for _, server := range servers {
+		if server.URL == "" {
+			continue
+		}
+
+		cli, err := mcpclient.NewStreamableHttpClient(server.URL)
+		if err != nil {
+			logger.SugaredLogger.Errorf("创建MCP客户端失败 [%s]: %v", server.Name, err)
+			continue
+		}
+
+		initRequest := mcp.InitializeRequest{}
+		initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+		initRequest.Params.ClientInfo = mcp.Implementation{
+			Name:    "go-stock",
+			Version: "1.0.0",
+		}
+
+		_, err = cli.Initialize(ctx, initRequest)
+		if err != nil {
+			logger.SugaredLogger.Errorf("初始化MCP连接失败 [%s]: %v", server.Name, err)
+			continue
+		}
+
+		mcpToolList, err := einomcp.GetTools(ctx, &einomcp.Config{Cli: cli})
+		if err != nil {
+			logger.SugaredLogger.Errorf("获取MCP工具列表失败 [%s]: %v", server.Name, err)
+			continue
+		}
+
+		if len(mcpToolList) > 0 {
+			logger.SugaredLogger.Infof("从MCP服务器 [%s] 加载了 %d 个工具", server.Name, len(mcpToolList))
+			mcpTools = append(mcpTools, mcpToolList...)
+		}
+	}
+
+	return mcpTools
+}
+
+func getSkillMCPServerIDs() []uint {
+	skills := data.NewSkillApi().GetEnabledSkills()
+	var ids []uint
+	seen := make(map[uint]bool)
+	for _, skill := range skills {
+		if skill.MCPServerIDs == "" {
+			continue
+		}
+		for _, id := range data.NewSkillApi().GetMCPServerIDs(&skill) {
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+func extractUserQuestion(messages []adk.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == schema.User && messages[i].Content != "" {
+			return cleanUserInput(messages[i].Content)
+		}
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Content != "" {
+			return cleanUserInput(messages[i].Content)
+		}
+	}
+	return ""
+}
+
+func genPlannerInput(ctx context.Context, userInput []adk.Message) ([]adk.Message, error) {
+	question := extractUserQuestion(userInput)
+	if question == "" {
+		return userInput, nil
+	}
+
+	systemMsg := schema.SystemMessage(`你是股票分析规划师。将用户目标拆解为3-4步执行计划。
+规则：步骤具体独立、按最优顺序、无冗余，末步须产出完整答案。
+
+【重要】你必须且只能通过内置函数/工具「plan」输出计划：调用 plan，参数为 JSON，字段 steps 为字符串数组。
+禁止仅用自然语言或 Markdown 列出步骤（那样无法被系统解析）；不要输出未包裹在 plan 工具调用里的步骤列表。`)
+
+	userMsg := schema.UserMessage(question)
+
+	return []adk.Message{systemMsg, userMsg}, nil
+}
+
+// safeTruncateString 安全地截断字符串，确保不会破坏UTF-8编码的中文字符
+func safeTruncateString(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+
+	// 找到最接近maxBytes的UTF-8字符边界
+	for i := maxBytes; i > maxBytes-4 && i >= 0; i-- {
+		if utf8.ValidString(s[:i]) {
+			if i < len(s) {
+				return s[:i] + "...(已截断)"
+			}
+			return s[:i]
+		}
+	}
+
+	// 如果找不到合适的边界，返回安全的前缀
+	return s[:maxBytes-10] + "...(已截断)"
+}
+
+// normalizeCompressLines 按行切分、去掉空行与装饰行、合并连续重复行（trim 后相同则丢弃），
+// 便于后续分类并减少无意义 tokens。
+func normalizeCompressLines(content string) []string {
+	raw := strings.Split(content, "\n")
+	out := make([]string, 0, len(raw))
+	var last string
+	for _, line := range raw {
+		t := strings.TrimSpace(line)
+		if t == "" || isSkippableNoiseLine(t) {
+			continue
+		}
+		if t == last {
+			continue
+		}
+		last = t
+		out = append(out, t)
+	}
+	return collapseLongMarkdownTableRuns(out)
+}
+
+// isMarkdownTableRow 判断是否为 Markdown 管道表格行（表头或数据行）。
+func isMarkdownTableRow(s string) bool {
+	t := strings.TrimSpace(s)
+	if !strings.HasPrefix(t, "|") {
+		return false
+	}
+	return strings.Count(t, "|") >= 2
+}
+
+// collapseLongMarkdownTableRuns 将超长连续表格行折叠为「前若干行 + 占位 + 后若干行」，显著省 tokens。
+func collapseLongMarkdownTableRuns(lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	const head, tail = 5, 5
+	const minRun = 16
+	res := make([]string, 0, len(lines))
+	i := 0
+	for i < len(lines) {
+		if !isMarkdownTableRow(lines[i]) {
+			res = append(res, lines[i])
+			i++
+			continue
+		}
+		start := i
+		for i < len(lines) && isMarkdownTableRow(lines[i]) {
+			i++
+		}
+		run := lines[start:i]
+		if len(run) < minRun || len(run) <= head+tail {
+			res = append(res, run...)
+			continue
+		}
+		omit := len(run) - head - tail
+		res = append(res, run[:head]...)
+		res = append(res, fmt.Sprintf("…（省略 %d 行 markdown 表格）…", omit))
+		res = append(res, run[len(run)-tail:]...)
+	}
+	return res
+}
+
+// isSupplementaryFactLine 将未命中 isDataLine 但含日期/证券代码/金额 等事实的行并入数据类，便于尾部保留策略覆盖。
+func isSupplementaryFactLine(s string) bool {
+	if len(s) > 260 {
+		return false
+	}
+	if containsApproxISODate(s) {
+		return true
+	}
+	if maxConsecutiveDigitRun(s) >= 6 {
+		return true
+	}
+	if strings.Contains(s, "元") && containsNumbers(s) {
+		return true
+	}
+	return false
+}
+
+func isASCIIDigit(b byte) bool {
+	return b >= '0' && b <= '9'
+}
+
+// containsApproxISODate 检测 YYYY-MM-DD 形式日期子串。
+func containsApproxISODate(s string) bool {
+	for i := 0; i+10 <= len(s); i++ {
+		if !isASCIIDigit(s[i]) {
+			continue
+		}
+		if isASCIIDigit(s[i+1]) && isASCIIDigit(s[i+2]) && isASCIIDigit(s[i+3]) &&
+			s[i+4] == '-' &&
+			isASCIIDigit(s[i+5]) && isASCIIDigit(s[i+6]) &&
+			s[i+7] == '-' &&
+			isASCIIDigit(s[i+8]) && isASCIIDigit(s[i+9]) {
+			return true
+		}
+	}
+	return false
+}
+
+func maxConsecutiveDigitRun(s string) int {
+	best, cur := 0, 0
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			cur++
+			if cur > best {
+				best = cur
+			}
+		} else {
+			cur = 0
+		}
+	}
+	return best
+}
+
+// isSkippableNoiseLine 过滤对语义贡献极小的行（Markdown 装饰、分隔线等）。
+func isSkippableNoiseLine(s string) bool {
+	if len(s) > 120 {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(s, "```"):
+		return true
+	case strings.HasPrefix(s, "---") && strings.Trim(s, "-") == "":
+		return true
+	case strings.HasPrefix(s, "***") && strings.Trim(s, "*") == "":
+		return true
+	case strings.HasPrefix(s, "___") && strings.Trim(s, "_") == "":
+		return true
+	}
+	// 仅由 | - : 空格构成的 Markdown 表格分隔行
+	allSep := true
+	for _, r := range s {
+		switch r {
+		case '|', '-', ':', ' ', '\t':
+		default:
+			allSep = false
+			break
+		}
+	}
+	// 至少 8 字符，避免把 Markdown 列表项「- x」或短横线误判为表格分隔行
+	return allSep && strings.Contains(s, "-") && len(s) >= 8
+}
+
+// smartContentCompress 按字节预算压缩文本：优先保留标题与摘要，其次数据与其它；
+// 摘要/数据/其它在截断时优先保留尾部（工具输出常见「结论在后」）。
+// 参数 maxBytes 为 UTF-8 字节上限（调用方如 compressExecutedStepResult 按字节给预算）。
+func smartContentCompress(content string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return content
+	}
+
+	lines := normalizeCompressLines(content)
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var normJoined strings.Builder
+	for i, ln := range lines {
+		if i > 0 {
+			normJoined.WriteByte('\n')
+		}
+		normJoined.WriteString(ln)
+	}
+	nj := normJoined.String()
+	if len(nj) <= maxBytes {
+		return nj
+	}
+
+	var headers, dataLines, summaryLines, otherLines []string
+	for _, line := range lines {
+		switch {
+		case isHeaderLine(line):
+			headers = append(headers, line)
+		case isDataLine(line) || isSupplementaryFactLine(line):
+			dataLines = append(dataLines, line)
+		case isSummaryLine(line):
+			summaryLines = append(summaryLines, line)
+		default:
+			otherLines = append(otherLines, line)
+		}
+	}
+
+	result := make([]string, 0, len(lines))
+	used := 0
+	tryAdd := func(parts []string) bool {
+		for _, p := range parts {
+			need := len(p)
+			if used > 0 {
+				need++
+			}
+			if used+need > maxBytes {
+				return false
+			}
+			result = append(result, p)
+			used += need
+		}
+		return true
+	}
+
+	// 1) 标题：保留前缀，且单独设上限，避免大量「#」标题占满预算
+	headerCap := maxBytes / 5
+	if headerCap > 1000 {
+		headerCap = 1000
+	}
+	if headerCap < 120 && len(headers) > 0 {
+		headerCap = min(maxBytes/3, 400)
+	}
+	tryAdd(smartTruncateLines(headers, headerCap))
+
+	remaining := maxBytes - used
+	if remaining < 1 {
+		return strings.Join(result, "\n")
+	}
+
+	// 2) 摘要：约 35% 剩余预算，从尾部取（「综上所述」等常出现在末尾）
+	summaryBudget := max(1, remaining*35/100)
+	if len(summaryLines) > 0 && summaryBudget < 80 {
+		summaryBudget = min(remaining, 240)
+	}
+	tryAdd(smartTruncateLinesFromEnd(summaryLines, summaryBudget))
+
+	remaining = maxBytes - used
+	if remaining < 1 {
+		out := strings.Join(result, "\n")
+		if len(out) > maxBytes {
+			return safeTruncateString(out, maxBytes)
+		}
+		return out
+	}
+
+	// 3) 数据行：约 55% 剩余预算，从尾部取（最新行情/指标常靠后）
+	dataBudget := max(1, remaining*55/100)
+	if len(dataLines) > 0 && dataBudget < 80 {
+		dataBudget = min(remaining, 320)
+	}
+	tryAdd(smartTruncateLinesFromEnd(dataLines, dataBudget))
+
+	remaining = maxBytes - used
+	if remaining > 48 {
+		tryAdd(smartTruncateLinesFromEnd(otherLines, remaining))
+	}
+
+	finalContent := strings.Join(result, "\n")
+	if len(finalContent) > maxBytes {
+		finalContent = safeTruncateString(finalContent, maxBytes)
+	}
+	return finalContent
+}
+
+// compressExecutedStepResult 将已完成步骤的结果注入 executor/replanner 提示时的分级压缩：
+// 最近 2 步保留更多原文，更早步骤更强压缩，降低多轮 PlanExecute 中重复累计的 prompt tokens，
+// 对当前要执行的步骤影响很小（当前步由 FirstStep() 单独标出，且上一步往往仍在「最近」窗口内）。
+func compressExecutedStepResult(result string, stepIndex, totalSteps int, forReplanner bool) string {
+	const (
+		execRecent    = 1400
+		execOlder     = 750
+		replanRecent  = 800
+		replanOlder   = 480
+		minByteBudget = 400
+		recentTail    = 2
+	)
+	recent := totalSteps <= recentTail || stepIndex >= totalSteps-recentTail
+
+	var budget int
+	if forReplanner {
+		if recent {
+			budget = replanRecent
+		} else {
+			budget = replanOlder
+		}
+	} else {
+		if recent {
+			budget = execRecent
+		} else {
+			budget = execOlder
+		}
+	}
+	if budget < minByteBudget {
+		budget = minByteBudget
+	}
+	return smartContentCompress(result, budget)
+}
+
+// isHeaderLine 判断是否为标题行
+func isHeaderLine(line string) bool {
+	// 包含常见标题关键词
+	headerKeywords := []string{
+		"分析", "结论", "建议", "总结", "评估", "预测", "风险", "机会",
+		"价格", "涨跌", "涨幅", "成交量", "市值", "市盈率", "市净率",
+		"营收", "利润", "增长率", "ROE", "ROA", "毛利率", "净利率",
+	}
+
+	for _, keyword := range headerKeywords {
+		if strings.Contains(line, keyword) && len(line) < 100 {
+			return true
+		}
+	}
+
+	// 包含数字+单位的行（通常是关键指标）
+	if containsKeyMetrics(line) {
+		return true
+	}
+
+	return false
+}
+
+// isDataLine 判断是否为数据行
+func isDataLine(line string) bool {
+	// 包含数字和百分比的行
+	return strings.Contains(line, "%") ||
+		strings.Contains(line, "亿元") ||
+		strings.Contains(line, "万元") ||
+		(strings.Count(line, " ") > 2 && containsNumbers(line))
+}
+
+// isSummaryLine 判断是否为摘要行
+func isSummaryLine(line string) bool {
+	summaryKeywords := []string{
+		"总体", "整体", "综合", "综上所述", "总体来看", "整体而言",
+		"建议", "推荐", "关注", "警惕", "规避",
+	}
+
+	for _, keyword := range summaryKeywords {
+		if strings.Contains(line, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsKeyMetrics 检查是否包含关键指标
+func containsKeyMetrics(line string) bool {
+	metrics := []string{
+		"市盈率", "市净率", "ROE", "ROA", "毛利率", "净利率",
+		"营收", "利润", "增长率", "股价", "市值", "成交量",
+	}
+
+	for _, metric := range metrics {
+		if strings.Contains(line, metric) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsNumbers 检查是否包含数字
+func containsNumbers(line string) bool {
+	for _, r := range line {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+// smartTruncateLines 智能截断行列表
+func smartTruncateLines(lines []string, maxBytes int) []string {
+	var result []string
+	var currentSize int
+
+	for _, line := range lines {
+		if currentSize+len(line) > maxBytes {
+			break
+		}
+		result = append(result, line)
+		currentSize += len(line) + 1 // +1 for newline
+	}
+
+	return result
+}
+
+// smartTruncateLinesFromEnd 从列表尾部向前累加行，直到达到 maxBytes（含行间换行），
+// 适合保留工具输出末尾的结论与最新数据。
+func smartTruncateLinesFromEnd(lines []string, maxBytes int) []string {
+	if maxBytes <= 0 || len(lines) == 0 {
+		return nil
+	}
+	var result []string
+	currentSize := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		lineLen := len(line)
+		if len(result) > 0 {
+			lineLen++ // newline before existing block
+		}
+		if currentSize+lineLen > maxBytes {
+			break
+		}
+		result = append([]string{line}, result...)
+		currentSize += lineLen
+	}
+	return result
+}
+
+// cleanUserInput 清理用户输入，确保UTF-8编码正确
+func cleanUserInput(input string) string {
+	// 1. 确保字符串是有效的UTF-8
+	if !utf8.ValidString(input) {
+		// 如果包含无效UTF-8字符，进行修复
+		valid := make([]rune, 0, len(input))
+		for i, r := range input {
+			if r == utf8.RuneError {
+				// 跳过无效字符，但记录位置用于调试
+				logger.SugaredLogger.Warnf("发现无效UTF-8字符在位置 %d", i)
+				continue
+			}
+			valid = append(valid, r)
+		}
+		input = string(valid)
+	}
+
+	// 2. 标准化空白字符
+	input = strings.TrimSpace(input)
+
+	// 3. 移除可能的控制字符（除了换行和制表符）
+	var cleaned strings.Builder
+	for _, r := range input {
+		if r == '\n' || r == '\t' || r == '\r' {
+			cleaned.WriteRune(r)
+		} else if r >= 32 && r <= 126 { // ASCII可打印字符
+			cleaned.WriteRune(r)
+		} else if r > 126 { // 非ASCII字符（包括中文）
+			cleaned.WriteRune(r)
+		}
+		// 跳过其他控制字符
+	}
+
+	return cleaned.String()
+}
+
+func genExecutorInput(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
+	planContent, err := in.Plan.MarshalJSON()
+	if err != nil {
+		logger.SugaredLogger.Errorf("Plan MarshalJSON error: %v", err)
+		return nil, err
+	}
+
+	nSteps := len(in.ExecutedSteps)
+	var stepsContent strings.Builder
+	for i, s := range in.ExecutedSteps {
+		result := compressExecutedStepResult(s.Result, i, nSteps, false)
+		stepsContent.WriteString(fmt.Sprintf("步骤: %s\n结果: %s\n\n", s.Step, result))
+	}
+
+	question := extractUserQuestion(in.UserInput)
+
+	systemMsg := schema.SystemMessage(`按计划执行当前步骤，调用工具获取数据，给出简洁精准的分析结果。`)
+
+	userMsg := schema.UserMessage(fmt.Sprintf("目标: %s\n\n当前计划: %s\n\n已完成步骤:\n%s\n\n请执行当前步骤: %s",
+		question, string(planContent), stepsContent.String(), in.Plan.FirstStep()))
+
+	return []adk.Message{systemMsg, userMsg}, nil
+}
+
+func genReplannerInput(ctx context.Context, in *planexecute.ExecutionContext) ([]adk.Message, error) {
+	planContent, err := in.Plan.MarshalJSON()
+	if err != nil {
+		logger.SugaredLogger.Errorf("Plan MarshalJSON error: %v", err)
+		return nil, err
+	}
+
+	nSteps := len(in.ExecutedSteps)
+	var stepsContent strings.Builder
+	for i, s := range in.ExecutedSteps {
+		result := compressExecutedStepResult(s.Result, i, nSteps, true)
+		stepsContent.WriteString(fmt.Sprintf("步骤: %s\n结果: %s\n\n", s.Step, result))
+	}
+
+	var remainingStepsStr string
+	var planObj struct {
+		Steps []string `json:"steps"`
+	}
+	if err := json.Unmarshal(planContent, &planObj); err == nil && len(planObj.Steps) > 0 {
+		executedSet := make(map[string]bool)
+		for _, s := range in.ExecutedSteps {
+			executedSet[s.Step] = true
+		}
+		var remaining []string
+		for _, step := range planObj.Steps {
+			if !executedSet[step] {
+				remaining = append(remaining, step)
+			}
+		}
+		if len(remaining) > 0 {
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("⚠️ 还有 %d 个步骤未执行：\n", len(remaining)))
+			for i, step := range remaining {
+				sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, step))
+			}
+			sb.WriteString("\n【必须调用 plan 工具继续执行，不能跳过这些步骤】")
+			remainingStepsStr = sb.String()
+		} else {
+			remainingStepsStr = "✅ 所有计划步骤已执行完毕。"
+		}
+	}
+
+	question := extractUserQuestion(in.UserInput)
+
+	systemMsg := schema.SystemMessage(`审核执行进度并决定下一步。
+
+【重要】你必须严格遵守以下规则：
+1. 只有当所有计划步骤均已执行完毕时，才能调用 respond 工具输出最终结论
+2. 如果还有未执行的步骤，必须调用 plan 工具继续执行剩余步骤
+3. 即使你认为已能推断出结论，也不允许跳过未执行步骤
+4. 判定标准：看下面的"剩余未执行步骤"部分——有内容就必须调用 plan，显示"所有计划步骤已执行完毕"才调用 respond
+
+你只能二选一，且必须通过工具调用（function calling）完成：
+- 若还有未执行步骤：调用「plan」，参数 JSON 含字段 steps（剩余未完成步骤的字符串数组）
+- 若所有步骤已完成：调用「respond」，参数 JSON 含字段 response（完整最终答复）
+
+不要描述「我将调用 plan」；必须实际发出 plan 或 respond 工具调用。`)
+
+	userMsg := schema.UserMessage(fmt.Sprintf("目标: %s\n\n原始计划: %s\n\n已完成步骤:\n%s\n\n剩余未执行步骤:\n%s",
+		question, string(planContent), stepsContent.String(), remainingStepsStr))
+
+	return []adk.Message{systemMsg, userMsg}, nil
+}

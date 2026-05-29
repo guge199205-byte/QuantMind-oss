@@ -172,3 +172,10 @@ db/db.zip
 /Untitled*.ipynb
 *.tar.gz
 *.deb
+*.h5
+*.hdf5
+
+# Embedded git repositories (should be added as submodules if needed)
+/TradingAgents-astock/
+/dexter-finance/
+/openbb-cn/

@@ -14,7 +14,8 @@ import {
   ShieldCheck,
   SquareTerminal,
   TestTube2,
-  Brain
+  Brain,
+  TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSelector } from 'react-redux';
@@ -48,6 +49,7 @@ export const FloatingNavBar: React.FC<FloatingNavBarProps> = ({ current, onChang
     { id: 'alpha-research', label: 'Alpha研究', icon: TestTube2 },
     { id: 'trading-agents', label: '投研分析', icon: Brain },
     { id: 'daily-analysis', label: '智能分析', icon: BarChart3 },
+    { id: 'go-stock', label: '行情资讯', icon: TrendingUp },
     { id: 'data-dashboard', label: '数据看板', icon: LineChart },
     { id: 'profile', label: '个人中心', icon: CircleUserRound }
   ];
@@ -58,7 +60,7 @@ export const FloatingNavBar: React.FC<FloatingNavBarProps> = ({ current, onChang
 
   const groupedNavItems: NavItemConfig[][] = [
     navItems.filter((item) => ['dashboard', 'strategy', 'ai-ide', 'backtest', 'agent'].includes(item.id)),
-    navItems.filter((item) => ['model-training', 'model-registry', 'research', 'trading', 'rss-news', 'alpha-research', 'trading-agents', 'daily-analysis', 'data-dashboard'].includes(item.id)),
+    navItems.filter((item) => ['model-training', 'model-registry', 'research', 'trading', 'rss-news', 'alpha-research', 'trading-agents', 'daily-analysis', 'go-stock', 'data-dashboard'].includes(item.id)),
     navItems.filter((item) => ['profile', 'admin'].includes(item.id))
   ].filter((group) => group.length > 0);
 

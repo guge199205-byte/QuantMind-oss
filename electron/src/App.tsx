@@ -56,6 +56,7 @@ const AdminTagManagement = lazy(() => import('./features/admin/components/AdminT
 const AlphaResearchPage = lazy(() => import('./features/alpha-research/pages/AlphaResearchPage'));
 const TradingAgentsPage = lazy(() => import('./features/trading-agents/pages/TradingAgentsPage'));
 const DailyAnalysisPage = lazy(() => import('./features/daily-analysis/pages/DailyAnalysisPage'));
+const GoStockPage = lazy(() => import('./features/go-stock/pages/GoStockPage'));
 const DashboardPage = lazy(() => import('./features/dashboard/pages/DashboardPage'));
 
 // 主题切换hook
@@ -128,6 +129,7 @@ export default function App() {
       'alpha-research': '/alpha-research',
       'trading-agents': '/trading-agents',
       'daily-analysis': '/daily-analysis',
+      'go-stock': '/go-stock',
       'data-dashboard': '/dashboard',
       'profile': '/user-center',
       'admin': '/admin',
@@ -168,6 +170,8 @@ export default function App() {
       dispatch(setCurrentTab('trading-agents' as DashboardTab));
     } else if (location.pathname.startsWith('/daily-analysis')) {
       dispatch(setCurrentTab('daily-analysis' as DashboardTab));
+    } else if (location.pathname.startsWith('/go-stock')) {
+      dispatch(setCurrentTab('go-stock' as DashboardTab));
     } else if (location.pathname.startsWith('/trading')) {
       dispatch(setCurrentTab('trading' as DashboardTab));
     } else if (location.pathname.startsWith('/rss-news')) {
@@ -536,6 +540,16 @@ export default function App() {
                       <ProtectedRoute>
                         <Suspense fallback={<Spin size="large" />}>
                           <DailyAnalysisPage />
+                        </Suspense>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/go-stock"
+                    element={
+                      <ProtectedRoute>
+                        <Suspense fallback={<Spin size="large" />}>
+                          <GoStockPage />
                         </Suspense>
                       </ProtectedRoute>
                     }
