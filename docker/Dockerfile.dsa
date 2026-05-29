@@ -1,5 +1,16 @@
 # Daily Stock Analysis - Docker Image
 # A股/港股/美股自选股智能分析系统
+# 多阶段构建：前端打包 + 后端运行
+
+FROM node:20-slim AS web-builder
+
+WORKDIR /app/apps/dsa-web
+
+COPY daily_stock_analysis/apps/dsa-web/package.json daily_stock_analysis/apps/dsa-web/package-lock.json ./
+RUN npm ci
+
+COPY daily_stock_analysis/apps/dsa-web/ ./
+RUN npm run build
 
 FROM python:3.11-slim-bookworm
 
@@ -24,7 +35,16 @@ COPY daily_stock_analysis/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY daily_stock_analysis/ .
+COPY daily_stock_analysis/*.py ./
+COPY daily_stock_analysis/api/ ./api/
+COPY daily_stock_analysis/data_provider/ ./data_provider/
+COPY daily_stock_analysis/bot/ ./bot/
+COPY daily_stock_analysis/src/ ./src/
+COPY daily_stock_analysis/strategies/ ./strategies/
+COPY daily_stock_analysis/templates/ ./templates/
+
+# Copy built frontend from builder stage
+COPY --from=web-builder /app/static ./static/
 
 # Create data directories
 RUN mkdir -p /app/data /app/logs /app/reports
@@ -33,6 +53,7 @@ RUN mkdir -p /app/data /app/logs /app/reports
 ENV PYTHONUNBUFFERED=1
 ENV DATABASE_PATH=/app/data/stock_analysis.db
 ENV API_PORT=8005
+ENV WEBUI_HOST=0.0.0.0
 
 EXPOSE 8005
 

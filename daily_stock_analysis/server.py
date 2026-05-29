@@ -47,7 +47,7 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
-    port = int(os.getenv("API_PORT", "8005"))
+    port = int(os.getenv("API_PORT", "8000"))
     uvicorn.run(
         "server:app",
         host="0.0.0.0",

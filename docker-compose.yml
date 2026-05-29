@@ -126,6 +126,7 @@ services:
       - USER_SERVICE_URL=http://127.0.0.1:8002
       - REAL_TRADING_SERVICE_URL=http://127.0.0.1:8002
       - GO_STOCK_SERVICE_URL=http://quantmind-go-stock:18080
+      - DSA_SERVICE_URL=http://quantmind-dsa:8005
 
       # 调试配置
       - DEBUG=false
