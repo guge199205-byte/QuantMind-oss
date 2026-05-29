@@ -992,7 +992,8 @@ async def list_articles(
                 }
 
         # PG 倒排: 拿到全库命中的 huntly_page_id (5000 上限)
-        only_ids = _query_enrichment_page_ids(
+        only_ids = await asyncio.to_thread(
+            _query_enrichment_page_ids,
             want_tickers, want_industries, want_event_tags, want_sentiment, strong_only,
             want_countries=want_countries,
             want_regions=want_regions,
@@ -1042,9 +1043,9 @@ async def list_articles(
         limit=page_size,
     )
 
-    # 合并 enrichment
+    # 合并 enrichment (同步 psycopg2 调用放到线程池避免阻塞事件循环)
     page_ids = [int(a["id"]) for a in articles if a.get("id")]
-    enrich_map = _load_enrichments(page_ids)
+    enrich_map = await asyncio.to_thread(_load_enrichments, page_ids)
     for a in articles:
         a["enrichment"] = enrich_map.get(int(a["id"]), _empty_enrichment()) if a.get("id") else _empty_enrichment()
 
@@ -1093,7 +1094,7 @@ async def _list_articles_via_rest(
     start = (page - 1) * page_size
     page_slice = arts[start:start + page_size]
     page_ids = [int(a["id"]) for a in page_slice if a.get("id")]
-    enrich_map = _load_enrichments(page_ids)
+    enrich_map = await asyncio.to_thread(_load_enrichments, page_ids)
     for a in page_slice:
         a["enrichment"] = enrich_map.get(int(a["id"]), _empty_enrichment()) if a.get("id") else _empty_enrichment()
     return {
@@ -1132,9 +1133,9 @@ async def get_article(article_id: int):
         detail["content"] = page.get("content") or ""
         detail["content_html"] = page.get("contentHtml") or ""
 
-    # 合并 enrichment
+    # 合并 enrichment (同步 psycopg2 调用放到线程池)
     if detail.get("id"):
-        em = _load_enrichments([int(detail["id"])])
+        em = await asyncio.to_thread(_load_enrichments, [int(detail["id"])])
         detail["enrichment"] = em.get(int(detail["id"]), _empty_enrichment())
     else:
         detail["enrichment"] = _empty_enrichment()
