@@ -146,7 +146,23 @@
 | 基础功能（智能策略、AI-IDE、回测中心、QuantBot） | 4核 8GB | 4核 16GB |
 | 完整功能（含模型训练、模型推理、RD-Agent） | 8核 32GB | 16核 64GB |
 
-### Step 1: 克隆项目
+### 一键部署（推荐）
+
+```bash
+git clone https://gitee.com/qusong0627/quantmind.git
+cd quantmind
+chmod +x setup.sh && ./setup.sh
+```
+
+脚本会自动完成：环境检查 → 生成 `.env`（随机密钥）→ 构建镜像 → 启动服务 → 初始化。
+
+部署完成后访问 `http://<服务器IP>:3000`，默认账号 `admin` / `admin123`。
+
+### 手动部署
+
+如果需要自定义配置，按以下步骤操作：
+
+#### Step 1: 克隆项目
 
 ```bash
 git clone https://gitee.com/qusong0627/quantmind.git
@@ -159,7 +175,7 @@ cd quantmind
 > # 如果缺失，从 https://github.com/microsoft/RD-Agent 获取
 > ```
 
-### Step 2: 配置环境变量
+#### Step 2: 配置环境变量
 
 ```bash
 cp .env.example .env
@@ -178,11 +194,11 @@ DB_PASSWORD=YOUR_DB_PASSWORD
 
 > 完整环境变量说明见 [.env.example](.env.example)
 
-### Step 3: 配置 API Key（必选）
+#### Step 3: 配置 API Key（必选）
 
 QuantBot、AI 策略生成、RD-Agent 因子挖掘等功能需要配置 API Key。
 
-#### 方式 A: DeepSeek API Key（推荐）
+**方式 A: DeepSeek API Key（推荐）**
 
 1. 注册 [DeepSeek 平台](https://platform.deepseek.com/) 并获取 API Key
 2. 在 `.env` 中配置：
@@ -193,7 +209,7 @@ AI_IDE_LLM_BASE_URL=https://api.deepseek.com
 AI_IDE_LLM_MODEL=deepseek-v4-pro
 ```
 
-#### 方式 B: Qwen / DashScope API Key
+**方式 B: Qwen / DashScope API Key**
 
 1. 注册 [阿里云 DashScope](https://dashscope.console.aliyun.com/) 并获取 API Key
 2. 在 `.env` 中配置：
@@ -205,7 +221,7 @@ QWEN_API_KEY=sk-YOUR_QWEN_API_KEY
 
 > 也支持任何 OpenAI 兼容接口的 API Key（如 OpenAI、本地 Ollama 等）
 
-### Step 4: 启动服务
+#### Step 4: 启动服务
 
 ```bash
 docker compose up -d
@@ -355,6 +371,7 @@ QuantMind 提供 **两种** 客户端访问方式，任选其一：
 
 ```
 quantmind/
+├── setup.sh                    # 一键部署脚本
 ├── docker-compose.yml          # Docker 服务编排（所有相对路径，任意目录可用）
 ├── .env.example                # 环境变量模板（复制为 .env 使用）
 ├── .gitignore                  # Git 忽略规则
