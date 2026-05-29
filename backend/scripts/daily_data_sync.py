@@ -96,12 +96,22 @@ _CALENDAR_CACHE: Optional[np.ndarray] = None
 
 
 def _find_qlib_root() -> Optional[Path]:
-    """Find qlib_bin root from investment_data or local db."""
-    for root in (INVESTMENT_DATA_DIR, QLIB_DATA_DIR):
+    """Find qlib_bin root, preferring the one with the most recent calendar."""
+    candidates = []
+    for root in (QLIB_DATA_DIR, INVESTMENT_DATA_DIR):
         for cand in (root / "qlib_bin", root):
-            if (cand / "calendars" / "day.txt").exists() and (cand / "features").exists():
-                return cand
-    return None
+            cal = cand / "calendars" / "day.txt"
+            if cal.exists() and (cand / "features").exists():
+                try:
+                    last_line = cal.read_text().strip().splitlines()[-1].strip()
+                    candidates.append((last_line, cand))
+                except Exception:
+                    candidates.append(("", cand))
+    if not candidates:
+        return None
+    # Pick the one with the most recent calendar date
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[0][1]
 
 
 def _qlib_root() -> Path:
@@ -895,6 +905,15 @@ def run_sync(
             result["errors"].append(f"calibrate: {exc}")
             log.warning("Indicator calibration failed: %s", exc)
 
+    # 7. 增量更新 feature parquet
+    try:
+        parquet_result = update_feature_parquet()
+        result["parquet_updated"] = parquet_result
+        log.info("Feature parquet updated: %s", parquet_result.get("status", "ok"))
+    except Exception as exc:
+        result["errors"].append(f"parquet: {exc}")
+        log.warning("Feature parquet update failed: %s", exc)
+
     # 关闭 baostock
     if _BS_LOGGED_IN:
         try:
@@ -930,7 +949,85 @@ def update_investment_data(version: str = "") -> dict:
         log.info("Archive already exists: %s", archive_path)
 
     _extract_qlib_data(archive_path)
+
+    # 清除缓存，确保后续读取使用最新数据
+    global _QLIB_ROOT_CACHE, _CALENDAR_CACHE
+    _QLIB_ROOT_CACHE = None
+    _CALENDAR_CACHE = None
+
     return {"version": version, "status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Feature parquet incremental update
+# ---------------------------------------------------------------------------
+def update_feature_parquet(since: str = "", until: str = "") -> dict:
+    """增量更新 feature parquet（从 stock_daily_latest 补充缺失日期）。"""
+    log.info("Updating feature parquet...")
+    try:
+        from backend.scripts.update_feature_parquet import (
+            PARQUET_PATH, fetch_data, compute_all_features,
+        )
+    except ImportError as e:
+        return {"status": "skipped", "reason": f"import failed: {e}"}
+
+    if not PARQUET_PATH.exists():
+        return {"status": "skipped", "reason": "parquet file not found"}
+
+    import asyncio as _asyncio
+
+    existing = pd.read_parquet(PARQUET_PATH, engine="pyarrow")
+    existing["trade_date"] = pd.to_datetime(existing["trade_date"]).dt.date
+    max_date = existing["trade_date"].max()
+
+    since_date = date.fromisoformat(since) if since else max_date + timedelta(days=1)
+    until_date = date.fromisoformat(until) if until else date.today()
+
+    if since_date > until_date:
+        log.info("Feature parquet already up to date (max=%s)", max_date)
+        return {"status": "up_to_date", "max_date": str(max_date)}
+
+    log.info("Feature parquet: updating %s to %s (existing max=%s)", since_date, until_date, max_date)
+
+    db_df = _asyncio.run(fetch_data(since_date, until_date, lookback_days=120))
+    if db_df.empty:
+        return {"status": "skipped", "reason": "no new data in DB"}
+
+    target_dates = set()
+    d = since_date
+    while d <= until_date:
+        target_dates.add(d)
+        d += timedelta(days=1)
+
+    new_data = compute_all_features(db_df, target_dates)
+    if new_data.empty:
+        return {"status": "skipped", "reason": "no valid features computed"}
+
+    # 合并：去掉重叠日期，追加新数据
+    overlap = set(new_data["trade_date"].unique()) & set(existing["trade_date"].unique())
+    if overlap:
+        existing = existing[~existing["trade_date"].isin(overlap)]
+
+    all_cols = list(dict.fromkeys(list(existing.columns) + [c for c in new_data.columns if c not in existing.columns]))
+    new_data = new_data.reindex(columns=all_cols, fill_value=0)
+    for c in all_cols:
+        if c not in existing.columns:
+            existing[c] = 0
+    existing = existing.reindex(columns=all_cols, fill_value=0)
+
+    combined = pd.concat([existing, new_data], ignore_index=True)
+    combined = combined.sort_values(["trade_date", "symbol"]).reset_index(drop=True)
+    combined.to_parquet(str(PARQUET_PATH), index=False, engine="pyarrow")
+
+    log.info("Feature parquet updated: %d new rows, total %d rows",
+             len(new_data), len(combined))
+    return {
+        "status": "ok",
+        "new_rows": len(new_data),
+        "total_rows": len(combined),
+        "since": str(since_date),
+        "until": str(until_date),
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -101,6 +101,7 @@ class DataDashboardService {
 
     private unwrap<T>(resp: any): T {
         const d = resp?.data;
+        if (d && d.success !== undefined && d.data !== undefined) return d.data as T;
         if (d && d.success !== undefined) return d as T;
         return d as T;
     }

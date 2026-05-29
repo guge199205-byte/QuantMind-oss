@@ -102,7 +102,7 @@ def _download_asset(version: str, target: Path) -> None:
 
 
 def _extract_qlib_data(archive: Path) -> None:
-    """解压 qlib_bin.tar.gz 到 db/qlib_data/"""
+    """解压 qlib_bin.tar.gz 到 db/qlib_data/ 并同步到 investment_data 目录"""
     _log(f"Extracting {archive} to {QLIB_DATA_DIR} ...")
     tmp_dir = DOWNLOAD_DIR / "extract"
     if tmp_dir.exists():
@@ -123,7 +123,7 @@ def _extract_qlib_data(archive: Path) -> None:
         if (candidate / "calendars").exists() or (candidate / "features").exists():
             extracted_root = candidate
 
-    # 同步各子目录
+    # 同步各子目录到 QLIB_DATA_DIR
     for subdir_name in ("calendars", "instruments", "features"):
         src = extracted_root / subdir_name
         dst = QLIB_DATA_DIR / subdir_name
@@ -137,8 +137,32 @@ def _extract_qlib_data(archive: Path) -> None:
                     out.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(str(file), str(out))
 
+    # 同步到 investment_data/qlib_bin/（确保 qlib_bin 路径也保持最新）
+    inv_qlib = Path(os.getenv("QM_INVESTMENT_DATA_DIR", "/data/third_party/investment_data")) / "qlib_bin"
+    if inv_qlib != QLIB_DATA_DIR:
+        for subdir_name in ("calendars", "instruments", "features"):
+            src = extracted_root / subdir_name
+            dst = inv_qlib / subdir_name
+            if src.exists():
+                dst.mkdir(parents=True, exist_ok=True)
+                for file in src.rglob("*"):
+                    if file.is_file():
+                        rel = file.relative_to(src)
+                        out = dst / rel
+                        out.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(file), str(out))
+        _log(f"Investment data synced to {inv_qlib}")
+
     shutil.rmtree(tmp_dir, ignore_errors=True)
     _log(f"Qlib data updated to {QLIB_DATA_DIR}")
+
+    # 清除 daily_data_sync 的 qlib root 缓存，确保后续读取使用最新路径
+    try:
+        import backend.scripts.daily_data_sync as dds
+        dds._QLIB_ROOT_CACHE = None
+        dds._CALENDAR_CACHE = None
+    except Exception:
+        pass
 
 
 def _read_qlib_calendar() -> list[date]:

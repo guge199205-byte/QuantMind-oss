@@ -622,6 +622,28 @@ async def update_investment_data_endpoint(
         raise HTTPException(status_code=500, detail=f"failed: {exc}")
 
 
+@router.post("/update-feature-parquet")
+async def update_feature_parquet_endpoint(
+    since: str = "",
+    until: str = "",
+    current_user: dict = Depends(require_admin),
+):
+    """增量更新 feature parquet（从 stock_daily_latest 补充缺失日期）。"""
+    try:
+        import asyncio
+        import functools
+        from backend.scripts.daily_data_sync import update_feature_parquet
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, functools.partial(update_feature_parquet, since=since, until=until)
+        )
+        return {"success": True, "data": result}
+    except Exception as exc:  # noqa: BLE001
+        logger.error("update_feature_parquet failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # 数据新鲜度
 # ---------------------------------------------------------------------------
