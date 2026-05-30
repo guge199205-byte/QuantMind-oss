@@ -71,3 +71,30 @@ export function getDefaultMiningDirection(): string {
     return '';
   }
 }
+
+/** Feature catalog category structure */
+interface FeatureCatalogCategory {
+  id: string;
+  name: string;
+  features: Array<{ key: string; description: string; formula?: string }>;
+}
+
+interface FeatureCatalog {
+  categories?: FeatureCatalogCategory[];
+}
+
+/**
+ * Convert feature catalog categories into mining directions.
+ * Each category becomes a direction, with its features as FactorHints.
+ */
+export function importFeatureCatalogDirections(catalog: FeatureCatalog): MiningDirectionItem[] {
+  if (!catalog?.categories) return [];
+  return catalog.categories.map((cat) => ({
+    label: `${cat.name}类因子变体`,
+    factors: cat.features.slice(0, 3).map((f) => ({
+      shortName: f.key,
+      expression: f.formula || f.key,
+      meaning: f.description,
+    })),
+  }));
+}

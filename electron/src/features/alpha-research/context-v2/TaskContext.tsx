@@ -127,6 +127,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           case 'progress':
             updated.progress = msg.data;
             updated.status = msg.data.phase === 'completed' ? 'completed' : 'running';
+            if (msg.data.timeline) updated.timeline = msg.data.timeline;
+            if (msg.data.tokenUsage) updated.tokenUsage = msg.data.tokenUsage;
             if (['backtesting', 'analyzing', 'completed'].includes(msg.data.phase)) {
               pushMiningDataPoint();
             }
@@ -238,6 +240,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const resp = await apiStartMining({
           direction,
           market: config.miningMarket || 'a_share',
+          dataSource: config.dataSource || 'qlib_bin',
           numDirections: config.numDirections || defaults.defaultNumDirections || 2,
           maxRounds: config.maxRounds || defaults.defaultMaxRounds || 3,
           librarySuffix: config.librarySuffix || defaults.defaultLibrarySuffix || undefined,

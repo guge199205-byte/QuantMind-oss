@@ -20,6 +20,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
   const [input, setInput] = useState('');
   const [useCustomMiningDirection, setUseCustomMiningDirection] = useState(false);
   const [miningMarket, setMiningMarket] = useState<string>('a_share');
+  const [dataSource, setDataSource] = useState<string>('qlib_bin');
   const [markets, setMarkets] = useState<MarketInfo[]>([]);
   const [config] = useState<Partial<TaskConfig>>({ librarySuffix: '' });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -35,6 +36,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
       userInput: input.trim(),
       useCustomMiningDirection,
       miningMarket: miningMarket as TaskConfig['miningMarket'],
+      dataSource: dataSource as TaskConfig['dataSource'],
       ...config,
       librarySuffix: suffix,
     } as TaskConfig);
@@ -91,6 +93,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
                     >
                       {m.name}
                       {!m.ready && <span className="ml-0.5 text-[10px] opacity-40">*</span>}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="h-4 w-px bg-border mx-1" />
+
+                {/* Data source selector */}
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground mr-1">数据</span>
+                  {[
+                    { id: 'qlib_bin', name: 'Qlib' },
+                    { id: 'parquet', name: 'Parquet' },
+                    { id: 'pg', name: 'PG' },
+                  ].map((ds) => (
+                    <button
+                      key={ds.id}
+                      onClick={() => setDataSource(ds.id)}
+                      disabled={isRunning}
+                      className={`rounded-md px-2 py-1 text-xs font-medium transition-all ${
+                        dataSource === ds.id
+                          ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                      }`}
+                    >
+                      {ds.name}
                     </button>
                   ))}
                 </div>

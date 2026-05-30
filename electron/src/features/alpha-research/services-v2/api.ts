@@ -125,6 +125,8 @@ function normalizeAgentTask(raw: any, configHint?: any): Task {
     logs: [],
     createdAt: raw?.created_at ?? new Date().toISOString(),
     updatedAt: raw?.updated_at ?? new Date().toISOString(),
+    timeline: raw?.timeline ?? undefined,
+    tokenUsage: raw?.token_usage ?? undefined,
   };
 }
 
@@ -152,6 +154,7 @@ function normalizeAgentFactor(raw: any): Factor {
 export interface MiningStartParams {
   direction: string;
   market?: string;
+  dataSource?: string;
   numDirections?: number;
   maxRounds?: number;
   maxLoops?: number;
@@ -171,6 +174,7 @@ export async function startMining(
     direction: params.direction || '',
   });
   if (params.market) qs.set('market', params.market);
+  if (params.dataSource) qs.set('data_source', params.dataSource);
   const res = await apiClient.post(`/alpha-agent/evolve?${qs.toString()}`);
   const data = res.data?.data ?? {};
   const taskId: string = data.task_id ?? '';
@@ -272,6 +276,13 @@ export async function getFactorDetail(
   const res = await apiClient.get(`/alpha-agent/factors/${factorId}`);
   const raw = res.data?.data ?? {};
   return makeOk({ factor: { ...normalizeAgentFactor(raw), raw } });
+}
+
+export async function explainFactor(
+  factorId: string,
+): Promise<ApiResponse<{ explanation: string; cached: boolean }>> {
+  const res = await apiClient.post(`/alpha-agent/factors/${factorId}/explain`);
+  return makeOk(res.data?.data ?? { explanation: '', cached: false });
 }
 
 export async function listFactorLibraries(): Promise<
@@ -491,6 +502,8 @@ export function connectMiningWs(
             progress: progressPct,
             message: progressText || status,
             timestamp: new Date().toISOString(),
+            timeline: data.timeline ?? undefined,
+            tokenUsage: data.token_usage ?? undefined,
           },
           timestamp: new Date().toISOString(),
         });

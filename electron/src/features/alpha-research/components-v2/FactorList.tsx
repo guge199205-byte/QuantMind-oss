@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/HoverCard";
 import { RealtimeMetrics } from '../types-v2';
 import { formatNumber, formatPercent } from '../utils-v2';
-import { TrendingUp, Zap, Check, Loader2 } from 'lucide-react';
+import { TrendingUp, Zap, Check, Loader2, Sparkles } from 'lucide-react';
 import { alphaAgentService } from '../services/alphaAgentService';
+import { explainFactor } from '../services-v2/api';
 
 interface FactorListProps {
   metrics: RealtimeMetrics | null;
@@ -17,6 +18,31 @@ interface FactorListProps {
 
 export const FactorList: React.FC<FactorListProps> = ({ metrics }) => {
   const [promoting, setPromoting] = useState<Record<string, 'loading' | 'done' | 'error'>>({});
+  const [explanations, setExplanations] = useState<Record<string, { loading: boolean; text?: string; error?: string }>>({});
+
+  const handleExplain = async (factorId: string, factorName: string) => {
+    // Check localStorage cache first
+    const cacheKey = `alpha_explain_${factorId}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      setExplanations(prev => ({ ...prev, [factorId]: { loading: false, text: cached } }));
+      return;
+    }
+
+    setExplanations(prev => ({ ...prev, [factorId]: { loading: true } }));
+    try {
+      const result = await explainFactor(factorId);
+      if (result.success && result.data?.explanation) {
+        const text = result.data.explanation;
+        localStorage.setItem(cacheKey, text);
+        setExplanations(prev => ({ ...prev, [factorId]: { loading: false, text } }));
+      } else {
+        setExplanations(prev => ({ ...prev, [factorId]: { loading: false, error: '解释失败' } }));
+      }
+    } catch {
+      setExplanations(prev => ({ ...prev, [factorId]: { loading: false, error: '请求失败' } }));
+    }
+  };
 
   const handlePromote = async (factorName: string, expression: string) => {
     setPromoting(prev => ({ ...prev, [factorName]: 'loading' }));
@@ -152,6 +178,38 @@ export const FactorList: React.FC<FactorListProps> = ({ metrics }) => {
                             <span className="font-bold text-primary text-sm">{formatNumber(factor.calmarRatio || 0, 2)}</span>
                           </div>
                         </div>
+
+                        {/* AI Explanation */}
+                        {explanations[factor.factorId]?.text ? (
+                          <div className="p-3 bg-primary/5 rounded-lg border border-primary/20">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <Sparkles className="h-3.5 w-3.5 text-primary" />
+                              <span className="text-xs font-medium text-primary">AI 解读</span>
+                            </div>
+                            <div className="text-xs text-foreground/80 whitespace-pre-line leading-relaxed">
+                              {explanations[factor.factorId].text}
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExplain(factor.factorId, factor.factorName);
+                            }}
+                            disabled={explanations[factor.factorId]?.loading}
+                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg
+                                       bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50
+                                       border border-primary/20 transition-colors"
+                          >
+                            {explanations[factor.factorId]?.loading ? (
+                              <><Loader2 size={12} className="animate-spin" /> AI 解读中...</>
+                            ) : explanations[factor.factorId]?.error ? (
+                              <span className="text-destructive">{explanations[factor.factorId].error}</span>
+                            ) : (
+                              <><Sparkles size={12} /> AI 解读因子</>
+                            )}
+                          </button>
+                        )}
 
                       </div>
                     </HoverCardContent>

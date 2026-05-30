@@ -45,6 +45,7 @@ async def start_evolution(
     market: str = Query("a_share", description="市场: a_share, crypto, hong_kong, us_stock"),
     loop_n: int = Query(3, ge=1, le=20, description="演化轮数"),
     direction: str = Query("", description="因子挖掘方向/假设"),
+    data_source: str = Query("", description="数据源: qlib_bin, parquet, pg (留空使用默认)"),
 ):
     """启动因子演化任务"""
     # Validate market
@@ -75,6 +76,7 @@ async def start_evolution(
         market=market,
         loop_n=loop_n,
         direction=direction or None,
+        data_source=data_source or None,
     )
     return {
         "code": 200,
@@ -155,6 +157,76 @@ async def get_factor(factor_id: str):
     if not factor:
         raise HTTPException(status_code=404, detail=f"Factor {factor_id} not found")
     return {"code": 200, "data": factor}
+
+
+@router.post("/factors/{factor_id}/explain")
+async def explain_factor(factor_id: str):
+    """用 LLM 中文解释因子含义"""
+    factor = await persistence.get_factor(factor_id)
+    if not factor:
+        raise HTTPException(status_code=404, detail=f"Factor {factor_id} not found")
+
+    # Check if explanation already exists
+    metadata = factor.get("metadata") or {}
+    if metadata.get("explanation"):
+        return {"code": 200, "data": {"explanation": metadata["explanation"], "cached": True}}
+
+    factor_name = factor.get("factor_name", "unknown")
+    factor_code = factor.get("factor_code", "")
+    factor_formulation = metadata.get("factor_formulation", "")
+
+    # Call LLM for explanation
+    import httpx
+
+    api_key = (
+        os.getenv("AI_IDE_LLM_API_KEY")
+        or os.getenv("AI_IDE_API_KEY")
+        or os.getenv("OPENAI_API_KEY", "")
+    )
+    api_base = (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("OPENAI_API_BASE")
+        or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
+    model = os.getenv("CHAT_MODEL", "deepseek-v3")
+
+    if not api_key:
+        raise HTTPException(status_code=500, detail="API Key 未配置")
+
+    prompt = f"""请用中文简洁地解释以下量化因子。输出格式：
+1. **含义**：一句话概括
+2. **金融直觉**：为什么这个因子可能有效
+3. **适用场景**：在什么市场环境下表现较好
+4. **预期方向**：因子值高/低时预示什么
+
+因子名称：{factor_name}
+因子公式：{factor_formulation or factor_code[:500]}
+
+请直接输出解释，不要重复因子公式。"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 500,
+                    "temperature": 0.3,
+                },
+            )
+            resp.raise_for_status()
+            explanation = resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error("LLM explain failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"LLM 解释失败: {str(e)[:200]}")
+
+    # Store explanation in metadata
+    metadata["explanation"] = explanation
+    await persistence.update_factor_metrics(factor_id, metadata=metadata)
+
+    return {"code": 200, "data": {"explanation": explanation, "cached": False}}
 
 
 @router.post("/factors/{factor_id}/backtest")
