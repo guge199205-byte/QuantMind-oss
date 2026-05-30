@@ -601,6 +601,17 @@ async def get_sync_status(current_user: dict = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=f"failed: {exc}")
 
 
+@router.get("/sync-progress")
+async def get_sync_progress(current_user: dict = Depends(require_admin)):
+    """获取当前同步执行进度（步骤级）。"""
+    try:
+        from backend.scripts.daily_data_sync import get_sync_progress
+        progress = get_sync_progress()
+        return {"success": True, "data": progress}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
 @router.post("/update-investment-data")
 async def update_investment_data_endpoint(
     version: str = "",

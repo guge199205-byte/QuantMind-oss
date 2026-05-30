@@ -222,6 +222,13 @@ class AdminService {
         return resp.data;
     }
 
+    async getSyncProgress(): Promise<any> {
+        const resp = await this.axiosInstance.get('/admin/data-platform/sync-progress', {
+            timeout: 5000,
+        });
+        return resp.data;
+    }
+
     async updateInvestmentData(version?: string): Promise<any> {
         const resp = await this.axiosInstance.post('/admin/data-platform/update-investment-data', null, {
             params: { version: version || '' },

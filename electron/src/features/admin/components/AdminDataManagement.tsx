@@ -187,12 +187,14 @@ export const AdminDataManagement: React.FC = () => {
 
     const [syncTaskId, setSyncTaskId] = useState<string | null>(null);
     const [syncTaskProgress, setSyncTaskProgress] = useState<string>('');
+    const [syncStepProgress, setSyncStepProgress] = useState<{ step: string; detail: string; pct: number; current: number; total: number } | null>(null);
     const [parquetLoading, setParquetLoading] = useState(false);
     const [parquetResult, setParquetResult] = useState<any>(null);
 
     const handleDailySync = async (incremental = true) => {
         setDailySyncLoading(true);
         setSyncTaskProgress('提交任务...');
+        setSyncStepProgress(null);
         try {
             const resp = await adminService.triggerDailySync({ incremental, calibrate: true });
             if (resp?.success && resp.data?.task_id) {
@@ -201,10 +203,21 @@ export const AdminDataManagement: React.FC = () => {
                 setSyncTaskProgress('任务已提交，等待执行...');
                 message.info(`同步任务已提交 (${taskId.slice(0, 8)}...)，后台执行中`);
 
-                // 轮询任务状态
+                // 轮询任务状态 + 步骤进度
                 const pollInterval = setInterval(async () => {
                     try {
-                        const statusResp = await adminService.getDailySyncTaskStatus(taskId);
+                        // 同时查 Celery 任务状态和步骤进度
+                        const [statusResp, progressResp] = await Promise.all([
+                            adminService.getDailySyncTaskStatus(taskId),
+                            adminService.getSyncProgress(),
+                        ]);
+
+                        // 更新步骤进度
+                        const prog = progressResp?.data;
+                        if (prog && prog.step !== 'idle') {
+                            setSyncStepProgress(prog);
+                        }
+
                         const d = statusResp?.data;
                         if (!d) return;
 
@@ -221,6 +234,7 @@ export const AdminDataManagement: React.FC = () => {
                             setDailySyncLoading(false);
                             setSyncTaskId(null);
                             setSyncTaskProgress('');
+                            setSyncStepProgress(null);
                             await loadSyncStatus();
                             await loadDataStatus(false);
                         } else if (d.status === 'FAILURE') {
@@ -232,6 +246,7 @@ export const AdminDataManagement: React.FC = () => {
                             setDailySyncLoading(false);
                             setSyncTaskId(null);
                             setSyncTaskProgress('');
+                            setSyncStepProgress(null);
                         } else {
                             // PENDING / STARTED
                             setSyncTaskProgress(d.status === 'STARTED' ? '同步执行中...' : '等待队列...');
@@ -239,7 +254,7 @@ export const AdminDataManagement: React.FC = () => {
                     } catch {
                         // polling error, continue
                     }
-                }, 5000);
+                }, 3000);
 
                 // 超时保护: 30 分钟后停止轮询
                 setTimeout(() => {
@@ -249,6 +264,7 @@ export const AdminDataManagement: React.FC = () => {
                         setDailySyncLoading(false);
                         setSyncTaskId(null);
                         setSyncTaskProgress('');
+                        setSyncStepProgress(null);
                     }
                 }, 30 * 60 * 1000);
             } else {
@@ -260,6 +276,7 @@ export const AdminDataManagement: React.FC = () => {
             message.error(`提交失败: ${msg}`);
             setDailySyncLoading(false);
             setSyncTaskProgress('');
+            setSyncStepProgress(null);
         }
     };
 
@@ -577,9 +594,50 @@ export const AdminDataManagement: React.FC = () => {
                                     全量重建特征（覆盖全部日期）
                                 </Button>
                                 {syncTaskProgress && (
-                                    <div className="flex items-center gap-2 p-3 rounded-xl bg-blue-50 border border-blue-100">
-                                        <Spin size="small" />
-                                        <Text className="text-xs text-blue-600 font-medium">{syncTaskProgress}</Text>
+                                    <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Spin size="small" />
+                                            <Text className="text-xs text-blue-600 font-bold">{syncStepProgress?.detail || syncTaskProgress}</Text>
+                                        </div>
+                                        {syncStepProgress && syncStepProgress.pct > 0 && (
+                                            <div>
+                                                <Progress
+                                                    percent={syncStepProgress.pct}
+                                                    size="small"
+                                                    strokeColor={{ from: '#6366f1', to: '#10b981' }}
+                                                    format={(pct) => <span className="text-[10px] font-bold text-slate-500">{pct}%</span>}
+                                                />
+                                                {syncStepProgress.total > 0 && (
+                                                    <Text className="text-[10px] text-slate-400 mt-1 block">
+                                                        {syncStepProgress.current}/{syncStepProgress.total} 只股票
+                                                    </Text>
+                                                )}
+                                            </div>
+                                        )}
+                                        <div className="flex gap-1">
+                                            {['init', 'pg_query', 'data_sync', 'qlib_bin', 'calibrate', 'parquet', 'done'].map((s, i) => {
+                                                const stepOrder = ['init', 'pg_query', 'data_sync', 'qlib_bin', 'calibrate', 'parquet', 'done'];
+                                                const currentIdx = stepOrder.indexOf(syncStepProgress?.step || '');
+                                                const isActive = i === currentIdx;
+                                                const isDone = i < currentIdx;
+                                                return (
+                                                    <div key={s} className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                                                        isDone ? 'bg-emerald-400' :
+                                                        isActive ? 'bg-indigo-500 animate-pulse' :
+                                                        'bg-slate-200'
+                                                    }`} />
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="flex justify-between text-[8px] text-slate-400 font-medium">
+                                            <span>初始化</span>
+                                            <span>PG</span>
+                                            <span>同步</span>
+                                            <span>Qlib</span>
+                                            <span>指标</span>
+                                            <span>Parquet</span>
+                                            <span>完成</span>
+                                        </div>
                                     </div>
                                 )}
                                 {parquetResult && (

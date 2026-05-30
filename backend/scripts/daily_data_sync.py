@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import struct
@@ -86,6 +87,63 @@ def _get_db_url() -> str:
         return url
     from urllib.parse import quote_plus as _q
     return f"postgresql+psycopg2://{DB_USER}:{_q(DB_PASS)}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+
+# ---------------------------------------------------------------------------
+# Sync progress tracking (Redis)
+# ---------------------------------------------------------------------------
+_SYNC_PROGRESS_KEY = "quantmind:sync:progress"
+
+_SYNC_STEPS = [
+    ("init", "初始化"),
+    ("pg_query", "查询PG最新数据"),
+    ("data_sync", "多源数据同步"),
+    ("qlib_bin", "更新Qlib二进制"),
+    ("calibrate", "校准技术指标"),
+    ("parquet", "更新特征Parquet"),
+    ("done", "完成"),
+]
+
+
+def _update_sync_progress(step: str, detail: str = "", pct: int = 0, current: int = 0, total: int = 0):
+    """Write current sync step to Redis for frontend polling."""
+    try:
+        import redis as _redis
+        rds = _redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), socket_timeout=1)
+        data = {
+            "step": step,
+            "detail": detail,
+            "pct": pct,
+            "current": current,
+            "total": total,
+            "updated_at": datetime.now().isoformat(),
+        }
+        rds.set(_SYNC_PROGRESS_KEY, json.dumps(data), ex=1800)  # 30min TTL
+    except Exception:
+        pass
+
+
+def get_sync_progress() -> dict:
+    """Read current sync progress from Redis."""
+    try:
+        import redis as _redis
+        rds = _redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), socket_timeout=1)
+        raw = rds.get(_SYNC_PROGRESS_KEY)
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return {"step": "idle", "detail": "", "pct": 0, "current": 0, "total": 0}
+
+
+def clear_sync_progress():
+    """Clear sync progress from Redis."""
+    try:
+        import redis as _redis
+        rds = _redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), socket_timeout=1)
+        rds.delete(_SYNC_PROGRESS_KEY)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +585,29 @@ def _update_qlib_bin(df: pd.DataFrame) -> int:
 
     calendar = _load_calendar()
     cal_len = len(calendar)
+
+    # 检查数据中是否有日历里没有的新交易日，自动扩展日历
+    global _CALENDAR_CACHE
+    new_dates_in_data = sorted(set(
+        np.datetime64(d) for d in df["trade_date"].unique()
+        if np.datetime64(d) not in calendar
+    ))
+    if new_dates_in_data:
+        cal_path = QLIB_DATA_DIR / "calendars" / "day.txt"
+        existing_lines = cal_path.read_text().strip().splitlines() if cal_path.exists() else []
+        added = 0
+        for nd in new_dates_in_data:
+            ds = str(nd)[:10]  # YYYY-MM-DD
+            if ds not in existing_lines:
+                existing_lines.append(ds)
+                added += 1
+        if added:
+            existing_lines.sort()
+            cal_path.write_text("\n".join(existing_lines) + "\n")
+            calendar = np.array(existing_lines, dtype="datetime64")
+            cal_len = len(calendar)
+            _CALENDAR_CACHE = calendar
+            log.info("Calendar extended with %d new trading days, now %d days", added, cal_len)
     updated = 0
 
     for sym, group in df.groupby("symbol"):
@@ -727,6 +808,7 @@ def run_sync(
     }
 
     engine = _get_engine()
+    _update_sync_progress("init", "初始化同步环境...", pct=5)
 
     # 1. 确定股票列表
     if symbols:
@@ -760,6 +842,7 @@ def run_sync(
     today = date.today()
 
     # 4. 同步每只股票
+    _update_sync_progress("pg_query", "查询PG最新日期...", pct=10)
     inv_count = 0
     bs_count = 0
     ak_count = 0
@@ -767,62 +850,96 @@ def run_sync(
     all_new_data = []
 
     total = len(target_symbols)
-    for idx, sym in enumerate(target_symbols):
+    # 快速跳过已到 T-1 的股票，避免白跑循环
+    yesterday = today - timedelta(days=1)
+    skip_count = 0
+    need_sync_symbols = []
+    for sym in target_symbols:
+        pg_max = pg_latest.get(sym)
+        if incremental and pg_max is not None and pg_max >= yesterday:
+            skip_count += 1
+            continue
+        need_sync_symbols.append(sym)
+    log.info("Skip %d already-up-to-date symbols, syncing %d", skip_count, len(need_sync_symbols))
+
+    # --- Phase 1: 批量读取 investment_data（本地文件，快） ---
+    inv_batch: list[pd.DataFrame] = []
+    still_need_symbols: list[str] = []
+    if inv_latest_date and need_sync_symbols:
+        _update_sync_progress("data_sync", f"Phase 1: 批量读取 investment_data ({len(need_sync_symbols)} 只)...", pct=12, current=0, total=len(need_sync_symbols))
+        for idx, sym in enumerate(need_sync_symbols):
+            if (idx + 1) % 1000 == 0:
+                log.info("investment_data batch: %d/%d", idx + 1, len(need_sync_symbols))
+                pct = 12 + int(18 * (idx + 1) / len(need_sync_symbols))
+                _update_sync_progress("data_sync", f"investment_data {idx+1}/{len(need_sync_symbols)}", pct=pct, current=idx+1, total=len(need_sync_symbols))
+            pg_max = pg_latest.get(sym)
+            partition_start = date(2026, 1, 1)
+            need_start = None
+            if pg_max is None:
+                need_start = partition_start
+            elif pg_max < inv_latest_date:
+                need_start = max(pg_max + timedelta(days=1), partition_start)
+            if need_start and need_start <= inv_latest_date:
+                try:
+                    inv_df = _read_investment_data(sym, need_start, inv_latest_date)
+                    if inv_df is not None and not inv_df.empty:
+                        inv_batch.append(inv_df)
+                        inv_count += 1
+                        # 检查是否还需要baostock补
+                        max_inv = inv_df["trade_date"].max()
+                        if isinstance(max_inv, date):
+                            pass
+                        else:
+                            max_inv = date.fromisoformat(str(max_inv))
+                        if max_inv < today:
+                            still_need_symbols.append(sym)
+                        continue
+                except Exception as exc:
+                    log.debug("investment_data failed for %s: %s", sym, exc)
+            # 没有investment_data数据，直接进baostock列表
+            still_need_symbols.append(sym)
+        if inv_batch:
+            inv_combined = pd.concat(inv_batch, ignore_index=True)
+            rows = _upsert_to_pg(engine, inv_combined)
+            all_new_data.append(inv_combined)
+            log.info("Phase 1 done: investment_data %d symbols, %d rows", inv_count, len(inv_combined))
+    else:
+        still_need_symbols = list(need_sync_symbols)
+
+    # --- Phase 2: baostock/akshare 补剩余缺口 ---
+    _update_sync_progress("data_sync", f"Phase 2: baostock 补缺 {len(still_need_symbols)} 只...", pct=35, current=0, total=len(still_need_symbols))
+    for idx, sym in enumerate(still_need_symbols):
         if (idx + 1) % 500 == 0:
-            log.info("Progress: %d/%d symbols", idx + 1, total)
+            log.info("baostock: %d/%d symbols", idx + 1, len(still_need_symbols))
+            pct = 35 + int(35 * (idx + 1) / len(still_need_symbols))
+            _update_sync_progress("data_sync", f"baostock {idx+1}/{len(still_need_symbols)}", pct=pct, current=idx+1, total=len(still_need_symbols))
 
         pg_max = pg_latest.get(sym)
         need_start: Optional[date] = None
-
-        # stock_daily_latest 按月分区，最早 2026-01
         partition_start = date(2026, 1, 1)
 
         if incremental:
             if pg_max is None:
-                # 新股票，从分区起始开始
                 need_start = partition_start
-            elif inv_latest_date and pg_max < inv_latest_date:
-                # PG 落后于投资数据
-                need_start = max(pg_max + timedelta(days=1), partition_start)
             elif pg_max < today:
-                # PG 落后于今天
                 need_start = max(pg_max + timedelta(days=1), partition_start)
             else:
-                continue  # 已是最新
+                continue
         else:
             need_start = partition_start
 
         if need_start is None:
             continue
 
-        # --- Source 1: investment_data ---
-        new_df = None
-        if inv_latest_date and need_start <= inv_latest_date:
-            try:
-                inv_df = _read_investment_data(sym, need_start, inv_latest_date)
-                if inv_df is not None and not inv_df.empty:
-                    new_df = inv_df
-                    inv_count += 1
-            except Exception as exc:
-                log.debug("investment_data failed for %s: %s", sym, exc)
-
         # --- Source 2: baostock (fill gap to T-1) ---
-        bs_end = min(today - timedelta(days=1), today)
+        bs_end = today - timedelta(days=1)
         bs_start = need_start
-        if new_df is not None and not new_df.empty:
-            bs_start = new_df["trade_date"].max() + timedelta(days=1)
-            if isinstance(bs_start, date):
-                pass
-            else:
-                bs_start = date.fromisoformat(str(bs_start))
 
+        new_df = None
         if bs_start <= bs_end:
             bs_df = _read_baostock(sym, bs_start, bs_end)
             if bs_df is not None and not bs_df.empty:
-                if new_df is not None and not new_df.empty:
-                    new_df = pd.concat([new_df, bs_df], ignore_index=True)
-                else:
-                    new_df = bs_df
+                new_df = bs_df
                 bs_count += 1
 
         # --- Source 3: akshare (fallback) ---
@@ -887,6 +1004,7 @@ def run_sync(
 
     # 5. 更新 qlib bin
     if update_qlib and all_new_data:
+        _update_sync_progress("qlib_bin", "更新Qlib二进制文件...", pct=75)
         combined = pd.concat(all_new_data, ignore_index=True)
         try:
             qlib_updated = _update_qlib_bin(combined)
@@ -898,6 +1016,7 @@ def run_sync(
 
     # 6. 校准指标
     if calibrate:
+        _update_sync_progress("calibrate", "校准技术指标...", pct=85)
         try:
             _calibrate_indicators(engine, symbols=symbols, days=calibrate_days)
             result["indicators_calibrated"] = True
@@ -906,6 +1025,7 @@ def run_sync(
             log.warning("Indicator calibration failed: %s", exc)
 
     # 7. 增量更新 feature parquet
+    _update_sync_progress("parquet", "更新特征Parquet...", pct=92)
     try:
         parquet_result = update_feature_parquet()
         result["parquet_updated"] = parquet_result
@@ -923,6 +1043,7 @@ def run_sync(
             pass
 
     result["finished"] = datetime.now().isoformat()
+    _update_sync_progress("done", "同步完成!", pct=100)
     return result
 
 
