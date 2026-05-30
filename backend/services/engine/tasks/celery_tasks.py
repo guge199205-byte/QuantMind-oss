@@ -836,12 +836,14 @@ def get_data_status_task() -> dict[str, Any]:
 
     try:
         from backend.services.api.routers.admin.model_management_utils import (
-            _scan_feature_snapshots_status,
+            _scan_feature_snapshot_coverage,
         )
 
-        feature_snapshots_info = _scan_feature_snapshots_status(
-            target_date=trade_date, topn=20
-        )
+        coverage = _scan_feature_snapshot_coverage()
+        if coverage:
+            feature_snapshots_info.update(coverage)
+        else:
+            feature_snapshots_info["error"] = "No parquet files found"
     except Exception as e:
         feature_snapshots_info["error"] = str(e)
 

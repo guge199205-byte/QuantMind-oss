@@ -287,10 +287,12 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
     scanned_files = 0
     total_rows = 0
     failed_files = 0
+    metadata_list = []
 
     for file_path in files:
         try:
-            date_series = pd.read_parquet(file_path, columns=["trade_date"], engine="pyarrow")["trade_date"]
+            df_cols = pd.read_parquet(file_path, columns=["trade_date", "symbol"], engine="pyarrow")
+            date_series = df_cols["trade_date"]
             if date_series.empty:
                 continue
             file_min = pd.to_datetime(date_series.min(), errors="coerce")
@@ -303,7 +305,30 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
             min_date = file_min_date if min_date is None else min(min_date, file_min_date)
             max_date = file_max_date if max_date is None else max(max_date, file_max_date)
             scanned_files += 1
-            total_rows += int(date_series.shape[0])
+            row_count = int(date_series.shape[0])
+            total_rows += row_count
+
+            # Extract year from filename
+            year = None
+            for part in file_path.stem.split("_"):
+                if part.isdigit() and len(part) == 4:
+                    year = int(part)
+                    break
+
+            # Count unique symbols and feature columns
+            symbol_count = int(df_cols["symbol"].nunique()) if "symbol" in df_cols.columns else 0
+            all_cols = pd.read_parquet(file_path, engine="pyarrow", columns=[]).columns.tolist()
+            feature_dim = len([c for c in all_cols if c not in ("trade_date", "symbol")])
+
+            metadata_list.append({
+                "year": year,
+                "start_date": file_min_date.isoformat(),
+                "end_date": file_max_date.isoformat(),
+                "row_count": row_count,
+                "symbol_count": symbol_count,
+                "feature_dim": feature_dim,
+                "filename": file_path.name,
+            })
         except Exception:
             failed_files += 1
 
@@ -312,6 +337,7 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
 
     return {
         "source": "local_parquet",
+        "exists": True,
         "snapshot_dir": str(FEATURE_SNAPSHOT_DIR),
         "file_count": len(files),
         "scanned_files": scanned_files,
@@ -319,6 +345,7 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
         "total_rows": total_rows,
         "min_date": min_date.isoformat(),
         "max_date": max_date.isoformat(),
+        "metadata_files": sorted(metadata_list, key=lambda x: x.get("year") or 0, reverse=True),
         "suggested_periods": _build_suggested_periods(min_date, max_date),
     }
 
