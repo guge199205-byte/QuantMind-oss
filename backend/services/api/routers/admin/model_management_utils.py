@@ -317,8 +317,12 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
 
             # Count unique symbols and feature columns
             symbol_count = int(df_cols["symbol"].nunique()) if "symbol" in df_cols.columns else 0
-            all_cols = pd.read_parquet(file_path, engine="pyarrow", columns=[]).columns.tolist()
-            feature_dim = len([c for c in all_cols if c not in ("trade_date", "symbol")])
+            try:
+                import pyarrow.parquet as pq
+                schema = pq.read_schema(str(file_path))
+                feature_dim = len([f for f in schema.names if f not in ("trade_date", "symbol")])
+            except Exception:
+                feature_dim = 0
 
             metadata_list.append({
                 "year": year,
