@@ -170,7 +170,7 @@ class CryptoAdapter(MarketAdapter):
 
         try:
             h5_path = download_all_crypto()
-            convert_h5_to_qlib_format(h5_path)
+            convert_h5_to_qlib_format(h5_path, self.get_qlib_provider_uri())
             return True
         except Exception as e:
             logger = __import__("logging").getLogger(__name__)
@@ -178,5 +178,5 @@ class CryptoAdapter(MarketAdapter):
             return False
 
     def is_data_ready(self) -> bool:
-        provider = self.get_qlib_provider_uri()
-        return os.path.isdir(provider) and os.path.isfile(os.path.join(provider, "calendars", "day.txt"))
+        from ..data_pipeline.crypto_data import is_crypto_data_ready
+        return is_crypto_data_ready(self.get_qlib_provider_uri())

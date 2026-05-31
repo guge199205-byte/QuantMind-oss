@@ -209,12 +209,42 @@ class RDLoopWrapper:
         FACTOR_COSTEER_SETTINGS.data_folder (git_ignore_folder/factor_implementation_source_data)
         相对于 cwd 解析。需要在 task_log_dir 下创建该目录并复制数据文件。
 
-        同时确保 ~/.qlib/qlib_data/cn_data 可用（conf.yaml 的 provider_uri）。
+        同时确保对应的 Qlib provider_uri 目录可用。
         """
         import shutil
 
-        source_all = "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5"
-        source_debug = "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_debug.h5"
+        # 根据市场选择数据源
+        market_data_map = {
+            "crypto": {
+                "source_all": "/app/db/crypto_data/daily_pv.h5",
+                "source_debug": "/app/db/crypto_data/daily_pv.h5",
+                "qlib_source": "/app/db/qlib_data/crypto_data",
+                "qlib_target_name": "crypto_data",
+            },
+            "hong_kong": {
+                "source_all": "/app/db/hk_data/daily_pv.h5",
+                "source_debug": "/app/db/hk_data/daily_pv.h5",
+                "qlib_source": "/app/db/qlib_data/hk_data",
+                "qlib_target_name": "hk_data",
+            },
+            "us_stock": {
+                "source_all": "/app/db/us_data/daily_pv.h5",
+                "source_debug": "/app/db/us_data/daily_pv.h5",
+                "qlib_source": "/app/db/qlib_data/us_data",
+                "qlib_target_name": "us_data",
+            },
+        }
+
+        # 默认 A 股
+        market_cfg = market_data_map.get(self.market, {
+            "source_all": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5",
+            "source_debug": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_debug.h5",
+            "qlib_source": "/app/db/qlib_data/cn_data",
+            "qlib_target_name": "cn_data",
+        })
+
+        source_all = market_cfg["source_all"]
+        source_debug = market_cfg["source_debug"]
 
         # base_dir: RD-Agent subprocess cwd (task log dir)
         base_dir = task_log_dir if task_log_dir else os.getcwd()
@@ -238,10 +268,10 @@ class RDLoopWrapper:
                 except Exception as e:
                     logger.warning("[%s] Failed to copy data file to %s: %s", self.market, target, e)
 
-        # Ensure Qlib provider_uri data is available at ~/.qlib/qlib_data/cn_data
-        # conf.yaml uses "~/.qlib/qlib_data/cn_data" as provider_uri
-        qlib_source = "/app/db/qlib_data/cn_data"
-        qlib_target = os.path.expanduser("~/.qlib/qlib_data/cn_data")
+        # Ensure Qlib provider_uri data is available at ~/.qlib/qlib_data/<market>
+        qlib_source = market_cfg["qlib_source"]
+        qlib_target_name = market_cfg["qlib_target_name"]
+        qlib_target = os.path.expanduser(f"~/.qlib/qlib_data/{qlib_target_name}")
         if os.path.isdir(qlib_source) and not os.path.exists(qlib_target):
             try:
                 os.makedirs(os.path.dirname(qlib_target), exist_ok=True)

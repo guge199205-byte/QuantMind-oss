@@ -1,4 +1,8 @@
-"""加密货币数据管线 — Binance 公开 API 下载 → H5 → Qlib 格式"""
+"""加密货币数据管线 — Binance 公开 API 下载 → H5 → Qlib 格式
+
+使用 data-api.binance.vision（无需翻墙）下载日线数据。
+生成 RD-Agent 兼容的 daily_pv.h5（$前缀列名）和 Qlib bin 格式。
+"""
 
 from __future__ import annotations
 
@@ -11,10 +15,14 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Binance 公开 K线 API
-BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines"
+# Binance K线 API（按优先级排序，第一个可用的会被使用）
+BINANCE_KLINE_URLS = [
+    "https://data-api.binance.vision/api/v3/klines",
+    "https://api.binance.com/api/v3/klines",
+    "https://api1.binance.com/api/v3/klines",
+]
 
-# 默认交易对 (top-100 by volume)
+# 默认交易对 (top-35 by volume)
 DEFAULT_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
     "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
@@ -25,17 +33,44 @@ DEFAULT_SYMBOLS = [
     "PEPEUSDT", "SHIBUSDT", "FLOKIUSDT", "WIFUSDT", "BONKUSDT",
 ]
 
+# 找到第一个可用的 API endpoint
+_working_url: str | None = None
+
+
+def _get_api_url() -> str:
+    """返回可用的 Binance API URL（首次调用时探测）"""
+    global _working_url
+    if _working_url:
+        return _working_url
+
+    import requests
+    for url in BINANCE_KLINE_URLS:
+        try:
+            r = requests.get(url, params={"symbol": "BTCUSDT", "interval": "1d", "limit": 1}, timeout=10)
+            if r.status_code == 200:
+                _working_url = url
+                logger.info("Using Binance API: %s", url)
+                return url
+        except Exception:
+            continue
+
+    # Fallback
+    _working_url = BINANCE_KLINE_URLS[0]
+    logger.warning("No Binance API tested OK, using default: %s", _working_url)
+    return _working_url
+
 
 def download_binance_klines(
     symbol: str,
     interval: str = "1d",
-    start_date: str = "2024-01-01",
+    start_date: str = "2020-01-01",
     end_date: str | None = None,
     limit: int = 1000,
 ) -> pd.DataFrame:
     """从 Binance 公开 API 下载 K 线数据"""
     import requests
 
+    api_url = _get_api_url()
     start_ms = int(pd.Timestamp(start_date).timestamp() * 1000)
     end_ms = int(pd.Timestamp(end_date).timestamp() * 1000) if end_date else int(time.time() * 1000)
 
@@ -50,7 +85,7 @@ def download_binance_klines(
             "endTime": end_ms,
             "limit": limit,
         }
-        resp = requests.get(BINANCE_KLINE_URL, params=params, timeout=30)
+        resp = requests.get(api_url, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 
@@ -83,11 +118,14 @@ def download_binance_klines(
 
 def download_all_crypto(
     symbols: list[str] | None = None,
-    start_date: str = "2024-01-01",
+    start_date: str = "2020-01-01",
     end_date: str | None = None,
     output_dir: str = "/app/db/crypto_data",
 ) -> str:
-    """下载所有交易对数据并保存为 H5"""
+    """下载所有交易对数据并保存为 H5
+
+    Returns: H5 文件路径
+    """
     symbols = symbols or DEFAULT_SYMBOLS
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -110,7 +148,7 @@ def download_all_crypto(
                 if df.empty:
                     logger.warning("  [%d/%d] %s — no data", i, len(symbols), symbol)
                     continue
-                df.to_csv(csv_dir / f"{symbol}.csv", index=False)
+                df.to_csv(csv_file, index=False)
             except Exception as e:
                 logger.error("  [%d/%d] %s — failed: %s", i, len(symbols), symbol, e)
                 continue
@@ -120,9 +158,18 @@ def download_all_crypto(
     if not all_dfs:
         raise RuntimeError("No data downloaded")
 
-    # 合并为 H5
+    # 合并为 H5（使用 $ 前缀列名，与 RD-Agent daily_pv.h5 兼容）
     combined = pd.concat(all_dfs, ignore_index=True)
     combined["factor"] = 1.0  # 加密货币无复权
+    combined = combined.rename(columns={
+        "open": "$open",
+        "high": "$high",
+        "low": "$low",
+        "close": "$close",
+        "volume": "$volume",
+        "factor": "$factor",
+    })
+    combined = combined[["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$factor"]]
     combined = combined.set_index(["datetime", "instrument"])
     combined = combined.sort_index()
 
@@ -137,7 +184,10 @@ def convert_h5_to_qlib_format(
     h5_path: str,
     output_dir: str = "/app/db/qlib_data/crypto_data",
 ) -> str:
-    """将 H5 转换为 Qlib 原生 bin 格式"""
+    """将 H5 转换为 Qlib 原生 bin 格式
+
+    Qlib bin 文件不使用 $ 前缀（open.day.bin 而非 $open.day.bin）。
+    """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
 
@@ -151,7 +201,7 @@ def convert_h5_to_qlib_format(
     feat_dir.mkdir(exist_ok=True)
     inst_dir.mkdir(exist_ok=True)
 
-    # 日历
+    # 日历（加密货币 7x24，每天都有数据）
     dates = df.index.get_level_values("datetime").unique().sort_values()
     with open(cal_dir / "day.txt", "w") as f:
         for d in dates:
@@ -165,8 +215,13 @@ def convert_h5_to_qlib_format(
         for inst in instruments:
             f.write(f"{inst}\t{start_str}\t{end_str}\n")
 
-    # 特征数据 (bin 格式)
-    fields = ["open", "high", "low", "close", "volume", "factor"]
+    # 特征数据 (bin 格式，不使用 $ 前缀)
+    # 从 $open → open 映射
+    col_map = {}
+    for col in df.columns:
+        clean = col.lstrip("$")
+        col_map[col] = clean
+
     for inst in instruments:
         inst_dir_path = feat_dir / inst.lower()
         inst_dir_path.mkdir(exist_ok=True)
@@ -176,12 +231,24 @@ def convert_h5_to_qlib_format(
         except KeyError:
             continue
 
-        for field in fields:
-            if field not in inst_data.columns:
+        for orig_col, clean_col in col_map.items():
+            if orig_col not in inst_data.columns:
                 continue
-            series = inst_data[field].reindex(dates)
-            bin_path = inst_dir_path / f"{field}.day.bin"
+            series = inst_data[orig_col].reindex(dates)
+            bin_path = inst_dir_path / f"{clean_col}.day.bin"
             series.values.astype("float32").tofile(str(bin_path))
 
-    logger.info("Converted to Qlib format: %s", output)
+    logger.info("Converted to Qlib format: %s (%d instruments, %d dates)", output, len(instruments), len(dates))
     return str(output)
+
+
+def is_crypto_data_ready(qlib_dir: str = "/app/db/qlib_data/crypto_data") -> bool:
+    """检查加密货币数据是否已就绪"""
+    p = Path(qlib_dir)
+    return (
+        p.is_dir()
+        and (p / "calendars" / "day.txt").is_file()
+        and (p / "instruments" / "all.txt").is_file()
+        and (p / "features").is_dir()
+        and len(list((p / "features").iterdir())) > 0
+    )

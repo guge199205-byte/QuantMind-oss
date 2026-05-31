@@ -65,6 +65,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
         { id: 'us_stock', name: '美股', ready: false },
       ];
 
+  const selectedNotReady = marketList.find(m => m.id === miningMarket)?.ready === false;
+
   return (
     <div className="fixed left-0 right-0 z-50 pb-2" style={{ bottom: '88px' }}>
       <div className="container mx-auto px-6 max-w-3xl">
@@ -82,17 +84,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
                       key={m.id}
                       onClick={() => setMiningMarket(m.id)}
                       disabled={isRunning || !m.ready}
-                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all flex items-center gap-1 ${
                         miningMarket === m.id
                           ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
                           : m.ready
                             ? 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
                             : 'text-muted-foreground/30 cursor-not-allowed'
                       }`}
-                      title={!m.ready ? '数据未就绪' : `${MARKET_LABELS[m.id]}因子挖掘`}
+                      title={!m.ready ? '数据未就绪，请先在管理后台同步数据' : `${MARKET_LABELS[m.id]}因子挖掘`}
                     >
+                      <span className={`inline-block w-1.5 h-1.5 rounded-full ${m.ready ? 'bg-green-500' : 'bg-gray-400/30'}`} />
                       {m.name}
-                      {!m.ready && <span className="ml-0.5 text-[10px] opacity-40">*</span>}
                     </button>
                   ))}
                 </div>
@@ -151,11 +153,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
                     placeholder={
                       isRunning
                         ? '实验运行中...可切换页面，任务不会中断'
-                        : useCustomMiningDirection
-                          ? '已开启自选挖掘方向，将使用「设置 → 挖掘方向」中的选项'
-                          : miningMarket === 'crypto'
-                            ? '描述加密货币因子需求，如：短期动量反转、量价背离...'
-                            : '描述因子挖掘需求 (Enter 发送，Shift+Enter 换行)'
+                        : selectedNotReady
+                          ? '该市场数据未就绪，请先在管理后台同步数据'
+                          : useCustomMiningDirection
+                            ? '已开启自选挖掘方向，将使用「设置 → 挖掘方向」中的选项'
+                            : miningMarket === 'crypto'
+                              ? '描述加密货币因子需求，如：短期动量反转、量价背离...'
+                              : '描述因子挖掘需求 (Enter 发送，Shift+Enter 换行)'
                     }
                     disabled={isRunning}
                     className="w-full bg-transparent text-base placeholder:text-muted-foreground focus:outline-none resize-none"
@@ -176,9 +180,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSubmit, onStop, isRunnin
                   ) : (
                     <button
                       onClick={handleSubmit}
-                      disabled={isRunning}
+                      disabled={isRunning || !!selectedNotReady}
                       className="p-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95"
-                      title="发送 (Enter)"
+                      title={selectedNotReady ? '市场数据未就绪' : '发送 (Enter)'}
                     >
                       <Send className="h-5 w-5" />
                     </button>

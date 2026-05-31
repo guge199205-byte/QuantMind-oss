@@ -793,3 +793,95 @@ async def get_online_status(current_user: dict = Depends(require_admin)):
     except Exception as exc:  # noqa: BLE001
         logger.error("get_online_status failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Alpha Agent 市场数据同步（RD-Agent 因子挖掘用）
+# ---------------------------------------------------------------------------
+@router.get("/alpha-agent-markets")
+async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
+    """列出 Alpha Agent 支持的市场及数据就绪状态。"""
+    try:
+        from backend.services.engine.rd_agent.market_adapters import list_markets, get_adapter
+
+        markets = list_markets()
+        for m in markets:
+            try:
+                adapter = get_adapter(m["market_id"])
+                m["data_ready"] = adapter.is_data_ready()
+            except Exception:
+                m["data_ready"] = False
+        return {"success": True, "data": {"markets": markets, "timestamp": _now_iso()}}
+    except Exception as exc:  # noqa: BLE001
+        logger.error("list_alpha_agent_markets failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
+@router.post("/sync-alpha-agent-market")
+async def sync_alpha_agent_market(
+    market: str = Query(..., description="市场 ID: crypto, hong_kong, us_stock"),
+    current_user: dict = Depends(require_admin),
+):
+    """同步 Alpha Agent 市场数据（下载 + 转 Qlib 格式）。异步执行。"""
+    try:
+        from backend.services.engine.rd_agent.market_adapters import get_adapter
+
+        adapter = get_adapter(market)
+
+        # A 股数据已通过 investment_data 管理，不走这个接口
+        if market == "a_share":
+            return {
+                "success": True,
+                "data": {
+                    "market": market,
+                    "status": "skipped",
+                    "message": "A 股数据通过 investment_data 管理，请使用「更新投资数据」功能",
+                },
+            }
+
+        # 检查是否已就绪
+        if adapter.is_data_ready():
+            return {
+                "success": True,
+                "data": {
+                    "market": market,
+                    "market_name": adapter.market_name,
+                    "status": "already_ready",
+                    "message": f"{adapter.market_name}数据已就绪",
+                },
+            }
+
+        # 异步执行数据准备
+        import asyncio
+
+        def _do_sync():
+            return adapter.prepare_data()
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _do_sync)
+
+        if result:
+            return {
+                "success": True,
+                "data": {
+                    "market": market,
+                    "market_name": adapter.market_name,
+                    "status": "completed",
+                    "message": f"{adapter.market_name}数据同步完成",
+                },
+            }
+        else:
+            return {
+                "success": False,
+                "data": {
+                    "market": market,
+                    "market_name": adapter.market_name,
+                    "status": "failed",
+                    "message": f"{adapter.market_name}数据同步失败，请检查日志",
+                },
+            }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("sync_alpha_agent_market failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
