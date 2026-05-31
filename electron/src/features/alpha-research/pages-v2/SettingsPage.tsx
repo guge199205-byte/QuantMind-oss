@@ -201,11 +201,15 @@ export const SettingsPage: React.FC = () => {
   };
 
   const addCatalogDirection = (item: MiningDirectionItem) => {
-    // Add to REFERENCE_MINING_DIRECTIONS equivalent (stored in config)
     const existing = config.selectedMiningDirectionIndices;
     // Find if this direction already exists in the reference list
-    const refIdx = REFERENCE_MINING_DIRECTIONS.findIndex(d => d.label === item.label);
-    if (refIdx >= 0 && !existing.includes(refIdx)) {
+    let refIdx = REFERENCE_MINING_DIRECTIONS.findIndex(d => d.label === item.label);
+    // If not found, add it to the reference list
+    if (refIdx < 0) {
+      REFERENCE_MINING_DIRECTIONS.push(item);
+      refIdx = REFERENCE_MINING_DIRECTIONS.length - 1;
+    }
+    if (!existing.includes(refIdx)) {
       updateConfigField('selectedMiningDirectionIndices', [...existing, refIdx].sort((a, b) => a - b));
     }
   };

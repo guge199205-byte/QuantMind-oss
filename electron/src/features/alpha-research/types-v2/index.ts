@@ -143,6 +143,9 @@ export interface Factor {
   icir: number;
   rankIc: number;
   rankIcir: number;
+  sharpeRatio: number;
+  annualReturn: number;
+  maxDrawdown: number;
 
   // Metadata
   round: number;

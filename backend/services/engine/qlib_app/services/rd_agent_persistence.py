@@ -89,7 +89,7 @@ class RDAgentFactorPersistence:
         async with get_session(read_only=True) as session:
             rows = await session.execute(
                 text(f"""
-                    SELECT factor_id, factor_name, status, ic_value, sharpe_ratio,
+                    SELECT factor_id, factor_name, factor_code, status, ic_value, sharpe_ratio,
                            annual_return, max_drawdown, user_id, metadata_json, created_at, updated_at
                     FROM rd_agent_factors
                     WHERE {where}
@@ -102,12 +102,16 @@ class RDAgentFactorPersistence:
             results = []
             for r in data:
                 item = dict(r)
-                if isinstance(item.get("metadata_json"), str):
+                raw_meta = item.pop("metadata_json", None)
+                if isinstance(raw_meta, dict):
+                    item["metadata"] = raw_meta
+                elif isinstance(raw_meta, str):
                     try:
-                        item["metadata"] = json.loads(item["metadata_json"])
+                        item["metadata"] = json.loads(raw_meta)
                     except Exception:
                         item["metadata"] = {}
-                item.pop("metadata_json", None)
+                else:
+                    item["metadata"] = {}
                 results.append(item)
             return results
 
@@ -127,12 +131,16 @@ class RDAgentFactorPersistence:
             if not r:
                 return None
             item = dict(r)
-            if isinstance(item.get("metadata_json"), str):
+            raw_meta = item.pop("metadata_json", None)
+            if isinstance(raw_meta, dict):
+                item["metadata"] = raw_meta
+            elif isinstance(raw_meta, str):
                 try:
-                    item["metadata"] = json.loads(item["metadata_json"])
+                    item["metadata"] = json.loads(raw_meta)
                 except Exception:
                     item["metadata"] = {}
-            item.pop("metadata_json", None)
+            else:
+                item["metadata"] = {}
             return item
 
     async def update_factor_metrics(
@@ -145,7 +153,7 @@ class RDAgentFactorPersistence:
         max_drawdown: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """更新因子的回测指标"""
+        """更新因子的回测指标，metadata 与已有值合并而非覆盖"""
         fields: dict[str, Any] = {"updated_at": datetime.now()}
         if status is not None:
             fields["status"] = status
@@ -158,7 +166,21 @@ class RDAgentFactorPersistence:
         if max_drawdown is not None:
             fields["max_drawdown"] = max_drawdown
         if metadata is not None:
-            fields["metadata_json"] = json.dumps(metadata, ensure_ascii=False)
+            # Merge with existing metadata to preserve task_id, market, etc.
+            async with get_session(read_only=True) as session:
+                row = await session.execute(
+                    text("SELECT metadata_json FROM rd_agent_factors WHERE factor_id = :factor_id"),
+                    {"factor_id": factor_id},
+                )
+                existing = row.scalar()
+            merged = {}
+            if existing:
+                try:
+                    merged = json.loads(existing) if isinstance(existing, str) else (existing or {})
+                except Exception:
+                    merged = {}
+            merged.update(metadata)
+            fields["metadata_json"] = json.dumps(merged, ensure_ascii=False)
 
         set_clause = ", ".join(f"{k} = :{k}" for k in fields)
         async with get_session() as session:

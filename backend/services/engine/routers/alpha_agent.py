@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.services.engine.alpha_agent.launcher import get_launcher
 from backend.services.engine.qlib_app.services.rd_agent_persistence import (
@@ -110,6 +110,30 @@ async def cancel_task(task_id: str):
     return {"code": 200, "data": {"task_id": task_id, "status": "cancelled"}}
 
 
+@router.get("/tasks/{task_id}/log")
+async def get_task_log(
+    task_id: str,
+    tail: int = Query(500, ge=1, le=5000, description="返回最后N行"),
+    offset: int = Query(0, ge=0, description="从第N行开始返回"),
+):
+    """获取任务的详细子进程日志（实时监控用）"""
+    launcher = get_launcher()
+    log_content = await launcher.get_task_log(task_id, tail=tail + offset)
+    if log_content is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} log not found")
+    lines = log_content.splitlines()
+    if offset > 0:
+        lines = lines[offset:]
+    return {
+        "code": 200,
+        "data": {
+            "task_id": task_id,
+            "lines": lines,
+            "total": len(lines),
+        },
+    }
+
+
 @router.get("/tasks")
 async def list_tasks(
     user_id: Optional[str] = Query(None, description="按用户过滤"),
@@ -121,19 +145,6 @@ async def list_tasks(
     if market:
         tasks = [t for t in tasks if t.get("market") == market]
     return {"code": 200, "data": {"tasks": tasks, "total": len(tasks)}}
-
-
-@router.get("/tasks/{task_id}/log")
-async def get_task_log(
-    task_id: str,
-    tail: int = Query(200, ge=10, le=2000, description="返回最后 N 行"),
-):
-    """获取任务的实时日志"""
-    launcher = get_launcher()
-    log = await launcher.get_task_log(task_id, tail=tail)
-    if log is None:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found or no log available")
-    return {"code": 200, "data": {"task_id": task_id, "log": log}}
 
 
 @router.get("/factors")
@@ -266,6 +277,71 @@ async def backtest_factor(
             "factor_id": factor_id,
             "status": "backtesting",
             "message": f"快速验证已触发: {factor.get('factor_name')}",
+        },
+    }
+
+
+@router.post("/factors/{factor_id}/export")
+async def export_factor_to_ide(
+    factor_id: str,
+    request: Request,
+):
+    """将因子代码导出到 AI-IDE 工作空间"""
+    # 从请求中获取用户 ID
+    user = getattr(request.state, "user", None)
+    user_id = str(user.get("user_id") or user.get("sub") or "") if user else ""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    factor = await persistence.get_factor(factor_id)
+    if not factor:
+        raise HTTPException(status_code=404, detail=f"Factor {factor_id} not found")
+
+    factor_code = factor.get("factor_code") or ""
+    if not factor_code.strip():
+        raise HTTPException(status_code=400, detail="因子代码为空，无法导出")
+
+    factor_name = factor.get("factor_name", "unnamed_factor")
+    meta = factor.get("metadata") or {}
+
+    # 生成带头部注释的完整 Python 文件
+    header_lines = [
+        f'"""',
+        f'Factor: {factor_name}',
+        f'Source: RD-Agent Alpha Research',
+        f'IC: {factor.get("ic_value", "N/A")}',
+        f'RankIC: {meta.get("rank_ic", "N/A")}',
+        f'Sharpe: {factor.get("sharpe_ratio", "N/A")}',
+        f'Market: {meta.get("market", "a_share")}',
+        f'Description: {meta.get("description", "")[:200]}',
+        f'"""',
+        f'',
+    ]
+    full_code = "\n".join(header_lines) + factor_code
+
+    # 保存到策略库
+    from backend.shared.strategy_storage import get_strategy_storage_service
+    svc = get_strategy_storage_service()
+    file_name = f"factor_{factor_name}"
+    res = await svc.save(
+        user_id=user_id,
+        name=file_name,
+        code=full_code,
+        metadata={
+            "status": "DRAFT",
+            "source": "alpha_research",
+            "factor_id": factor_id,
+            "description": f"Alpha Factor: {factor_name}",
+            "tags": ["alpha", meta.get("market", "a_share")],
+        },
+    )
+
+    return {
+        "code": 200,
+        "data": {
+            "strategy_id": res["id"],
+            "name": file_name,
+            "message": f"因子 {factor_name} 已导出到 AI-IDE 工作空间",
         },
     }
 

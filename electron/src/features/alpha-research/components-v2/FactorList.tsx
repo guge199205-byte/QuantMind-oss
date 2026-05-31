@@ -8,9 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/HoverCard";
 import { RealtimeMetrics } from '../types-v2';
 import { formatNumber, formatPercent } from '../utils-v2';
-import { TrendingUp, Zap, Check, Loader2, Sparkles } from 'lucide-react';
+import { TrendingUp, Zap, Check, Loader2, Sparkles, FileUp } from 'lucide-react';
 import { alphaAgentService } from '../services/alphaAgentService';
-import { explainFactor } from '../services-v2/api';
+import { explainFactor, exportFactorToIde } from '../services-v2/api';
 
 interface FactorListProps {
   metrics: RealtimeMetrics | null;
@@ -18,6 +18,7 @@ interface FactorListProps {
 
 export const FactorList: React.FC<FactorListProps> = ({ metrics }) => {
   const [promoting, setPromoting] = useState<Record<string, 'loading' | 'done' | 'error'>>({});
+  const [exporting, setExporting] = useState<Record<string, 'loading' | 'done' | 'error'>>({});
   const [explanations, setExplanations] = useState<Record<string, { loading: boolean; text?: string; error?: string }>>({});
 
   const handleExplain = async (factorId: string, factorName: string) => {
@@ -55,6 +56,20 @@ export const FactorList: React.FC<FactorListProps> = ({ metrics }) => {
       }
     } catch {
       setPromoting(prev => ({ ...prev, [factorName]: 'error' }));
+    }
+  };
+
+  const handleExport = async (factorId: string, factorName: string) => {
+    setExporting(prev => ({ ...prev, [factorId]: 'loading' }));
+    try {
+      const result = await exportFactorToIde(factorId);
+      if (result.success) {
+        setExporting(prev => ({ ...prev, [factorId]: 'done' }));
+      } else {
+        setExporting(prev => ({ ...prev, [factorId]: 'error' }));
+      }
+    } catch {
+      setExporting(prev => ({ ...prev, [factorId]: 'error' }));
     }
   };
 
@@ -113,28 +128,50 @@ export const FactorList: React.FC<FactorListProps> = ({ metrics }) => {
                         <td className="py-3 px-4 text-right font-mono text-destructive">{formatMetric(factor.maxDrawdown, 'percent')}</td>
                         <td className="py-3 px-4 text-right font-mono">{formatMetric(factor.sharpeRatio)}</td>
                         <td className="py-3 px-4 text-center">
-                          {promoting[factor.factorName] === 'done' ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-500">
-                              <Check size={12} /> 已加入
-                            </span>
-                          ) : promoting[factor.factorName] === 'loading' ? (
-                            <Loader2 size={14} className="animate-spin mx-auto text-muted-foreground" />
-                          ) : promoting[factor.factorName] === 'error' ? (
-                            <span className="text-xs text-red-400">失败</span>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePromote(factor.factorName, factor.factorExpression);
-                              }}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
-                                         bg-primary/10 text-primary hover:bg-primary/20
-                                         border border-primary/20 transition-colors"
-                              title="将此因子加入训练特征集"
-                            >
-                              <Zap size={12} /> 加入训练
-                            </button>
-                          )}
+                          <div className="flex items-center justify-center gap-1">
+                            {promoting[factor.factorName] === 'done' ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                                <Check size={12} /> 已加入
+                              </span>
+                            ) : promoting[factor.factorName] === 'loading' ? (
+                              <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                            ) : promoting[factor.factorName] === 'error' ? (
+                              <span className="text-xs text-red-400">失败</span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePromote(factor.factorName, factor.factorExpression);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
+                                           bg-primary/10 text-primary hover:bg-primary/20
+                                           border border-primary/20 transition-colors"
+                                title="将此因子加入训练特征集"
+                              >
+                                <Zap size={12} /> 训练
+                              </button>
+                            )}
+                            {exporting[factor.factorId] === 'done' ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                                <Check size={12} /> 已导出
+                              </span>
+                            ) : exporting[factor.factorId] === 'loading' ? (
+                              <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleExport(factor.factorId, factor.factorName);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md
+                                           bg-blue-500/10 text-blue-400 hover:bg-blue-500/20
+                                           border border-blue-500/20 transition-colors"
+                                title="导出因子代码到 AI-IDE 工作空间"
+                              >
+                                <FileUp size={12} /> 导出IDE
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     </HoverCardTrigger>

@@ -322,8 +322,9 @@ class StrategyStorageService:
         with get_db() as session:
             has_cos_key = self._has_cos_key_column(session)
 
+            uid_int = _ensure_int_user_id(user_id)
             params = {
-                "uid": user_id,
+                "uid": uid_int,
                 "name": name,
                 "desc": description,
                 "stype": strategy_type,

@@ -132,19 +132,23 @@ function normalizeAgentTask(raw: any, configHint?: any): Task {
 
 function normalizeAgentFactor(raw: any): Factor {
   const ic = raw?.ic_value ?? null;
+  const meta = raw?.metadata ?? {};
   return {
     factorId: raw?.id ?? raw?.factor_id ?? '',
     factorName: raw?.factor_name ?? 'unnamed',
     factorExpression: raw?.factor_formulation ?? raw?.factor_code ?? '',
-    factorDescription: raw?.metadata?.description ?? raw?.category ?? '',
+    factorDescription: meta.description ?? raw?.category ?? '',
     quality: classifyQuality(ic),
-    market: raw?.metadata?.market ?? raw?.market ?? undefined,
+    market: meta.market ?? raw?.market ?? undefined,
     ic: ic ?? 0,
-    icir: 0,
-    rankIc: 0,
+    icir: meta.icir ?? 0,
+    rankIc: meta.rank_ic ?? 0,
     rankIcir: 0,
-    round: raw?.metadata?.round ?? 0,
-    direction: raw?.metadata?.direction ?? raw?.category ?? '',
+    sharpeRatio: raw?.sharpe_ratio ?? 0,
+    annualReturn: raw?.annual_return ?? 0,
+    maxDrawdown: raw?.max_drawdown ?? 0,
+    round: meta.round ?? 0,
+    direction: meta.direction ?? raw?.category ?? '',
     createdAt: raw?.created_at ?? '',
   };
 }
@@ -210,6 +214,21 @@ export async function listTasks(): Promise<ApiResponse<{ tasks: Task[] }>> {
     normalizeAgentTask(t),
   );
   return makeOk({ tasks });
+}
+
+export async function getTaskLog(
+  taskId: string,
+  offset = 0,
+): Promise<{ lines: string[]; total: number }> {
+  try {
+    const res = await apiClient.get(
+      `/alpha-agent/tasks/${taskId}/log?tail=500&offset=${offset}`,
+    );
+    const data = res.data?.data ?? {};
+    return { lines: data.lines ?? [], total: data.total ?? 0 };
+  } catch {
+    return { lines: [], total: 0 };
+  }
 }
 
 // ========================== Factor API ==========================
@@ -283,6 +302,13 @@ export async function explainFactor(
 ): Promise<ApiResponse<{ explanation: string; cached: boolean }>> {
   const res = await apiClient.post(`/alpha-agent/factors/${factorId}/explain`);
   return makeOk(res.data?.data ?? { explanation: '', cached: false });
+}
+
+export async function exportFactorToIde(
+  factorId: string,
+): Promise<ApiResponse<{ strategy_id: string; name: string; message: string }>> {
+  const res = await apiClient.post(`/alpha-agent/factors/${factorId}/export`);
+  return makeOk(res.data?.data ?? {});
 }
 
 export async function listFactorLibraries(): Promise<
@@ -434,7 +460,8 @@ export type WsCallback = (msg: WsMessage) => void;
 
 /**
  * frontend-v2 expects a WebSocket lifecycle. AlphaAgent has no WS, so we poll
- * /alpha-agent/tasks/:id and synthesize progress/log/result messages.
+ * /alpha-agent/tasks/:id and /alpha-agent/tasks/:id/log to synthesize
+ * progress/log/result messages with rich detail.
  */
 export function connectMiningWs(
   taskId: string,
@@ -456,10 +483,63 @@ export function connectMiningWs(
 
   let lastPhase = '';
   let lastPct = -1;
+  let logOffset = 0;
+
+  // Regex to parse RD-Agent log lines like:
+  // 2026-05-31 00:30:41,967 [INFO] LiteLLM: completion() model=...
+  // 2026-05-31 00:30:41.967 | INFO     | rdagent.module: message
+  const LOG_LINE_RE = /^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})[,.]?\d*\s*(?:\[|\|)\s*(\w+)/;
+
+  function classifyLogLine(line: string): 'info' | 'warning' | 'error' | 'success' {
+    const m = line.match(LOG_LINE_RE);
+    if (m) {
+      const level = m[2].toUpperCase();
+      if (level === 'ERROR' || level === 'CRITICAL') return 'error';
+      if (level === 'WARNING' || level === 'WARN') return 'warning';
+    }
+    if (line.includes('FileNotFoundError') || line.includes('Error') || line.includes('FAILED') || line.includes('Traceback')) return 'error';
+    if (line.includes('success') || line.includes('Persisted') || line.includes('completed')) return 'success';
+    if (line.includes('WARNING') || line.includes('warning')) return 'warning';
+    return 'info';
+  }
+
+  function extractTimestamp(line: string): string {
+    const m = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})/);
+    if (m) {
+      return m[1].replace(' ', 'T') + (m[1].includes('T') ? '' : ':00');
+    }
+    return new Date().toISOString();
+  }
+
+  /** Filter and format log lines for display — skip noisy/repetitive lines */
+  function filterLogLine(line: string): string | null {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    // Skip ANSI escape codes
+    const clean = trimmed.replace(/\x1b\[[0-9;]*m/g, '').replace(/\[0m/g, '');
+    // Skip very short lines (just timestamps, brackets)
+    if (clean.length < 10) return null;
+    // Skip repetitive prompt template lines
+    if (clean.startsWith('# daily_pv.h5')) return null;
+    if (clean.startsWith('## File Type')) return null;
+    if (clean.startsWith('## Content Overview')) return null;
+    if (clean.startsWith('#### All Columns:')) return null;
+    if (clean.startsWith('#### $')) return null;
+    if (clean.startsWith('One possible format')) return null;
+    if (clean.startsWith('The result file should')) return null;
+    if (clean.startsWith('User will write your python')) return null;
+    if (clean.startsWith('The user will provide')) return null;
+    if (clean.startsWith('Please generate the output')) return null;
+    if (clean.startsWith('The output should follow JSON')) return null;
+    if (clean === '```' || clean === '```json') return null;
+    // Keep everything else
+    return clean;
+  }
 
   const poll = async () => {
     if (stopped) return;
     try {
+      // 1. Poll task status
       const res = await apiClient.get(`/alpha-agent/tasks/${taskId}`);
       const data = res.data?.data ?? {};
       const status: string = data.status ?? '';
@@ -508,20 +588,6 @@ export function connectMiningWs(
           timestamp: new Date().toISOString(),
         });
 
-        if (progressText && (phaseChanged || statusChanged)) {
-          onMessage({
-            type: 'log',
-            taskId,
-            data: {
-              id: `${taskId}-${Date.now()}`,
-              timestamp: new Date().toISOString(),
-              level: status === 'failed' ? 'error' : 'info',
-              message: progressText,
-            },
-            timestamp: new Date().toISOString(),
-          });
-        }
-
         if (status === 'completed' || status === 'failed' || status === 'cancelled') {
           onMessage({
             type: 'result',
@@ -535,10 +601,39 @@ export function connectMiningWs(
           return;
         }
       }
+
+      // 2. Poll detailed subprocess logs (rich output)
+      try {
+        const logRes = await apiClient.get(
+          `/alpha-agent/tasks/${taskId}/log?tail=500&offset=${logOffset}`,
+        );
+        const logData = logRes.data?.data ?? {};
+        const lines: string[] = logData.lines ?? [];
+        if (lines.length > 0) {
+          logOffset += lines.length;
+          for (const rawLine of lines) {
+            const filtered = filterLogLine(rawLine);
+            if (!filtered) continue;
+            onMessage({
+              type: 'log',
+              taskId,
+              data: {
+                id: `${taskId}-log-${logOffset}-${Math.random().toString(36).slice(2, 6)}`,
+                timestamp: extractTimestamp(rawLine),
+                level: classifyLogLine(rawLine),
+                message: filtered,
+              },
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+      } catch {
+        /* log endpoint may not exist yet — ignore */
+      }
     } catch {
       /* transient — keep polling */
     }
-    if (!stopped) setTimeout(poll, 1500);
+    if (!stopped) setTimeout(poll, 2000);
   };
 
   setTimeout(poll, 100);
