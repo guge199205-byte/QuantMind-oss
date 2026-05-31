@@ -274,7 +274,7 @@ def main():
         # Compute IC metrics for persisted factors
         # Use market-specific data path
         market_data_paths = {
-            "crypto": "/app/db/crypto_data/daily_pv.h5",
+            "crypto": "/app/db/crypto_data/5min_pv.h5",
             "hong_kong": "/app/db/hk_data/daily_pv.h5",
             "us_stock": "/app/db/us_data/daily_pv.h5",
         }

@@ -216,8 +216,8 @@ class RDLoopWrapper:
         # 根据市场选择数据源
         market_data_map = {
             "crypto": {
-                "source_all": "/app/db/crypto_data/daily_pv.h5",
-                "source_debug": "/app/db/crypto_data/daily_pv.h5",
+                "source_all": "/app/db/crypto_data/5min_pv.h5",
+                "source_debug": "/app/db/crypto_data/5min_pv.h5",
                 "qlib_source": "/app/db/qlib_data/crypto_data",
                 "qlib_target_name": "crypto_data",
             },
