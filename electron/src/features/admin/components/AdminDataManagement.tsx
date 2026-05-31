@@ -93,10 +93,6 @@ export const AdminDataManagement: React.FC = () => {
     const invalidSamples = snapshots?.topn_samples?.invalid_samples || [];
     const sampleSize = snapshots?.topn_samples?.sample_size || 20;
 
-    // 当前选中的市场数据
-    const currentMarket = marketsData.find(x => x.market_id === selectedMarket);
-    const currentMarketCfg = MARKET_CONFIG[selectedMarket] || { label: 'A股', icon: <StockOutlined />, color: '#ef4444', gradient: 'from-red-500 to-orange-500' };
-
     const coverageRate = useMemo(() => {
         const c = snapshots?.latest_date_coverage;
         if (!c) return 0;
@@ -211,6 +207,10 @@ export const AdminDataManagement: React.FC = () => {
     const [marketsLoading, setMarketsLoading] = useState(false);
     const [selectedMarket, setSelectedMarket] = useState<string>('a_share');
     const [marketSyncing, setMarketSyncing] = useState<string | null>(null);
+
+    // 当前选中的市场数据
+    const currentMarket = marketsData.find(x => x.market_id === selectedMarket);
+    const currentMarketCfg = MARKET_CONFIG[selectedMarket] || { label: 'A股', icon: <StockOutlined />, color: '#ef4444', gradient: 'from-red-500 to-orange-500' };
 
     const loadMarketsData = useCallback(async () => {
         setMarketsLoading(true);
