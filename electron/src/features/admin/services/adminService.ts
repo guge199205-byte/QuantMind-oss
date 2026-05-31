@@ -229,6 +229,21 @@ class AdminService {
         return resp.data;
     }
 
+    async getAlphaAgentMarkets(): Promise<any> {
+        const resp = await this.axiosInstance.get('/admin/data-platform/alpha-agent-markets', {
+            timeout: 30000,
+        });
+        return resp.data;
+    }
+
+    async syncAlphaAgentMarket(market: string): Promise<any> {
+        const resp = await this.axiosInstance.post(`/admin/data-platform/sync-alpha-agent-market`, null, {
+            params: { market },
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
     async updateInvestmentData(version?: string): Promise<any> {
         const resp = await this.axiosInstance.post('/admin/data-platform/update-investment-data', null, {
             params: { version: version || '' },

@@ -802,15 +802,69 @@ async def get_online_status(current_user: dict = Depends(require_admin)):
 async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
     """列出 Alpha Agent 支持的市场及数据就绪状态。"""
     try:
+        from pathlib import Path
         from backend.services.engine.rd_agent.market_adapters import list_markets, get_adapter
+
+        # 市场 → H5 数据文件路径
+        h5_map = {
+            "a_share": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5",
+            "crypto": "/app/db/crypto_data/5min_pv.h5",
+            "hong_kong": "/app/db/hk_data/daily_pv.h5",
+            "us_stock": "/app/db/us_data/daily_pv.h5",
+        }
+        # 市场 → Qlib 目录
+        qlib_map = {
+            "a_share": "/app/db/qlib_data/cn_data",
+            "crypto": "/app/db/qlib_data/crypto_data",
+            "hong_kong": "/app/db/qlib_data/hk_data",
+            "us_stock": "/app/db/qlib_data/us_data",
+        }
 
         markets = list_markets()
         for m in markets:
+            mid = m["market_id"]
             try:
-                adapter = get_adapter(m["market_id"])
+                adapter = get_adapter(mid)
                 m["data_ready"] = adapter.is_data_ready()
             except Exception:
                 m["data_ready"] = False
+
+            # 读取 H5 文件详情
+            h5_path = h5_map.get(mid)
+            if h5_path and Path(h5_path).exists():
+                try:
+                    import pandas as pd
+                    df = pd.read_hdf(h5_path, key="data")
+                    dates = df.index.get_level_values("datetime")
+                    instruments = df.index.get_level_values("instrument")
+                    m["h5_info"] = {
+                        "rows": len(df),
+                        "symbols": int(instruments.nunique()),
+                        "start_date": str(dates.min().date()),
+                        "end_date": str(dates.max().date()),
+                        "file_size_mb": round(Path(h5_path).stat().st_size / 1024 / 1024, 1),
+                    }
+                except Exception:
+                    m["h5_info"] = None
+            else:
+                m["h5_info"] = None
+
+            # 读取 Qlib 目录详情
+            qlib_dir = qlib_map.get(mid)
+            if qlib_dir and Path(qlib_dir).is_dir():
+                try:
+                    p = Path(qlib_dir)
+                    cal_files = list((p / "calendars").iterdir()) if (p / "calendars").is_dir() else []
+                    feat_count = len(list((p / "features").iterdir())) if (p / "features").is_dir() else 0
+                    m["qlib_info"] = {
+                        "calendar_files": [f.name for f in cal_files],
+                        "feature_dirs": feat_count,
+                    }
+                except Exception:
+                    m["qlib_info"] = None
+            else:
+                m["qlib_info"] = None
+
         return {"success": True, "data": {"markets": markets, "timestamp": _now_iso()}}
     except Exception as exc:  # noqa: BLE001
         logger.error("list_alpha_agent_markets failed: %s", exc, exc_info=True)
@@ -819,7 +873,8 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
 
 @router.post("/sync-alpha-agent-market")
 async def sync_alpha_agent_market(
-    market: str = Query(..., description="市场 ID: crypto, hong_kong, us_stock"),
+    market: str = Query(..., description="市场 ID: a_share, crypto, hong_kong, us_stock"),
+    force: bool = Query(False, description="强制重新下载"),
     current_user: dict = Depends(require_admin),
 ):
     """同步 Alpha Agent 市场数据（下载 + 转 Qlib 格式）。异步执行。"""
@@ -839,8 +894,8 @@ async def sync_alpha_agent_market(
                 },
             }
 
-        # 检查是否已就绪
-        if adapter.is_data_ready():
+        # 检查是否已就绪（非强制模式下跳过）
+        if not force and adapter.is_data_ready():
             return {
                 "success": True,
                 "data": {
