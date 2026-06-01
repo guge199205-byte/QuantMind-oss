@@ -395,7 +395,8 @@ export const ModelTrainingPage: React.FC = () => {
                   </div>
                 </Card>
 
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <MetricCard label="市场" value={getMarketConfig(currentMarket).label} centered />
                     <MetricCard label="特征数" value={`${featureCount}`} centered />
                     <MetricCard label="预测周期" value={`T+${target.horizonDays}`} hint={target.mode} centered />
                     <MetricCard label="数据集天数" value={`${totalDays}`} hint={`${trainDays}/${valDays}/${testDays}`} centered />
