@@ -251,6 +251,45 @@ export const TRAINING_BASE_FEATURES = [
   'mom_ret_1d', 'mom_ret_5d', 'mom_ret_20d', 'liq_volume', 'liq_amount', 'liq_turnover_os',
 ];
 
+// Market-specific default feature sets
+export const MARKET_DEFAULT_FEATURES: Record<string, string[]> = {
+  CN: PRESET_DEFAULT_FEATURES,
+  HK: [
+    // 基本面因子
+    'pe_ttm', 'pb', 'roe', 'ep_ttm', 'bp',
+    // 技术面 - Top 15 from LightGBM gain
+    'volume_ma_5', 'flow_vpin_ma_20', 'flow_vpin_ma_5',
+    'vol_atr_20', 'ma_gap_20', 'style_idio_vol_60',
+    'mom_ma_gap_20', 'liq_amihud_20', 'style_beta_60',
+    'mom_ma_gap_5', 'vol_parkinson_10', 'return_20d',
+    'mom_ret_60d', 'liq_volume_ma_10', 'vol_downside_20',
+  ],
+  US: [
+    // 基本面因子
+    'pe_ttm', 'pb', 'roe', 'ep_ttm', 'bp',
+    // 技术面 - 动量+波动+流动性
+    'mom_ret_20d', 'mom_ma_gap_20', 'mom_rsi_14',
+    'vol_std_20', 'vol_atr_20', 'style_idio_vol_60',
+    'style_beta_60', 'liq_amihud_20', 'flow_vpin_ma_20',
+    'volume_ma_5', 'ma_gap_20', 'vol_downside_20',
+    'mom_ret_60d', 'liq_volume_ma_10', 'style_ln_mv_total',
+  ],
+  CRYPTO: [
+    // 加密货币没有基本面，纯技术+资金流
+    'mom_ret_1d', 'mom_ret_5d', 'mom_ret_20d',
+    'mom_ma_gap_5', 'mom_ma_gap_20', 'mom_rsi_14',
+    'vol_std_20', 'vol_atr_20', 'vol_parkinson_20',
+    'flow_vpin', 'flow_vpin_ma_5', 'flow_vpin_ma_20',
+    'liq_volume_ma_5', 'liq_amihud_20', 'ma_gap_20',
+    'volume_ma_5', 'vol_downside_20', 'style_beta_20',
+    'mom_breakout_20d', 'vol_jump_zadj',
+  ],
+};
+
+export const getDefaultFeaturesForMarket = (market: string): string[] => {
+  return MARKET_DEFAULT_FEATURES[market?.toUpperCase()] || PRESET_DEFAULT_FEATURES;
+};
+
 export const EXTRA_FEATURE_LABELS: Record<string, string> = {
   liq_volume: '当日成交量',
   liq_amount: '当日成交额',

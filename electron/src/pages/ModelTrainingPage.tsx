@@ -15,7 +15,7 @@ import { modelTrainingService } from '../services/modelTrainingService';
 import { useAppSelector } from '../store';
 import { selectCurrentMarket } from '../store/slices/uiSlice';
 import { getMarketConfig } from '../config/marketConfig';
-import { TrainingTarget, TrainingParams, TrainingContext, TrainingStatus, TrainingDraft, SplitKey, TimePeriodMap, FeatureCategory, STORAGE_KEY, DEFAULT_FEATURE_CATEGORIES, PRESET_DEFAULT_FEATURES, DEFAULT_TIME_PERIODS, DEFAULT_TARGET, DEFAULT_PARAMS, DEFAULT_CONTEXT, buildAutoDisplayName, buildLabelFormula, buildEffectiveTradeDate, daysBetween, toISOStringRange, restoreRange, shouldMigrateLegacyDraftPeriods, buildTrainingRequest, formatRange, toDynamicCategories, TrainingResult, buildBackendTrainingPayload, parseTrainingResult, parseSuggestedTimePeriods } from './training/trainingUtils';
+import { TrainingTarget, TrainingParams, TrainingContext, TrainingStatus, TrainingDraft, SplitKey, TimePeriodMap, FeatureCategory, STORAGE_KEY, DEFAULT_FEATURE_CATEGORIES, PRESET_DEFAULT_FEATURES, MARKET_DEFAULT_FEATURES, getDefaultFeaturesForMarket, DEFAULT_TIME_PERIODS, DEFAULT_TARGET, DEFAULT_PARAMS, DEFAULT_CONTEXT, buildAutoDisplayName, buildLabelFormula, buildEffectiveTradeDate, daysBetween, toISOStringRange, restoreRange, shouldMigrateLegacyDraftPeriods, buildTrainingRequest, formatRange, toDynamicCategories, TrainingResult, buildBackendTrainingPayload, parseTrainingResult, parseSuggestedTimePeriods } from './training/trainingUtils';
 import { AdminModelFeatureDataCoverage } from '../features/admin/types';
 import { FeatureSelector } from './training/FeatureSelector';
 import { TrainingTargetConfig } from './training/TrainingTargetConfig';
@@ -56,7 +56,7 @@ export const ModelTrainingPage: React.FC = () => {
   const [featureCategories, setFeatureCategories] = useState<FeatureCategory[]>(DEFAULT_FEATURE_CATEGORIES);
   const [featureCatalogLoading, setFeatureCatalogLoading] = useState(false);
   const [dataCoverage, setDataCoverage] = useState<AdminModelFeatureDataCoverage | null>(null);
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(PRESET_DEFAULT_FEATURES);
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(() => getDefaultFeaturesForMarket(currentMarket));
   const [timePeriods, setTimePeriods] = useState<TimePeriodMap>(DEFAULT_TIME_PERIODS);
   const [target, setTarget] = useState<TrainingTarget>(DEFAULT_TARGET);
   const [params, setParams] = useState<TrainingParams>(DEFAULT_PARAMS);
@@ -82,7 +82,7 @@ export const ModelTrainingPage: React.FC = () => {
   const labelFormula = useMemo(() => buildLabelFormula(target), [target]);
   const effectiveTradeDate = useMemo(() => buildEffectiveTradeDate(target, timePeriods.test[0]), [target, timePeriods.test]);
 
-  // 市场切换时更新训练上下文
+  // 市场切换时更新训练上下文和默认特征
   useEffect(() => {
     const mc = getMarketConfig(currentMarket);
     setContext(prev => ({
@@ -90,6 +90,8 @@ export const ModelTrainingPage: React.FC = () => {
       market: currentMarket,
       benchmark: mc.benchmark,
     }));
+    // 切换市场时重置为该市场的默认特征
+    setSelectedFeatures(getDefaultFeaturesForMarket(currentMarket));
   }, [currentMarket]);
   const featureCount = selectedFeatures.length;
   const autoDisplayName = useMemo(
@@ -127,13 +129,11 @@ export const ModelTrainingPage: React.FC = () => {
         const dynamicCats = toDynamicCategories(catalog);
         setFeatureCategories(dynamicCats);
 
-        // Reset selected features to only include features available in the new catalog
+        // Reset selected features to market-specific defaults that exist in catalog
         const availableKeys = new Set(dynamicCats.flatMap(c => c.features.map(f => f.key)));
-        setSelectedFeatures(prev => {
-          const filtered = prev.filter(f => availableKeys.has(f));
-          // If nothing survives, use all available features as defaults
-          return filtered.length > 0 ? filtered : Array.from(availableKeys);
-        });
+        const marketDefaults = getDefaultFeaturesForMarket(currentMarket);
+        const validDefaults = marketDefaults.filter(f => availableKeys.has(f));
+        setSelectedFeatures(validDefaults.length > 0 ? validDefaults : marketDefaults);
 
         if (catalog.data_coverage) {
           setDataCoverage(catalog.data_coverage);
@@ -286,9 +286,9 @@ export const ModelTrainingPage: React.FC = () => {
 
   const handleResetAll = () => {
     clearTimers();
-    // Use current catalog features as defaults (market-aware)
-    const catalogFeatures = featureCategories.flatMap(c => c.features.map(f => f.key));
-    setSelectedFeatures(catalogFeatures.length > 0 ? catalogFeatures : PRESET_DEFAULT_FEATURES);
+    // Use market-specific default features
+    const marketDefaults = getDefaultFeaturesForMarket(currentMarket);
+    setSelectedFeatures(marketDefaults);
     setTimePeriods(DEFAULT_TIME_PERIODS);
     setTarget(DEFAULT_TARGET);
     setParams(DEFAULT_PARAMS);
