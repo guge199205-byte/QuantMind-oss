@@ -394,11 +394,12 @@ export const buildEffectiveTradeDate = (target: TrainingTarget, referenceDate: D
   return referenceDate.add(target.horizonDays, 'day').format('YYYY-MM-DD');
 };
 
-export const buildAutoDisplayName = (referenceDate: Dayjs, target: TrainingTarget, featureCount: number, version = DEFAULT_MODEL_VERSION) => {
+export const buildAutoDisplayName = (referenceDate: Dayjs, target: TrainingTarget, featureCount: number, version = DEFAULT_MODEL_VERSION, market?: string) => {
   const dateToken = referenceDate.format('DD');
   const returnToken = `T${target.horizonDays}`;
   const dimensionToken = `Alpha${Math.max(1, featureCount)}`;
-  return `${dateToken}_${returnToken}_${dimensionToken}_${version}`;
+  const marketSuffix = market ? `_${market.toUpperCase()}` : '';
+  return `${dateToken}_${returnToken}_${dimensionToken}_${version}${marketSuffix}`;
 };
 
 export const summarizeFeatureCategories = (features: string[], categories: FeatureCategory[]) => {
@@ -452,7 +453,7 @@ export const buildTrainingRequest = (
   const trainingWindow = `${formatRange(timePeriods.train)} | ${formatRange(timePeriods.val)} | ${formatRange(timePeriods.test)}`;
   const resolvedContext = market ? { ...context, market: market as TrainingContext['market'] } : context;
   return {
-    displayName: displayName.trim() || buildAutoDisplayName(dayjs(), target, finalFeatures.length),
+    displayName: displayName.trim() || buildAutoDisplayName(dayjs(), target, finalFeatures.length, undefined, market),
     selectedFeatures: finalFeatures,
     featureCategories: summarizeFeatureCategories(finalFeatures, categories),
     target,

@@ -1256,15 +1256,21 @@ class ModelRegistryService:
         existing_context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
         merged_context = {**existing_context, **req_context}
 
+        # Resolve display_name, appending market suffix if missing
+        raw_display_name = str(
+            request_payload.get("display_name")
+            or metadata.get("display_name")
+            or request_payload.get("job_name")
+            or run_id
+        )
+        market_str = str(merged_context.get("market") or "").upper().strip()
+        if market_str and not raw_display_name.upper().endswith(f"_{market_str}"):
+            raw_display_name = f"{raw_display_name}_{market_str}"
+
         metadata = {
             **metadata,
             "context": merged_context,
-            "display_name": str(
-                request_payload.get("display_name")
-                or metadata.get("display_name")
-                or request_payload.get("job_name")
-                or run_id
-            ),
+            "display_name": raw_display_name,
             "model_name": str(
                 request_payload.get("display_name")
                 or metadata.get("model_name")

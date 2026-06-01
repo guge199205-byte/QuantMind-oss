@@ -93,8 +93,8 @@ export const ModelTrainingPage: React.FC = () => {
   }, [currentMarket]);
   const featureCount = selectedFeatures.length;
   const autoDisplayName = useMemo(
-    () => buildAutoDisplayName(dayjs(), target, featureCount),
-    [target, featureCount]
+    () => buildAutoDisplayName(dayjs(), target, featureCount, undefined, currentMarket),
+    [target, featureCount, currentMarket]
   );
   const trainDays = useMemo(() => daysBetween(timePeriods.train), [timePeriods.train]);
   const valDays = useMemo(() => daysBetween(timePeriods.val), [timePeriods.val]);
