@@ -101,8 +101,8 @@ export const ModelTrainingPage: React.FC = () => {
   const testDays = useMemo(() => daysBetween(timePeriods.test), [timePeriods.test]);
   const totalDays = trainDays + valDays + testDays;
   const requestPreview = useMemo(
-    () => buildTrainingRequest(selectedFeatures, featureCategories, timePeriods, target, params, context, displayName),
-    [selectedFeatures, featureCategories, timePeriods, target, params, context, displayName]
+    () => buildTrainingRequest(selectedFeatures, featureCategories, timePeriods, target, params, context, displayName, currentMarket),
+    [selectedFeatures, featureCategories, timePeriods, target, params, context, displayName, currentMarket]
   );
   const isReadyToTrain = selectedFeatures.length > 0 && target.horizonDays >= 1 && totalDays > 0;
   const isTrainingInProgress =

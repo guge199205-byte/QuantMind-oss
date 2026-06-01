@@ -443,12 +443,14 @@ export const buildTrainingRequest = (
   target: TrainingTarget,
   params: TrainingParams,
   context: TrainingContext,
-  displayName: string
+  displayName: string,
+  market?: string,
 ): TrainingRequestPayload => {
   const finalFeatures = Array.from(new Set(selectedFeatures));
   const labelFormula = buildLabelFormula(target);
   const effectiveTradeDate = buildEffectiveTradeDate(target, timePeriods.test[0]);
   const trainingWindow = `${formatRange(timePeriods.train)} | ${formatRange(timePeriods.val)} | ${formatRange(timePeriods.test)}`;
+  const resolvedContext = market ? { ...context, market: market as TrainingContext['market'] } : context;
   return {
     displayName: displayName.trim() || buildAutoDisplayName(dayjs(), target, finalFeatures.length),
     selectedFeatures: finalFeatures,
@@ -460,7 +462,7 @@ export const buildTrainingRequest = (
       test: toISOStringRange(timePeriods.test),
     },
     params,
-    context,
+    context: resolvedContext,
     generatedAt: new Date().toISOString(),
     labelFormula,
     effectiveTradeDate,
