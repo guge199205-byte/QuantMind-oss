@@ -42,6 +42,7 @@ export interface TrainingContext {
   commissionRate: number;
   slippage: number;
   dealPrice: DealPrice;
+  market?: 'CN' | 'US' | 'HK' | 'CRYPTO';
 }
 
 export interface TrainingRequestPayload {
@@ -323,6 +324,7 @@ export const DEFAULT_CONTEXT: TrainingContext = {
   commissionRate: 0.00025,
   slippage: 0.0005,
   dealPrice: 'open',
+  market: 'CN',
 };
 
 export const DEFAULT_TARGET: TrainingTarget = {
@@ -508,6 +510,7 @@ export const buildBackendTrainingPayload = (
       commission_rate: request.context.commissionRate,
       slippage: request.context.slippage,
       deal_price: request.context.dealPrice,
+      market: request.context.market || 'CN',
     },
     lgb_params: {
       learning_rate: request.params.learning_rate,
