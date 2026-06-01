@@ -69,20 +69,24 @@ def _sdl_redis_key(trade_date: date) -> str:
     return f"qm:research:sdl:{trade_date.isoformat()}:v2"
 
 
-async def _load_sdl_day_map(session, trade_date: date) -> dict[str, dict[str, Any]]:
+async def _load_sdl_day_map(session, trade_date: date, market: str | None = None) -> dict[str, dict[str, Any]]:
     if trade_date.year != _SDL_REDIS_YEAR:
         return {}
 
-    cache_key = _sdl_redis_key(trade_date)
+    sdl_table = _get_sdl_table(market)
+    cache_key = _sdl_redis_key(trade_date) + f":{market or 'CN'}"
     cached = _redis_get_json(cache_key)
     if cached and "symbols" in cached and isinstance(cached["symbols"], dict):
         symbols = cached["symbols"]
         return symbols if isinstance(symbols, dict) else {}
 
-    sql = """
+    # Use 'name' column for non-CN markets, 'stock_name' for CN
+    is_cn = not market or market.upper() == "CN"
+    name_col = "stock_name" if is_cn else "name"
+    sql = f"""
         SELECT
             symbol,
-            COALESCE(stock_name, '') AS stock_name,
+            COALESCE({name_col}, '') AS stock_name,
             COALESCE(industry, '') AS industry,
             COALESCE(close, 0) AS close_price,
             COALESCE(pe_ttm, 0) AS pe,
@@ -154,7 +158,7 @@ async def _load_sdl_day_map(session, trade_date: date) -> dict[str, dict[str, An
               '[]'::jsonb
             ) AS index_tags,
             COALESCE(consecutive_limit_up_days, 0) AS consecutive_limit_up_days_sdl
-        FROM stock_daily_latest
+        FROM {sdl_table}
         WHERE trade_date = :trade_date
           AND volume > 0
     """
@@ -669,16 +673,16 @@ async def _do_get_overview(
             """
         else:
             sdl_columns = """
-                sdl.name AS stock_name, '' AS industry, sdl.close, 0 AS pct_change,
+                sdl.name AS stock_name, sdl.industry, sdl.close, COALESCE(sdl.pct_change, 0) AS pct_change,
                 sdl.pe_ttm, sdl.pb, sdl.roe, sdl.adj_factor,
                 sdl.turnover_rate, sdl.amount, sdl.total_mv, sdl.float_mv,
                 0 AS listed_days, 0 AS is_st,
                 0 AS idx_hs300, 0 AS idx_zz500, 0 AS idx_zz1000,
                 0 AS idx_chinext, 0 AS idx_margin, 0 AS idx_all,
-                0 AS ma5, 0 AS ma10, 0 AS ma_gap_5, 0 AS ma_gap_10, 0 AS ma_gap_20,
-                0 AS rsi_14, 0 AS rsi_6, 0 AS vol_atr_14, 0 AS macd_hist,
-                0 AS volume_ratio_5, 0 AS volume_ratio_20, 0 AS volume_trend_3d,
-                0 AS main_flow, 0 AS flow_net_amount, 0 AS inst_ownership,
+                sdl.ma5, sdl.ma10, sdl.ma_gap_5, sdl.ma_gap_10, sdl.ma_gap_20,
+                sdl.rsi_14, sdl.rsi_6, sdl.vol_atr_14, sdl.macd_hist,
+                sdl.volume_ratio_5, sdl.volume_ratio_20, 0 AS volume_trend_3d,
+                0 AS main_flow, sdl.flow_net_amount, 0 AS inst_ownership,
                 0 AS profit_growth,
                 0 AS concept_ai, 0 AS concept_chip, 0 AS concept_new_energy,
                 0 AS concept_pv, 0 AS concept_lithium, 0 AS concept_military,
@@ -847,7 +851,7 @@ async def get_research_overview(
 
 
 async def _do_get_universe_with_sdl_redis(
-    tid: str, uid: str, run_id: str, limit: int, offset: int
+    tid: str, uid: str, run_id: str, limit: int, offset: int, market: str | None = None
 ) -> dict[str, Any] | None:
     params = {"tid": tid, "uid": uid, "rid": run_id, "limit": limit, "offset": offset}
     where = "snap.tenant_id = :tid AND snap.user_id = :uid AND snap.run_id = :rid"
@@ -871,7 +875,7 @@ async def _do_get_universe_with_sdl_redis(
         if not isinstance(trade_date, date) or trade_date.year != _SDL_REDIS_YEAR:
             return None
 
-        sdl_map = await _load_sdl_day_map(session, trade_date)
+        sdl_map = await _load_sdl_day_map(session, trade_date, market=market)
         if not sdl_map:
             return None
 
@@ -935,7 +939,7 @@ async def get_research_universe(tid: str, uid: str, run_id: str, limit: int, off
     # Determine market from the inference run's model
     market = await _infer_market_from_run(tid, uid, run_id)
 
-    data = await _do_get_universe_with_sdl_redis(tid, uid, run_id, limit, offset)
+    data = await _do_get_universe_with_sdl_redis(tid, uid, run_id, limit, offset, market=market)
     if data is None:
         data = await _do_get_overview(tid, uid, None, run_id, limit, offset, include_market_stats=False, market=market)
     payload = {"code": 200, "data": {"items": data["items"], "summary": data["summary"]}}
