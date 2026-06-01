@@ -672,6 +672,198 @@ def _update_qlib_bin(df: pd.DataFrame) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Stock name updates (CN from baostock, HK/US/Crypto from yfinance)
+# ---------------------------------------------------------------------------
+_FEATURE_SNAPSHOT_DIR = PROJECT_ROOT / "db" / "feature_snapshots"
+
+_MARKET_TABLE_CFG: dict[str, dict] = {
+    "hk": {"parquet": "model_features_hk.parquet", "table": "stock_daily_latest_hk", "symbol_col": "instrument"},
+    "us": {"parquet": "model_features_us.parquet", "table": "stock_daily_latest_us", "symbol_col": "instrument"},
+    "crypto": {"parquet": "model_features_crypto.parquet", "table": "stock_daily_latest_crypto", "symbol_col": "instrument"},
+}
+
+_NON_CN_SDL_COLUMNS = {
+    "symbol": "VARCHAR(20)", "trade_date": "DATE", "name": "VARCHAR(100)",
+    "open": "DOUBLE PRECISION", "high": "DOUBLE PRECISION", "low": "DOUBLE PRECISION",
+    "close": "DOUBLE PRECISION", "volume": "DOUBLE PRECISION", "amount": "DOUBLE PRECISION",
+    "adj_factor": "DOUBLE PRECISION", "turnover_rate": "DOUBLE PRECISION",
+    "pe_ttm": "DOUBLE PRECISION", "pb": "DOUBLE PRECISION", "roe": "DOUBLE PRECISION",
+    "total_mv": "DOUBLE PRECISION", "float_mv": "DOUBLE PRECISION", "industry": "VARCHAR(100)",
+}
+
+
+def _fetch_cn_stock_names(symbols: list[str]) -> dict[str, str]:
+    """Fetch CN stock names from baostock."""
+    name_map: dict[str, str] = {}
+    try:
+        import baostock as bs
+        _ensure_baostock()
+    except Exception:
+        log.warning("baostock not available, skipping CN name fetch")
+        return name_map
+
+    total = len(symbols)
+    log.info("Fetching CN stock names from baostock (%d symbols)...", total)
+    for i, sym in enumerate(symbols):
+        try:
+            bs_code = _to_bs_symbol(sym)
+            rs = bs.query_stock_basic(code=bs_code)
+            if rs.error_code == "0" and rs.next():
+                row = rs.get_row_data()
+                if row and len(row) >= 2 and row[1]:
+                    name_map[sym] = row[1]
+        except Exception:
+            pass
+        if (i + 1) % 500 == 0:
+            log.info("  CN names progress: %d/%d", i + 1, total)
+
+    log.info("Fetched %d CN stock names", len(name_map))
+    return name_map
+
+
+def _update_cn_stock_names(engine, name_map: dict[str, str]) -> int:
+    """Update stock_name column in stock_daily_latest for CN stocks."""
+    if not name_map:
+        return 0
+    from sqlalchemy import text as sql_text
+
+    updated = 0
+    with engine.begin() as conn:
+        for sym, name in name_map.items():
+            res = conn.execute(
+                sql_text("UPDATE stock_daily_latest SET stock_name = :name WHERE symbol = :sym AND (stock_name IS NULL OR stock_name = '' OR stock_name = :sym)"),
+                {"name": name, "sym": sym},
+            )
+            updated += res.rowcount
+    log.info("Updated %d CN stock names", updated)
+    return updated
+
+
+def _fetch_non_cn_stock_names(symbols: list[str], market: str) -> dict[str, str]:
+    """Fetch stock names for HK/US from yfinance, or extract base asset for crypto."""
+    name_map: dict[str, str] = {}
+
+    if market == "crypto":
+        for sym in symbols:
+            s = str(sym).upper()
+            if s.endswith("USDT"):
+                name_map[sym] = s[:-4]
+            elif s.endswith("BUSD") or s.endswith("USD"):
+                name_map[sym] = s[:-4]
+            else:
+                name_map[sym] = s
+        return name_map
+
+    try:
+        import yfinance as yf
+    except ImportError:
+        log.warning("yfinance not installed, using symbols as names")
+        return {sym: str(sym) for sym in symbols}
+
+    total = len(symbols)
+    log.info("Fetching %s stock names from yfinance (%d symbols)...", market.upper(), total)
+    for i, sym in enumerate(symbols):
+        try:
+            ticker_sym = str(sym)
+            if market == "hk":
+                ticker_sym = f"{sym}.HK"
+            ticker = yf.Ticker(ticker_sym)
+            info = ticker.info
+            name = info.get("shortName") or info.get("longName") or str(sym)
+            name_map[sym] = name
+        except Exception:
+            name_map[sym] = str(sym)
+        if (i + 1) % 50 == 0:
+            log.info("  %s names progress: %d/%d", market.upper(), i + 1, total)
+
+    log.info("Fetched %d %s stock names", len(name_map), market.upper())
+    return name_map
+
+
+def _sync_market_stock_tables(engine) -> dict[str, int]:
+    """Sync HK/US/Crypto stock_daily_latest_* tables from parquet files."""
+    from sqlalchemy import text as sql_text
+
+    results: dict[str, int] = {}
+    for market, cfg in _MARKET_TABLE_CFG.items():
+        parquet_path = _FEATURE_SNAPSHOT_DIR / cfg["parquet"]
+        table_name = cfg["table"]
+        symbol_col = cfg["symbol_col"]
+
+        if not parquet_path.exists():
+            log.info("Parquet not found for %s: %s", market, parquet_path)
+            results[market] = 0
+            continue
+
+        try:
+            log.info("Syncing %s table from %s...", table_name, parquet_path.name)
+            df = pd.read_parquet(parquet_path)
+
+            # Get latest date per symbol
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"])
+                latest_date = df["trade_date"].max()
+                df_latest = df[df["trade_date"] == latest_date].copy()
+                log.info("  %s: latest date %s, %d symbols", market, latest_date.date(), len(df_latest))
+            else:
+                df_latest = df.copy()
+
+            # Rename instrument -> symbol
+            if symbol_col in df_latest.columns:
+                df_latest = df_latest.rename(columns={symbol_col: "symbol"})
+
+            # Fetch stock names
+            symbols = df_latest["symbol"].unique().tolist()
+            name_map = _fetch_non_cn_stock_names(symbols, market)
+
+            # Prepare columns
+            for col in _NON_CN_SDL_COLUMNS:
+                if col not in df_latest.columns:
+                    if col == "name":
+                        df_latest[col] = df_latest["symbol"].map(name_map)
+                    elif col == "industry":
+                        df_latest[col] = ""
+                    else:
+                        df_latest[col] = 0.0
+
+            cols_to_keep = [c for c in _NON_CN_SDL_COLUMNS if c in df_latest.columns]
+            df_out = df_latest[cols_to_keep].copy()
+            df_out["symbol"] = df_out["symbol"].astype(str)
+
+            # Ensure table exists
+            cols_ddl = ", ".join(f"{c} {t}" for c, t in _NON_CN_SDL_COLUMNS.items())
+            with engine.begin() as conn:
+                conn.execute(sql_text(f"CREATE TABLE IF NOT EXISTS {table_name} ({cols_ddl})"))
+
+                # Clear and re-insert
+                conn.execute(sql_text(f"DELETE FROM {table_name}"))
+
+                batch_size = 1000
+                total_inserted = 0
+                for i in range(0, len(df_out), batch_size):
+                    batch = df_out.iloc[i:i + batch_size]
+                    cols = ", ".join(batch.columns)
+                    placeholders = ", ".join([f":{col}" for col in batch.columns])
+                    insert_sql = f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})"
+                    for _, row in batch.iterrows():
+                        params = {col: (None if pd.isna(row[col]) else row[col]) for col in batch.columns}
+                        conn.execute(sql_text(insert_sql), params)
+                    total_inserted += len(batch)
+
+                # Create indexes
+                conn.execute(sql_text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_symbol ON {table_name} (symbol)"))
+                conn.execute(sql_text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_trade_date ON {table_name} (trade_date)"))
+
+            log.info("  %s: %d rows inserted", table_name, total_inserted)
+            results[market] = total_inserted
+        except Exception as exc:
+            log.warning("Failed to sync %s: %s", market, exc)
+            results[market] = -1
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Technical indicators calibration
 # ---------------------------------------------------------------------------
 def _calibrate_indicators(engine, symbols: Optional[list[str]] = None, days: int = 90):
@@ -803,6 +995,8 @@ def run_sync(
         "akshare_synced": 0,
         "eltdx_synced": 0,
         "qlib_bin_updated": 0,
+        "stock_names_updated": 0,
+        "market_tables_synced": {},
         "indicators_calibrated": False,
         "errors": [],
     }
@@ -1013,6 +1207,30 @@ def run_sync(
         except Exception as exc:
             result["errors"].append(f"qlib_bin: {exc}")
             log.warning("Qlib bin update failed: %s", exc)
+
+    # 5.5 更新股票名称 + 同步多市场表
+    _update_sync_progress("stock_names", "更新股票名称...", pct=78)
+    try:
+        if market.upper() in ("A", "CN"):
+            # CN: 从 baostock 获取股票名称
+            cn_symbols = _get_pg_symbol_list(engine)
+            cn_name_map = _fetch_cn_stock_names(cn_symbols)
+            cn_updated = _update_cn_stock_names(engine, cn_name_map)
+            result["stock_names_updated"] = cn_updated
+        else:
+            result["stock_names_updated"] = 0
+    except Exception as exc:
+        result["errors"].append(f"cn_stock_names: {exc}")
+        log.warning("CN stock name update failed: %s", exc)
+
+    _update_sync_progress("market_tables", "同步多市场数据表...", pct=80)
+    try:
+        market_results = _sync_market_stock_tables(engine)
+        result["market_tables_synced"] = market_results
+        log.info("Market tables synced: %s", market_results)
+    except Exception as exc:
+        result["errors"].append(f"market_tables: {exc}")
+        log.warning("Market table sync failed: %s", exc)
 
     # 6. 校准指标
     if calibrate:

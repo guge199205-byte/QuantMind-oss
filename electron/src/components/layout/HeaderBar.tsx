@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 
 import { useRealtimeData } from '../../hooks/useRealtimeData';
 import { Wifi, ShieldCheck } from 'lucide-react';
+import { MarketSelector } from './MarketSelector';
 import { motion } from 'framer-motion';
 import { selectCurrentTab } from '../../store/slices/aiStrategySlice';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -58,11 +59,11 @@ export const HeaderBar: React.FC = () => {
 
   return (
     <div className="relative px-8 pt-6 pb-4 grid grid-cols-3 items-center bg-transparent">
-      <div className="flex items-center gap-4 justify-start">
+      <div className="flex items-center gap-4 justify-start flex-nowrap overflow-hidden">
         <motion.div
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
-          className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border shadow-sm backdrop-blur-md transition-all ${
+          className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border shadow-sm backdrop-blur-md transition-all min-w-0 shrink ${
             apiStatus === 'connected'
               ? 'bg-white/72 border-emerald-100/80 text-emerald-700 shadow-[0_8px_22px_rgba(16,185,129,0.08)]'
               : 'bg-white/72 border-red-100/80 text-red-700 shadow-[0_8px_22px_rgba(239,68,68,0.06)]'
@@ -98,7 +99,15 @@ export const HeaderBar: React.FC = () => {
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="flex items-center ml-2"
+          className="flex items-center ml-2 shrink-0"
+        >
+          <MarketSelector />
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex items-center ml-2 shrink-0"
         >
           <button
             type="button"
