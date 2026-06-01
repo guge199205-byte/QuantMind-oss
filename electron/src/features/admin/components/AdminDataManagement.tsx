@@ -48,10 +48,16 @@ export const AdminDataManagement: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<any>(null);
     const [syncStatusLoading, setSyncStatusLoading] = useState(false);
 
-    const loadDataStatus = async (refresh = false) => {
+    // Alpha Agent 市场数据状态（提前声明，供 loadDataStatus 引用）
+    const [marketsData, setMarketsData] = useState<any[]>([]);
+    const [marketsLoading, setMarketsLoading] = useState(false);
+    const [selectedMarket, setSelectedMarket] = useState<string>('a_share');
+    const [marketSyncing, setMarketSyncing] = useState<string | null>(null);
+
+    const loadDataStatus = async (refresh = false, market?: string) => {
         setLoading(true);
         try {
-            const resp = await adminService.getDataStatus(refresh);
+            const resp = await adminService.getDataStatus(refresh, market || 'a_share');
             setData(resp);
             if (refresh) {
                 message.success(resp.message || '后台扫描任务已启动，请稍后刷新查看最新状态');
@@ -85,6 +91,13 @@ export const AdminDataManagement: React.FC = () => {
             initialRefreshRef.current = true;
         }
     }, []);
+
+    // 切换市场时重新加载数据状态
+    useEffect(() => {
+        if (initialRefreshRef.current) {
+            loadDataStatus(false, selectedMarket);
+        }
+    }, [selectedMarket]);
 
     const qlib = data?.qlib_data;
     const snapshots = data?.feature_snapshots;
@@ -173,6 +186,26 @@ export const AdminDataManagement: React.FC = () => {
         }
     };
 
+    const handleUpdateMarketFeatures = async (market: string, rebuild = false) => {
+        setParquetLoading(true);
+        setParquetResult(null);
+        try {
+            const resp = await adminService.updateMarketFeatures(market, rebuild);
+            setParquetResult(resp);
+            if (resp.success) {
+                message.success(rebuild ? `${market} 特征已全量重建` : `${market} 特征已更新`);
+                await loadDataStatus(false, market);
+            } else {
+                message.error('特征更新失败，请查看执行日志');
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '未知错误';
+            message.error(`更新失败: ${msg}`);
+        } finally {
+            setParquetLoading(false);
+        }
+    };
+
     const handleSyncOfficialData = async () => {
         setSyncLoading(true);
         try {
@@ -201,12 +234,6 @@ export const AdminDataManagement: React.FC = () => {
     const [syncStepProgress, setSyncStepProgress] = useState<{ step: string; detail: string; pct: number; current: number; total: number } | null>(null);
     const [parquetLoading, setParquetLoading] = useState(false);
     const [parquetResult, setParquetResult] = useState<any>(null);
-
-    // Alpha Agent 市场数据状态
-    const [marketsData, setMarketsData] = useState<any[]>([]);
-    const [marketsLoading, setMarketsLoading] = useState(false);
-    const [selectedMarket, setSelectedMarket] = useState<string>('a_share');
-    const [marketSyncing, setMarketSyncing] = useState<string | null>(null);
 
     // 当前选中的市场数据
     const currentMarket = marketsData.find(x => x.market_id === selectedMarket);
@@ -957,6 +984,29 @@ export const AdminDataManagement: React.FC = () => {
                                                     <Text className="text-xs text-amber-700 font-bold">数据未下载，请点击上方按钮同步</Text>
                                                 </div>
                                             </div>
+                                        )}
+                                        {currentMarket?.data_ready && (
+                                            <>
+                                                <Divider className="!my-2" />
+                                                <Button
+                                                    block
+                                                    className="h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 border-none text-white font-black text-sm shadow-lg shadow-emerald-100 transition-all"
+                                                    loading={parquetLoading}
+                                                    onClick={() => handleUpdateMarketFeatures(selectedMarket, false)}
+                                                    icon={<LineChartOutlined />}
+                                                >
+                                                    计算{currentMarketCfg.label}特征快照
+                                                </Button>
+                                                <Button
+                                                    block
+                                                    className="h-12 rounded-2xl border-amber-200 text-amber-700 font-bold hover:bg-amber-50 transition-all"
+                                                    loading={parquetLoading}
+                                                    onClick={() => handleUpdateMarketFeatures(selectedMarket, true)}
+                                                    icon={<SyncOutlined />}
+                                                >
+                                                    全量重建{currentMarketCfg.label}特征
+                                                </Button>
+                                            </>
                                         )}
                                     </>
                                 )}

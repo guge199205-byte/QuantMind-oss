@@ -1,5 +1,5 @@
-import React from 'react';
-import { Wallet, Wifi, Activity } from 'lucide-react';
+import React, { useState } from 'react';
+import { Wallet, Wifi, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface AccountInfo {
     total_asset: number;
@@ -29,6 +29,8 @@ interface TopBarProps {
 }
 
 const TopBar: React.FC<TopBarProps> = ({ accountInfo, isConnected, strategyStatus, tradingMode, runMode, orchestrationMode }) => {
+    const [expanded, setExpanded] = useState(false);
+
     const formatMoney = (val: number | undefined) => {
         if (val === undefined || (!accountInfo && val === 0)) return '加载中...';
         return val.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -41,138 +43,132 @@ const TopBar: React.FC<TopBarProps> = ({ accountInfo, isConnected, strategyStatu
 
     const info = accountInfo;
 
-    const getPnLColor = (val: number) => val > 0 ? 'text-red-600' : val < 0 ? 'text-green-600' : 'text-gray-900';
+    const getPnLColor = (val: number) => val > 0 ? 'text-red-600' : val < 0 ? 'text-green-600' : 'text-gray-700';
     const getPnLBg = (val: number) => val > 0 ? 'bg-red-50' : val < 0 ? 'bg-green-50' : 'bg-gray-50';
 
     const modeLabel = tradingMode === 'real' ? ' (实盘)' : (tradingMode === 'simulation' ? ' (模拟)' : '');
     const runModeLabel = runMode === 'SHADOW'
         ? '影子'
         : (runMode === 'REAL' ? '实盘' : (runMode === 'SIMULATION' ? '模拟' : '未启动'));
-    const runModeTone = runMode === 'SHADOW' ? 'bg-violet-100 text-violet-800 border-violet-200'
-        : (runMode === 'REAL' ? 'bg-blue-100 text-blue-800 border-blue-200'
-            : (runMode === 'SIMULATION' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-gray-50 text-gray-500 border-gray-100'));
+    const runModeTone = runMode === 'SHADOW' ? 'bg-violet-100 text-violet-700 border-violet-200'
+        : (runMode === 'REAL' ? 'bg-blue-100 text-blue-700 border-blue-200'
+            : (runMode === 'SIMULATION' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-gray-100 text-gray-500 border-gray-200'));
     const deployChannelLabel = runMode === 'SIMULATION'
         ? '沙箱'
         : (runMode === 'REAL' || runMode === 'SHADOW'
-            ? (orchestrationMode === 'docker' ? 'Docker' : (orchestrationMode === 'k8s' ? 'Kubernetes' : '容器'))
+            ? (orchestrationMode === 'docker' ? 'Docker' : (orchestrationMode === 'k8s' ? 'K8s' : '容器'))
             : '待部署');
-    const deployChannelTone = runMode === 'SHADOW' ? 'bg-violet-50 text-violet-800 border-violet-200'
-        : (runMode === 'REAL' ? 'bg-blue-50 text-blue-800 border-blue-200'
-            : (runMode === 'SIMULATION' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-gray-50 text-gray-500 border-gray-100'));
-    const strategyStatusLabel = strategyStatus === 'running' ? '策略运行中' : (strategyStatus === 'starting' ? '策略启动中' : '策略已停止');
-    const strategyStatusColor = strategyStatus === 'running' ? 'text-blue-500' : (strategyStatus === 'starting' ? 'text-amber-500' : 'text-gray-300');
+    const deployChannelTone = runMode === 'SHADOW' ? 'bg-violet-50 text-violet-700 border-violet-200'
+        : (runMode === 'REAL' ? 'bg-blue-50 text-blue-700 border-blue-200'
+            : (runMode === 'SIMULATION' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-500 border-gray-200'));
+    const strategyStatusLabel = strategyStatus === 'running' ? '运行中' : (strategyStatus === 'starting' ? '启动中' : '已停止');
+    const strategyStatusColor = strategyStatus === 'running' ? 'text-blue-500' : (strategyStatus === 'starting' ? 'text-amber-500' : 'text-gray-400');
 
     const metrics = [
+        { label: '总资产', value: formatMoney(info?.total_asset), highlight: false },
+        { label: '初始权益', value: formatMoney(info?.initial_equity), highlight: false },
+        { label: '可用资金', value: formatMoney(info?.cash), highlight: false },
+        { label: '持仓市值', value: formatMoney(info?.market_value), highlight: false },
         {
-            label: '总资产',
-            hint: '账户当前总权益，含现金与持仓市值。',
-            value: formatMoney(info?.total_asset),
-            highlight: false,
-        },
-        {
-            label: '初始权益',
-            hint: '统一基线口径，对应 baseline.initial_equity。',
-            value: formatMoney(info?.initial_equity),
-            highlight: false,
-        },
-        {
-            label: '可用资金',
-            hint: '可用现金口径，优先使用账户快照 cash。',
-            value: formatMoney(info?.cash),
-            highlight: false,
-        },
-        {
-            label: '持仓市值',
-            hint: '当前持仓证券的实时市值汇总。',
-            value: formatMoney(info?.market_value),
-            highlight: false,
-        },
-        {
-            label: '总盈亏',
-            hint: '累计盈亏金额；副标签展示总收益率。',
-            value: formatMoney(info?.total_pnl),
+            label: '总盈亏', value: formatMoney(info?.total_pnl), highlight: true, val: info?.total_pnl || 0,
             subValue: info ? `${info.total_pnl > 0 ? '+' : ''}${(info.total_pnl_percent * 100).toFixed(2)}%` : undefined,
-            subLabel: '总收益率',
-            highlight: true,
-            val: info?.total_pnl || 0,
         },
         {
-            label: '今日盈亏',
-            hint: '交易日口径盈亏；副标签展示日收益率。',
-            value: formatMoney(info?.daily_pnl),
+            label: '今日盈亏', value: formatMoney(info?.daily_pnl), highlight: true, val: info?.daily_pnl || 0,
             subValue: info ? `${info.daily_pnl > 0 ? '+' : ''}${(info.daily_pnl_percent * 100).toFixed(2)}%` : undefined,
-            subLabel: '日收益率',
-            highlight: true,
-            val: info?.daily_pnl || 0,
         },
         {
-            label: '浮动盈亏',
-            hint: '当前持仓未实现盈亏；副标签展示相对持仓市值占比。',
-            value: formatMoney(info?.floating_pnl),
+            label: '浮动盈亏', value: formatMoney(info?.floating_pnl), highlight: true, val: info?.floating_pnl || 0,
             subValue: info ? `${info.floating_pnl > 0 ? '+' : ''}${(info.floating_pnl_percent * 100).toFixed(2)}%` : undefined,
-            subLabel: '持仓收益率',
-            highlight: true,
-            val: info?.floating_pnl || 0,
         },
         {
-            label: '持仓数量',
-            hint: '当前持仓标的数量；副标签展示仓位占比。',
-            value: (info?.position_count || 0).toString(),
+            label: '持仓数量', value: (info?.position_count || 0).toString(), highlight: false,
             subValue: info ? formatPercent(info.position_ratio) : undefined,
-            subLabel: '仓位占比',
-            highlight: false,
         },
     ];
 
     return (
-        <div className="h-full flex flex-col p-6">
-            {/* Header with Status */}
-            <div className="flex justify-between items-center mb-5 pb-3.5 border-b border-gray-100 gap-4">
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="p-1.5 bg-blue-50 rounded-xl shrink-0">
-                        <Wallet className="text-blue-600" size={18} />
+        <div className="flex flex-col h-full px-4 py-2.5">
+            {/* Single-line header: title + status + expand toggle */}
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                    <div className="p-1 bg-blue-50 rounded-lg shrink-0">
+                        <Wallet className="text-blue-600" size={14} />
                     </div>
-                    <h2 className="text-lg font-bold text-gray-800 whitespace-nowrap">账户资产概览{modeLabel}</h2>
-                    <div className="flex flex-nowrap items-center gap-1 shrink-0">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] leading-4 font-bold border whitespace-nowrap ${runModeTone}`}>
-                            当前运行模式: {runModeLabel}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] leading-4 font-bold border whitespace-nowrap ${deployChannelTone}`}>
-                            部署通道: {deployChannelLabel}
-                        </span>
-                    </div>
+                    <span className="text-sm font-bold text-gray-800 whitespace-nowrap">资产概览{modeLabel}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${runModeTone}`}>
+                        {runModeLabel}
+                    </span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${deployChannelTone}`}>
+                        {deployChannelLabel}
+                    </span>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 rounded-full">
-                        <Wifi size={14} className={isConnected ? 'text-green-500' : 'text-red-400'} />
-                        <span className="text-xs font-medium text-gray-600">{isConnected ? '在线' : '离线'}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded-full">
+                        <Wifi size={11} className={isConnected ? 'text-green-500' : 'text-red-400'} />
+                        <span className="text-[10px] font-medium text-gray-500">{isConnected ? '在线' : '离线'}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 rounded-full">
-                        <Activity size={14} className={strategyStatusColor} />
-                        <span className="text-xs font-medium text-gray-600">{strategyStatusLabel}</span>
+                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded-full">
+                        <Activity size={11} className={strategyStatusColor} />
+                        <span className="text-[10px] font-medium text-gray-500">{strategyStatusLabel}</span>
                     </div>
-
+                    <button
+                        onClick={() => setExpanded(!expanded)}
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                        title={expanded ? '收起详情' : '展开详情'}
+                    >
+                        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
                 </div>
             </div>
 
-            {/* Metrics Grid - 4x2 紧凑居中布局 */}
-            <div className="flex-1 grid grid-cols-4 grid-rows-2 gap-4">
-                {metrics.map((m, idx) => (
-                    <div key={idx} title={m.hint} className="flex flex-col justify-center items-center bg-gray-50 rounded-2xl p-4 border border-gray-100 transition-shadow hover:shadow-md">
-                        <span className="text-xs font-medium text-gray-500 mb-2">{m.label}</span>
-                        <div className="flex flex-col items-center">
-                            <span className={`text-2xl font-bold ${m.highlight ? getPnLColor(m.val!) : 'text-gray-900'}`}>
+            {expanded ? (
+                /* Expanded: compact 4x2 grid */
+                <div className="flex-1 grid grid-cols-4 grid-rows-2 gap-2 mt-2">
+                    {metrics.map((m, idx) => (
+                        <div key={idx} className="flex flex-col justify-center items-center bg-gray-50 rounded-lg px-2 py-1.5 border border-gray-100 hover:shadow-sm transition-shadow">
+                            <span className="text-[10px] font-medium text-gray-400 mb-0.5">{m.label}</span>
+                            <span className={`text-sm font-bold ${m.highlight ? getPnLColor(m.val!) : 'text-gray-800'}`}>
                                 {m.highlight && m.val! > 0 ? '+' : ''}{m.value}
                             </span>
                             {m.subValue && (
-                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg mt-1 ${m.highlight ? `${getPnLBg(m.val!)} ${getPnLColor(m.val!)}` : 'bg-gray-100 text-gray-600'}`}>
+                                <span className={`text-[9px] font-semibold px-1 py-0 rounded mt-0.5 ${m.highlight ? `${getPnLBg(m.val!)} ${getPnLColor(m.val!)}` : 'bg-gray-100 text-gray-500'}`}>
                                     {m.subValue}
                                 </span>
                             )}
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            ) : (
+                /* Collapsed: single row key metrics */
+                <div className="flex-1 flex items-center gap-4 mt-1">
+                    {[
+                        { label: '总资产', value: formatMoney(info?.total_asset) },
+                        { label: '可用', value: formatMoney(info?.cash) },
+                        {
+                            label: '今日',
+                            value: formatMoney(info?.daily_pnl),
+                            color: getPnLColor(info?.daily_pnl || 0),
+                            suffix: info ? `${info.daily_pnl > 0 ? '+' : ''}${(info.daily_pnl_percent * 100).toFixed(2)}%` : undefined,
+                        },
+                        {
+                            label: '总盈亏',
+                            value: formatMoney(info?.total_pnl),
+                            color: getPnLColor(info?.total_pnl || 0),
+                            suffix: info ? `${info.total_pnl > 0 ? '+' : ''}${(info.total_pnl_percent * 100).toFixed(2)}%` : undefined,
+                        },
+                        { label: '持仓', value: `${info?.position_count || 0}只` },
+                    ].map((m, idx) => (
+                        <div key={idx} className="flex items-baseline gap-1.5">
+                            <span className="text-[10px] text-gray-400">{m.label}</span>
+                            <span className={`text-sm font-bold ${m.color || 'text-gray-800'}`}>{m.value}</span>
+                            {m.suffix && (
+                                <span className={`text-[10px] font-semibold ${m.color || 'text-gray-500'}`}>{m.suffix}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

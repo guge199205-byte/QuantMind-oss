@@ -44,6 +44,7 @@ class ParseResponse(BaseModel):
 
 class QueryPoolRequest(BaseModel):
     dsl: str
+    market: str | None = None  # CN, HK, US, CRYPTO
 
 
 class PoolItem(BaseModel):

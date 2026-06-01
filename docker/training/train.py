@@ -287,6 +287,13 @@ def _compute_shap_summary(
 
 
 # ── 数据加载 ──────────────────────────────────────────────────────────────────
+_MARKET_PARQUET_FILES: dict[str, str] = {
+    "HK": "model_features_hk.parquet",
+    "US": "model_features_us.parquet",
+    "CRYPTO": "model_features_crypto.parquet",
+}
+
+
 def load_data(
     train_start: str,
     train_end: str,
@@ -297,18 +304,13 @@ def load_data(
     test_end: str | None = None,
     source_mode: str = "LOCAL",
     local_dir: str | None = None,
+    market: str = "CN",
 ) -> tuple:
-    start_year = pd.Timestamp(train_start).year
-
-    # 获取最晚的年份，确保包含 验证/测试 集所需的数据
-    ends = [train_end]
-    if valid_end: ends.append(valid_end)
-    if test_end: ends.append(test_end)
-    end_year = max(pd.Timestamp(e).year for e in ends)
-
     local_root = Path(local_dir).expanduser() if local_dir else None
     if local_root is None:
         raise RuntimeError("local_dir must be provided; COS data download has been removed")
+
+    market_upper = str(market or "CN").upper()
 
     # 仅读取训练必需列，避免整表加载导致 OOM
     horizon = max(1, int(target_horizon_days or 1))
@@ -319,9 +321,10 @@ def load_data(
         )
     )
     logger.info(
-        "Memory-optimized read: selected %d columns (horizon=%s)",
+        "Memory-optimized read: selected %d columns (horizon=%s, market=%s)",
         len(required_columns),
         horizon,
+        market_upper,
     )
 
     # 给标签构建预留边界，避免裁剪过早影响 shift/rolling
@@ -329,33 +332,69 @@ def load_data(
     upper_bound = test_end or valid_end or train_end
     range_end = pd.Timestamp(upper_bound) + pd.Timedelta(days=max(7, horizon + 3))
 
-    chunks = []
-    for year in range(max(start_year - 1, 2016), end_year + 1):
-        df_year = _load_local_parquet(
-            local_root,
-            year,
-            required_columns=required_columns,
-            clip_start=range_start,
-            clip_end=range_end,
-        )
-        if df_year is not None:
-            if not df_year.empty:
-                chunks.append(df_year)
-        else:
-            logger.warning(f"No data file found for year {year} in {local_root}, skipping")
+    if market_upper in _MARKET_PARQUET_FILES:
+        # ── 非 A 股市场：从单一 parquet 文件加载 ──
+        parquet_name = _MARKET_PARQUET_FILES[market_upper]
+        parquet_path = local_root / parquet_name
+        if not parquet_path.exists():
+            raise RuntimeError(
+                f"市场 {market_upper} parquet 文件不存在: {parquet_path}"
+            )
+        logger.info("Loading market-specific parquet: %s", parquet_path)
 
-    if not chunks:
-        raise RuntimeError("No data loaded from local storage")
+        # 非 A 股文件使用 'instrument' 列而非 'symbol'
+        try:
+            df = pd.read_parquet(parquet_path, columns=required_columns, engine="pyarrow")
+        except Exception:
+            # instrument 列名兼容
+            load_cols = [c.replace("symbol", "instrument") if c == "symbol" else c for c in required_columns]
+            df = pd.read_parquet(parquet_path, columns=load_cols, engine="pyarrow")
+            df = df.rename(columns={"instrument": "symbol"})
 
-    df = pd.concat(chunks, axis=0, ignore_index=True)
-    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
-    df = df[df["trade_date"].notna()].copy()
-    logger.info(f"Raw concat size: {len(df)} rows. Date range: {df['trade_date'].min()} to {df['trade_date'].max()}")
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+        df = df[df["trade_date"].notna()].copy()
+        # 日期裁剪
+        mask = (df["trade_date"] >= range_start) & (df["trade_date"] <= range_end)
+        df = df.loc[mask].copy()
+        logger.info("Market %s raw data: %d rows, date range: %s to %s",
+                     market_upper, len(df),
+                     df["trade_date"].min() if not df.empty else "N/A",
+                     df["trade_date"].max() if not df.empty else "N/A")
+    else:
+        # ── A 股：从年度 parquet 文件加载 ──
+        start_year = pd.Timestamp(train_start).year
+        ends = [train_end]
+        if valid_end: ends.append(valid_end)
+        if test_end: ends.append(test_end)
+        end_year = max(pd.Timestamp(e).year for e in ends)
 
-    # 过滤北交所代码（4/8开头）
-    df["symbol"] = df["symbol"].astype(str).str.zfill(6)
-    df = df[~df["symbol"].str.startswith(("4", "8"))].copy()
-    logger.info(f"After symbol filter: {len(df)} rows")
+        chunks = []
+        for year in range(max(start_year - 1, 2016), end_year + 1):
+            df_year = _load_local_parquet(
+                local_root,
+                year,
+                required_columns=required_columns,
+                clip_start=range_start,
+                clip_end=range_end,
+            )
+            if df_year is not None:
+                if not df_year.empty:
+                    chunks.append(df_year)
+            else:
+                logger.warning(f"No data file found for year {year} in {local_root}, skipping")
+
+        if not chunks:
+            raise RuntimeError("No data loaded from local storage")
+
+        df = pd.concat(chunks, axis=0, ignore_index=True)
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+        df = df[df["trade_date"].notna()].copy()
+        logger.info(f"Raw concat size: {len(df)} rows. Date range: {df['trade_date'].min()} to {df['trade_date'].max()}")
+
+        # 过滤北交所代码（4/8开头）——仅 A 股
+        df["symbol"] = df["symbol"].astype(str).str.zfill(6)
+        df = df[~df["symbol"].str.startswith(("4", "8"))].copy()
+        logger.info(f"After symbol filter: {len(df)} rows")
 
     # 标签：基于 target_horizon_days 构建 N 日远期收益
     if "mom_ret_1d" not in df.columns:
@@ -484,7 +523,10 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
             "请调整 train/valid/test 时间窗口，确保三段均与可用数据重叠。"
         )
 
-    fill_values = train_df[features].median().to_dict()
+    import math
+    fill_values_raw = train_df[features].median().to_dict()
+    # NaN fill values (columns missing in training data) → 0.0
+    fill_values = {k: (0.0 if (isinstance(v, float) and math.isnan(v)) else v) for k, v in fill_values_raw.items()}
 
     def _fill(frame: pd.DataFrame) -> np.ndarray:
         x = frame[features].copy()
@@ -599,6 +641,8 @@ def main() -> int:
         source_mode = str((cfg.get("data", {}) or {}).get("source_mode") or "LOCAL").strip().upper()
         local_data_dir = str((cfg.get("data", {}) or {}).get("local_dir") or "").strip() or None
         explain_cfg = _normalize_explain_cfg(cfg.get("explain") or {})
+        context_cfg = cfg.get("context", {}) or {}
+        market = str(context_cfg.get("market", "CN")).upper()
 
         df, valid_features = load_data(
             cfg["data"]["train_start"],
@@ -610,6 +654,7 @@ def main() -> int:
             test_end=cfg.get("split", {}).get("test", [None, None])[1],
             source_mode=source_mode,
             local_dir=local_data_dir,
+            market=market,
         )
         train_t0 = time.time()
         model, fill_values, train_m, val_m, test_m, pred_df, split_frames = train_model(df, valid_features, cfg)
@@ -683,6 +728,7 @@ def main() -> int:
             "test_start":  (cfg.get("split", {}).get("test")  or [None, None])[0] or "",
             "test_end":    (cfg.get("split", {}).get("test")  or [None, None])[1] or "",
             "data_source": "parquet",
+            "context": context_cfg,
             "best_iteration": model.best_iteration,
             "target_horizon_days": int((cfg.get("label", {}) or {}).get("target_horizon_days") or 1),
             "target_mode": str((cfg.get("label", {}) or {}).get("target_mode") or "return"),
@@ -701,7 +747,17 @@ def main() -> int:
             "generated_at": datetime.utcnow().isoformat(),
             "elapsed_seconds": elapsed,
         }
-        metadata_bytes = json.dumps(metadata, ensure_ascii=False, indent=2).encode()
+        def _sanitize_for_json_meta(obj):
+            import math
+            if isinstance(obj, dict):
+                return {k: _sanitize_for_json_meta(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize_for_json_meta(v) for v in obj]
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            return obj
+
+        metadata_bytes = json.dumps(_sanitize_for_json_meta(metadata), ensure_ascii=False, indent=2).encode()
         Path("/workspace/metadata.json").write_bytes(metadata_bytes)
         logger.info("metadata.json saved locally")
 
@@ -772,12 +828,20 @@ def load_model(model_dir, meta):
     logger.info("加载模型: %s", model_path.name)
     return lgb.Booster(model_file=str(model_path))
 
+_MARKET_PARQUET = {"HK": "model_features_hk.parquet", "US": "model_features_us.parquet", "CRYPTO": "model_features_crypto.parquet"}
+
 def load_date_data(trade_date, data_dir, meta):
-    year = int(trade_date[:4])
-    parquet_path = Path(data_dir) / f"model_features_{year}.parquet"
+    market = str((meta.get("context") or {}).get("market", "")).upper()
+    if market in _MARKET_PARQUET:
+        parquet_path = Path(data_dir) / _MARKET_PARQUET[market]
+    else:
+        year = int(trade_date[:4])
+        parquet_path = Path(data_dir) / f"model_features_{year}.parquet"
     if not parquet_path.exists():
         logger.warning("parquet 文件不存在: %s", parquet_path); return None
     df = pd.read_parquet(parquet_path, engine="pyarrow")
+    if "symbol" not in df.columns and "instrument" in df.columns:
+        df = df.rename(columns={"instrument": "symbol"})
     df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.strftime("%Y-%m-%d")
     day_df = df[df["trade_date"] == trade_date].copy()
     if len(day_df) == 0:
@@ -860,15 +924,27 @@ if __name__ == "__main__":
         result = {"status": "failed", "run_id": run_id, "error": str(e)}
 
     finally:
+        def _sanitize_for_json(obj):
+            """Replace NaN/Inf with None for JSON compliance."""
+            import math
+            if isinstance(obj, dict):
+                return {k: _sanitize_for_json(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize_for_json(v) for v in obj]
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            return obj
+
         result_path.parent.mkdir(parents=True, exist_ok=True)
-        result_json = json.dumps(result, ensure_ascii=False, indent=2)
+        result_clean = _sanitize_for_json(result)
+        result_json = json.dumps(result_clean, ensure_ascii=False, indent=2)
         result_path.write_text(result_json)
         logger.info(f"result.json → {result_path}")
 
         if callback_url:
             try:
                 resp = requests.post(
-                    callback_url, json=result,
+                    callback_url, json=result_clean,
                     headers={"X-Internal-Call-Secret": callback_secret},
                     timeout=15,
                 )

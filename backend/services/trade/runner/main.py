@@ -159,10 +159,12 @@ def _is_rebalance_day(ts_value: float, live_trade_config: dict[str, Any]) -> boo
         return weekday in set(live_trade_config.get("trade_weekdays") or [])
 
     rebalance_days = max(1, int(live_trade_config.get("rebalance_days") or 5))
+    market = str(live_trade_config.get("market") or "A").upper()
     try:
         if get_calendar is None:
             raise RuntimeError("exchange_calendars unavailable")
-        calendar = get_calendar("XSHG")
+        _MARKET_XCAL = {"A": "XSHG", "HK": "XHKG", "US": "XNYS"}
+        calendar = get_calendar(_MARKET_XCAL.get(market, "XSHG"))
         session = calendar.date_to_session(
             pd.Timestamp(local_dt.date()), direction="previous"
         )

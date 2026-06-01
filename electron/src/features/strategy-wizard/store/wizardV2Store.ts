@@ -53,6 +53,7 @@ interface WizardV2State {
   deleteSavedPool: (id: string) => Promise<boolean>;
   setSyncStatus: (status: WizardV2State['syncStatus']) => void;
   markClean: () => void;
+  resetForMarket: (market: 'CN' | 'US' | 'HK' | 'CRYPTO') => void;
 }
 
 export const useWizardV2Store = create<WizardV2State>((set, get) => ({
@@ -111,6 +112,31 @@ export const useWizardV2Store = create<WizardV2State>((set, get) => ({
   setConditions: (conditions) => set({ conditions }),
   setQlibParams: (qlibParams) => set({ qlibParams }),
   setGenerated: (generated) => set({ generated }),
+
+  // 市场切换时重置状态
+  resetForMarket: (market: 'CN' | 'US' | 'HK' | 'CRYPTO') => {
+    set({
+      workingPool: [],
+      savedPools: [],
+      activePoolVersionId: undefined,
+      selectedSymbols: [],
+      currentPoolName: '我的股票池',
+      conditions: null,
+      qlibParams: {
+        strategy_type: 'TopkDropout',
+        topk: 10,
+        n_drop: 2,
+        rebalance_days: 5,
+        rebalance_period: 'weekly',
+        market,
+      },
+      generated: undefined,
+      validationResult: null,
+      saveStatus: { savedToCloud: false, downloaded: false },
+      dirty: false,
+      syncStatus: 'idle',
+    });
+  },
   setValidationResult: (validationResult) => set({ validationResult }),
   markAsCloudSaved: (id) => set({ saveStatus: { ...get().saveStatus, savedToCloud: true, lastSavedId: id } }),
   markAsDownloaded: () => set({ saveStatus: { ...get().saveStatus, downloaded: true } }),

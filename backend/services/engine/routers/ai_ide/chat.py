@@ -123,6 +123,23 @@ def get_strategy_config():
 3. `reset` 方法必须兼容可变参数：`def reset(self, *args, **kwargs)`
 4. 禁用：os, sys, subprocess, requests, socket 等危险模块
 """
+        multi_market_info = """
+## 多市场数据支持
+
+平台已支持以下市场的股票/资产数据，用户可通过仪表盘顶部的市场切换器选择：
+
+| 市场 | 代码 | 数据表 | 股票/资产数 | 交易日历 |
+|------|------|--------|------------|----------|
+| A股（沪深） | CN | stock_daily_latest | ~5000只 | SSE（上交所） |
+| 港股 | HK | stock_daily_latest_hk | ~137只 | HKEX（港交所） |
+| 美股 | US | stock_daily_latest_us | ~488只 | NYSE（纽交所） |
+| 加密货币 | CRYPTO | stock_daily_latest_crypto | ~20个主流币种 | 24/7（无休） |
+
+- 所有策略生成、回测、模型训练、推理均会根据当前选择的市场自动适配对应的数据源和交易日历。
+- 不同市场的股票代码格式不同：A股用 SH/SZ 前缀，港股用纯数字代码，美股用 ticker 符号。
+- 当用户询问关于美股、港股、加密货币的问题时，应确认当前市场选择并使用对应市场数据回答。
+"""
+
         return (
             "你是 QuantMind 的智能助手，用自然、友好的方式与用户交流。\n\n"
             "## 核心对话规则（必须严格遵守）\n"
@@ -137,6 +154,7 @@ def get_strategy_config():
             "- 用户说'你好'、'在吗'、'你是谁'等问候语时，只需简单问候回应\n"
             "- 只有当用户明确说'帮我写一个...策略'、'修改代码'、'回测'等技术指令时，才使用下面的技术规范\n"
             "- 下面的技术文档仅供参考，不要在用户未要求时主动使用\n\n"
+            f"{multi_market_info}\n"
             f"{strategy_classes}\n\n"
             "FORMATTING RULES:\n"
             "1. 使用标准 Markdown 输出。\n"
@@ -323,7 +341,12 @@ def get_strategy_config():
         error_msg = context.get("error_msg", "")
         selection = context.get("selection", "")
         file_path = str(context.get("file_path", "") or "").strip()
+        market = str(context.get("market", "") or "").strip().upper()
+        market_name = str(context.get("market_name", "") or "").strip()
         prompt = f"User Request: {user_input}\n"
+        if market:
+            prompt += f"\n[当前市场]: {market}（{market_name}）\n"
+            prompt += f"请注意：用户当前选择了{market_name}市场，所有策略、回测、数据查询均应使用该市场的数据和交易日历。\n"
         if assistant_rules:
             prompt += f"\n[Development Rules]:\n{assistant_rules}\n"
         if file_path:
@@ -383,7 +406,7 @@ async def chat_completions(request: Request, item: ChatRequest):
         or os.getenv("OPENAI_API_KEY", "")
     )
 
-    # 2. 尝试从数据库获取用户私有 API Key (个人 Key 优先级最高)
+    # 2. 尝试从数据库获取用户私有配置 (个人 Key/Model/BaseURL 优先级最高)
     user_context = getattr(request.state, "user", None)
     if user_context:
         user_id = user_context.get("user_id")
@@ -391,15 +414,20 @@ async def chat_completions(request: Request, item: ChatRequest):
             from sqlalchemy import text
             async with get_session(read_only=True) as session:
                 result = await session.execute(
-                    text("SELECT api_key FROM user_profiles WHERE user_id = :user_id"),
+                    text("SELECT COALESCE(NULLIF(ai_ide_api_key, ''), api_key) AS key, ai_ide_model, ai_ide_base_url FROM user_profiles WHERE user_id = :user_id"),
                     {"user_id": user_id}
                 )
                 row = result.fetchone()
-                if row and row[0]:
-                    api_key = row[0]
+                if row:
+                    if row[0]:
+                        api_key = row[0]
+                    if row[1]:
+                        model = row[1]
+                    if row[2]:
+                        base_url = row[2]
         except Exception as e:
             logger.warning(
-                f"Could not fetch individual API key for user {user_id}: {e}"
+                f"Could not fetch individual config for user {user_id}: {e}"
             )
 
     # 获取项目根目录，以便读取文档

@@ -3,7 +3,7 @@
  * 左侧代码编辑，右侧结果输出。
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play, RefreshCw, Code2, Settings2, BarChart3, Info, AlertCircle, Upload, Cloud, CalendarRange } from 'lucide-react';
 
@@ -16,14 +16,29 @@ import { authService } from '../../features/auth/services/authService';
 import { normalizeUserId } from '../../features/strategy-wizard/utils/userId';
 import { QlibResultDisplay, ErrorLogModal } from './QlibResultComponents';
 import { blendBacktestProgress, getBacktestStageMessage } from './progressUtils';
+import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
+import { getMarketConfig } from '../../config/marketConfig';
 
-const UNIVERSE_PRESETS = [
-  { label: '全部', value: 'all' },
-  { label: '沪深300', value: 'csi300' },
-  { label: '中证500', value: 'csi500' },
-  { label: '中证800', value: 'csi800' },
-  { label: '中证1000', value: 'csi1000' },
-];
+const MARKET_UNIVERSE_PRESETS: Record<string, { label: string; value: string }[]> = {
+  CN: [
+    { label: '全部', value: 'all' },
+    { label: '沪深300', value: 'csi300' },
+    { label: '中证500', value: 'csi500' },
+    { label: '中证800', value: 'csi800' },
+    { label: '中证1000', value: 'csi1000' },
+  ],
+  HK: [
+    { label: '全部港股', value: 'all' },
+  ],
+  US: [
+    { label: '全部美股', value: 'all' },
+  ],
+  CRYPTO: [
+    { label: '全部加密货币', value: 'all' },
+    { label: 'Layer 1', value: 'layer1' },
+  ],
+};
 
 export const QlibExpertBacktest: React.FC = () => {
   const stopPollingRef = useRef<(() => void) | null>(null);
@@ -32,13 +47,14 @@ export const QlibExpertBacktest: React.FC = () => {
   const backendProgressRef = useRef<number>(0);
   const runStartedAtRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const marketConfig = getMarketConfig(currentMarket);
+  const UNIVERSE_PRESETS = useMemo(() => MARKET_UNIVERSE_PRESETS[currentMarket] || MARKET_UNIVERSE_PRESETS.CN, [currentMarket]);
   const [strategyCode, setStrategyCode] = useState<string>(DEFAULT_EXPERT_CODE);
   const [isSaving, setIsSaving] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [saveDescription, setSaveDescription] = useState('由专家模式生成');
-
-  // ... (状态定义保持不变)
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -95,11 +111,11 @@ export const QlibExpertBacktest: React.FC = () => {
   };
 
   // 基础配置
-  const [universePath, setUniversePath] = useState<string>(UNIVERSE_PRESETS[0].value);
+  const [universePath, setUniversePath] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>(BACKTEST_CONFIG.QLIB.DEFAULT_START);
   const [endDate, setEndDate] = useState<string>(BACKTEST_CONFIG.QLIB.DEFAULT_END);
   const [initialCapital, setInitialCapital] = useState(1000000);
-  const [benchmark, setBenchmark] = useState('SH000300');
+  const [benchmark, setBenchmark] = useState(marketConfig.benchmark);
   
   // 数据日期范围（从后端获取）
   const [dataMinDate, setDataMinDate] = useState<string | null>(null);
@@ -185,6 +201,8 @@ export const QlibExpertBacktest: React.FC = () => {
         benchmark_symbol: benchmark,
         strategy_code: codeToRun,
         commission: 0.00025,
+        qlib_provider_uri: marketConfig.qlibProviderUri,
+        qlib_region: marketConfig.qlibRegion,
       };
 
       const { backtestService } = await import('../../services/backtestService');
@@ -246,6 +264,12 @@ export const QlibExpertBacktest: React.FC = () => {
     };
     fetchDataRange();
   }, []);
+
+  // 市场切换时重置基准和股票池
+  useEffect(() => {
+    setBenchmark(marketConfig.benchmark);
+    setUniversePath('all');
+  }, [currentMarket]);
 
   return (
     <div className="flex h-full bg-white overflow-hidden rounded-2xl border border-gray-200 shadow-sm">

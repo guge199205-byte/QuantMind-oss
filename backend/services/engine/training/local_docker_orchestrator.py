@@ -213,6 +213,7 @@ class LocalDockerOrchestrator:
                 "commission_rate": context.get("commission_rate", 0.00025),
                 "slippage": context.get("slippage", 0.0005),
                 "deal_price": context.get("deal_price", "close"),
+                "market": context.get("market", "CN"),
             },
             "explain": payload.get("explain", DEFAULT_EXPLAIN_CFG),
             "output": {

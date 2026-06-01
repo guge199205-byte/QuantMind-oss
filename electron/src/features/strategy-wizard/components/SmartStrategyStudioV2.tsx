@@ -18,6 +18,8 @@ import QlibParamsConfig from './QlibParamsConfig';
 import QlibValidatorAndSave from './QlibValidatorAndSave';
 import { useWizardV2Store } from '../store/wizardV2Store';
 import { PAGE_LAYOUT } from '../../../config/pageLayout';
+import { useAppSelector } from '../../../store';
+import { selectCurrentMarket } from '../../../store/slices/uiSlice';
 // 按需加载 wizardService 中的网络方法，避免静态/动态导入冲突
 import { getWizardUserId } from '../utils/userId';
 import { resolveRebalanceDays } from '../../../shared/qlib/rebalance';
@@ -96,6 +98,7 @@ const SmartStrategyStudioV2: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [generating, setGenerating] = useState(false);
   const poolPreviewRef = useRef<PoolPreviewHandle>(null);
+  const currentMarket = useAppSelector(selectCurrentMarket);
 
   // Use V2 store
   const {
@@ -142,8 +145,10 @@ const SmartStrategyStudioV2: React.FC = () => {
           user_id: userId,
           conditions: conditions || {},
           pool_file_key: activePoolVersionId,
+          market: currentMarket,
           qlib_params: {
             ...qlibParams,
+            market: currentMarket,
             rebalance_days: resolveRebalanceDays(qlibParams),
           },
         });
@@ -166,7 +171,7 @@ const SmartStrategyStudioV2: React.FC = () => {
     }
     
     setCurrentStep(Math.min(currentStep + 1, 3));
-  }, [currentStep, activePoolVersionId, conditions, qlibParams, setGenerated]);
+  }, [currentStep, activePoolVersionId, conditions, qlibParams, setGenerated, currentMarket]);
 
   const steps = useMemo(() => [
     {

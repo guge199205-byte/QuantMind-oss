@@ -130,6 +130,23 @@ COMBINER_REGEX = re.compile(r"\s+(AND|OR)\s+", re.IGNORECASE)
 MAX_LOOKBACK_DAYS = 400
 LATEST_TABLE = "stock_daily_latest"
 
+# Market-specific table mapping
+MARKET_TABLE_MAP: dict[str, str] = {
+    "CN": "stock_daily_latest",
+    "HK": "stock_daily_latest_hk",
+    "US": "stock_daily_latest_us",
+    "CRYPTO": "stock_daily_latest_crypto",
+}
+
+
+def get_latest_table(market: str | None = None) -> str:
+    """Return the appropriate stock table for the given market."""
+    if market:
+        key = market.upper()
+        if key in MARKET_TABLE_MAP:
+            return MARKET_TABLE_MAP[key]
+    return LATEST_TABLE
+
 # total_mv 列口径可配置：默认“亿元”（1亿=1）。
 # 若仍使用旧库“万元”口径，可通过环境变量 AI_STRATEGY_TOTAL_MV_PER_YI=10000 覆盖。
 MARKET_CAP_YI_TO_DB_UNIT = float(os.getenv("AI_STRATEGY_TOTAL_MV_PER_YI", "100000000.0"))

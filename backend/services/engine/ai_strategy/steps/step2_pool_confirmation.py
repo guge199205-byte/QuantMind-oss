@@ -189,14 +189,15 @@ def _require_user_id(request: Request) -> str:
     return str(user_id)
 
 
-def _get_universe_total(user_id: str) -> int:
+def _get_universe_total(user_id: str, table_name: str | None = None) -> int:
     """
     获取覆盖率分母（候选全集大小）。
 
     规则（尽量"不会超过数据表中股票列表"）：
     1. 若存在 user_universe 且该用户有授权标的，则以其为全集（多租户隔离更严格）。
-    2. 否则退化为 stock_daily_latest 全量记录数。
+    2. 否则退化为指定表全量记录数。
     """
+    tbl = table_name or LATEST_TABLE
     try:
         with get_db() as session:
             # 优先使用多租户白名单表（如果存在且有数据）
@@ -216,13 +217,13 @@ def _get_universe_total(user_id: str) -> int:
                     pass
                 pass
 
-            n2 = session.execute(text(f"select count(1) from {LATEST_TABLE}")).scalar()
+            n2 = session.execute(text(f"select count(1) from {tbl}")).scalar()
             return int(n2 or 0)
     except Exception:
         return 0
 
 
-def _execute_raw_selection_sql(sql: str) -> tuple[list[PoolItem], date | None]:
+def _execute_raw_selection_sql(sql: str, table_name: str | None = None) -> tuple[list[PoolItem], date | None]:
     """直接执行由 LLM 生成的 SQL 语句
 
     安全改进:
@@ -230,6 +231,7 @@ def _execute_raw_selection_sql(sql: str) -> tuple[list[PoolItem], date | None]:
     2. 使用安全的表名替换
     3. 强制添加 LIMIT 限制
     """
+    market_table = table_name or LATEST_TABLE
     try:
         # === 安全验证：防止SQL注入 ===
         try:
@@ -242,17 +244,16 @@ def _execute_raw_selection_sql(sql: str) -> tuple[list[PoolItem], date | None]:
         normalized_sql = validated_sql
 
         # 使用安全的表名替换函数
-        if "from stock_selection" in sql_lower or "from stock_daily" in sql_lower:
-            try:
-                if "from stock_selection" in sql_lower:
-                    normalized_sql = safe_table_replace(normalized_sql, "stock_selection", LATEST_TABLE)
-                if "from stock_daily" in sql_lower:
-                    normalized_sql = safe_table_replace(normalized_sql, "stock_daily", LATEST_TABLE)
-            except SQLValidationError as e:
-                logger.error(f"Table replacement failed: {e}")
-                raise HTTPException(status_code=400, detail=f"表名替换失败: {str(e)}")
+        # Replace known table names with the market-specific table
+        for old_name in ("stock_selection", "stock_daily_latest", "stock_daily"):
+            if f"from {old_name}" in sql_lower:
+                try:
+                    normalized_sql = safe_table_replace(normalized_sql, old_name, market_table)
+                    sql_lower = normalized_sql.lower()
+                except SQLValidationError:
+                    pass
 
-        target_table = LATEST_TABLE if f"from {LATEST_TABLE}" in normalized_sql.lower() else "stock_selection"
+        target_table = market_table if f"from {market_table}" in normalized_sql.lower() else "stock_selection"
 
         # 强制清除 LLM 可能生成的 LIMIT 限制，确保返回足够多的股票
         normalized_sql = re.sub(r"limit\s+\d+", "", normalized_sql, flags=re.IGNORECASE).strip()
@@ -309,17 +310,18 @@ def _execute_raw_selection_sql(sql: str) -> tuple[list[PoolItem], date | None]:
 
 
 def _query_stock_pool(
-    conditions: list[dict[str, Any]], combiners: list[str], user_id: str
+    conditions: list[dict[str, Any]], combiners: list[str], user_id: str, table_name: str | None = None
 ) -> tuple[list[PoolItem], date | None]:
+    market_table = table_name or LATEST_TABLE
     try:
         with get_db() as session:
-            target_columns = _get_table_columns(session, LATEST_TABLE)
-            compat_table_sql = _build_compat_table_sql(LATEST_TABLE, target_columns)
+            target_columns = _get_table_columns(session, market_table)
+            compat_table_sql = _build_compat_table_sql(market_table, target_columns)
             # 1. 确定一个能覆盖绝大多数股票的有效"最新日期"
             # 而不是简单的 MAX，因为有些股票可能在最新一天停牌或未更新
             date_res = session.execute(
                 text(
-                    f"SELECT trade_date, COUNT(*) as cnt FROM {LATEST_TABLE} GROUP BY trade_date ORDER BY cnt DESC LIMIT 1"
+                    f"SELECT trade_date, COUNT(*) as cnt FROM {market_table} GROUP BY trade_date ORDER BY cnt DESC LIMIT 1"
                 )
             ).fetchone()
 
@@ -365,7 +367,7 @@ def _query_stock_pool(
 
             # 5. 执行最终查询 (全量返回，最高支持 10000 只股票)
             sql = f"""
-            SELECT 
+            SELECT
                 symbol,
                 name,
                 total_mv as market_cap,
@@ -374,7 +376,7 @@ def _query_stock_pool(
                 close,
                 amount,
                 volume
-            FROM {compat_table_sql} stock_daily_latest
+            FROM {compat_table_sql} {market_table}
             WHERE {final_where}
             ORDER BY total_mv DESC NULLS LAST
             LIMIT 10000
@@ -486,10 +488,12 @@ def _is_full_market_query(text: str) -> bool:
     return any(term in normalized for term in full_market_terms)
 
 
-def _build_full_market_sql() -> str:
+def _build_full_market_sql(market: str | None = None) -> str:
+    from .step1_stock_selection import get_latest_table
+    tbl = get_latest_table(market)
     return (
         "SELECT symbol, name, close, total_mv as market_cap, pe_ttm as pe_ratio\n"
-        "FROM stock_daily_latest"
+        f"FROM {tbl}"
     )
 
 
@@ -505,16 +509,17 @@ def _is_full_market_sql(sql: str) -> bool:
     return pattern.search(s) is not None
 
 
-async def _ensure_latest_table_data(session) -> bool:
+async def _ensure_latest_table_data(session, table_name: str | None = None) -> bool:
     """确保最新数据表中有可用数据，否则尝试检查原始表。"""
+    tbl = table_name or LATEST_TABLE
     try:
         # 1. 检查 latest 表
-        res = session.execute(text(f"SELECT COUNT(*) FROM {LATEST_TABLE}")).scalar()
+        res = session.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar()
         if int(res or 0) > 0:
             return True
 
         # 2. 如果 latest 为空，检查原始 stock_daily 表
-        logger.warning(f"表 {LATEST_TABLE} 为空，尝试检查原始 stock_daily 表...")
+        logger.warning(f"表 {tbl} 为空，尝试检查原始 stock_daily 表...")
         res_raw = session.execute(
             text("SELECT trade_date FROM stock_daily ORDER BY trade_date DESC LIMIT 1")
         ).fetchone()
@@ -522,7 +527,7 @@ async def _ensure_latest_table_data(session) -> bool:
         if res_raw:
             latest_date = res_raw[0]
             error_msg = (
-                f"选股数据未就绪：{LATEST_TABLE} 表为空。 "
+                f"选股数据未就绪：{tbl} 表为空。 "
                 f"检测到原始数据表中最新日期为 {latest_date}，请运行同步脚本: "
                 "python scripts/sync_latest_stocks.py"
             )
@@ -537,22 +542,26 @@ async def _ensure_latest_table_data(session) -> bool:
         return False
 
 
-async def query_pool(dsl: str, user_id: str) -> QueryPoolResponse:
+async def query_pool(dsl: str, user_id: str, market: str | None = None) -> QueryPoolResponse:
     """执行 DSL/SQL 查询并返回股票池"""
+    from .step1_stock_selection import get_latest_table
+
+    market_table = get_latest_table(market)
+
     # 增加数据就绪性检查
     with get_db() as session:
-        await _ensure_latest_table_data(session)
+        await _ensure_latest_table_data(session, market_table)
 
     if dsl.startswith("SQL: "):
         raw_sql = dsl.replace("SQL: ", "").strip()
-        items, as_of_date = _execute_raw_selection_sql(raw_sql)
+        items, as_of_date = _execute_raw_selection_sql(raw_sql, market_table)
     else:
         if not dsl.startswith(DSL_PREFIX):
             raise ValueError("DSL格式不正确，必须以 'SELECT symbol WHERE' 开头")
 
         conditions, combiners = _parse_dsl(dsl)
-        items, as_of_date = _query_stock_pool(conditions, combiners, user_id)
+        items, as_of_date = _query_stock_pool(conditions, combiners, user_id, market_table)
 
-    universe_total = _get_universe_total(user_id)
+    universe_total = _get_universe_total(user_id, market_table)
     summary, charts = _build_pool_summary(items, as_of_date, universe_total=universe_total)
     return QueryPoolResponse(items=items, summary=summary, charts=charts)

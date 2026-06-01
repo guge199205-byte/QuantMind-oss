@@ -20,6 +20,7 @@ import type { DashboardTab } from './store/slices/aiStrategySlice';
 import logger from './utils/safeLogger';
 import { refreshOrchestrator } from './services/refreshOrchestrator';
 import { useTradingModeInitialization } from './hooks/useTradingModeInitialization';
+import { useMarketReset } from './hooks/useMarketReset';
 import { authService } from './features/auth/services/authService';
 import { initDynamicServerUrl } from './config/services';
 
@@ -95,6 +96,7 @@ export default function App() {
   const { isAuthenticated, isLoading } = useAuth();
   useTheme();
   useTradingModeInitialization();
+  useMarketReset();
   
   dayjs.locale('zh-cn');
 

@@ -7,14 +7,15 @@ import { useWebSocket } from '../contexts/WebSocketContext';
 import { shouldUpdateByFingerprint, calcFingerprint } from '../utils/dataChange';
 import { refreshOrchestrator } from '../services/refreshOrchestrator';
 import { authService } from '../features/auth/services/authService';
+import { useAppSelector } from '../store';
+import { selectCurrentMarket } from '../store/slices/uiSlice';
+import { getMarketConfig } from '../config/marketConfig';
 
 export interface ChartData {
     dailyReturn: ChartDataPoint[];
     tradeCount: ChartDataPoint[];
     positionRatio: PositionDistribution[];
 }
-
-const CHART_CALENDAR_MARKET = 'SSE';
 const tradingDayWindowCache = new Map<string, Promise<string[]>>();
 
 const chartsAutoFetchEnabled = (): boolean => {
@@ -324,8 +325,8 @@ const buildTradingCalendarSeries = (
     });
 };
 
-const getTradingDayWindow = async (anchorDate: string, count: number): Promise<string[]> => {
-    const cacheKey = `${CHART_CALENDAR_MARKET}:${anchorDate}:${count}`;
+const getTradingDayWindow = async (anchorDate: string, count: number, calendar: string = 'SSE'): Promise<string[]> => {
+    const cacheKey = `${calendar}:${anchorDate}:${count}`;
     const cached = tradingDayWindowCache.get(cacheKey);
     if (cached) return cached;
 
@@ -333,7 +334,7 @@ const getTradingDayWindow = async (anchorDate: string, count: number): Promise<s
         const dates = [anchorDate];
         let cursor = anchorDate;
         while (dates.length < count) {
-            const prev = await modelTrainingService.prevTradingDay(CHART_CALENDAR_MARKET, cursor);
+            const prev = await modelTrainingService.prevTradingDay(calendar, cursor);
             if (!prev || prev === cursor) break;
             dates.push(prev);
             cursor = prev;
@@ -346,6 +347,8 @@ const getTradingDayWindow = async (anchorDate: string, count: number): Promise<s
 };
 
 export const useIntelligenceCharts = (userId: string = 'current', options?: { autoRefresh?: boolean, tradingMode?: 'real' | 'simulation' }) => {
+    const currentMarket = useAppSelector(selectCurrentMarket);
+    const calendar = getMarketConfig(currentMarket).calendar;
     const autoFetchEnabled = options?.autoRefresh ?? chartsAutoFetchEnabled();
     const resolvedUserId = resolveChartUserId(userId);
     const mode = options?.tradingMode || 'real';
@@ -467,14 +470,14 @@ export const useIntelligenceCharts = (userId: string = 'current', options?: { au
             const ledgerAnchorDate = parseIsoDateFromTimestamp(ledgerPoints[ledgerPoints.length - 1]?.timestamp || '');
             
             const resolvedAnchor = await modelTrainingService.resolveInferenceDateByCalendar(
-                CHART_CALENDAR_MARKET,
+                calendar,
                 fallbackAnchorDate,
             );
             
             const anchorTradingDate = resolvedAnchor.date || fallbackAnchorDate;
             const [recentDailyTradingDates, recentTradeTradingDates] = await Promise.all([
-                getTradingDayWindow(anchorTradingDate, 30),
-                getTradingDayWindow(anchorTradingDate, 7),
+                getTradingDayWindow(anchorTradingDate, 30, calendar),
+                getTradingDayWindow(anchorTradingDate, 7, calendar),
             ]);
 
             const todayReturnPct = resolveAccountDailyReturnPct(account);

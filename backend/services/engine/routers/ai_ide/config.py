@@ -14,6 +14,8 @@ router = APIRouter()
 
 class LLMConfig(BaseModel):
     qwen_api_key: str
+    model: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 def _get_user_info(request: Request):
@@ -54,13 +56,15 @@ async def get_llm_config(request: Request):
             if resp.status_code == 200:
                 body = resp.json()
                 data = body.get("data", {})
-                key = data.get("api_key")
+                key = data.get("ai_ide_api_key") or data.get("api_key")
                 has_key = bool(key and key.strip())
                 masked = f"{key[:3]}****{key[-4:]}" if has_key and len(key) > 8 else ""
                 return {
                     "success": True,
                     "has_key": has_key,
                     "masked_key": masked,
+                    "model": data.get("ai_ide_model") or "",
+                    "base_url": data.get("ai_ide_base_url") or "",
                 }
             else:
                 logger.warning(f"Failed to fetch profile: {resp.status_code} {resp.text}")
@@ -83,6 +87,12 @@ async def save_llm_config(request: Request, config: LLMConfig):
 
     api_gateway = _get_api_gateway_url()
 
+    update_payload: dict = {"ai_ide_api_key": new_key}
+    if config.model is not None:
+        update_payload["ai_ide_model"] = config.model.strip()
+    if config.base_url is not None:
+        update_payload["ai_ide_base_url"] = config.base_url.strip()
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             headers = {
@@ -94,7 +104,7 @@ async def save_llm_config(request: Request, config: LLMConfig):
             resp = await client.put(
                 f"{api_gateway}/api/v1/profiles/{user_id}",
                 headers=headers,
-                json={"api_key": new_key},
+                json=update_payload,
             )
             if resp.status_code != 200:
                 logger.error(f"Failed to update profile for user {user_id}: {resp.text}")

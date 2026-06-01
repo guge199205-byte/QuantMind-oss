@@ -16,6 +16,9 @@ class CreateItemRequest(BaseModel):
 class SaveRequest(BaseModel):
     content: str
 
+class SetRootRequest(BaseModel):
+    path: str
+
 def _get_user_id(request: Request) -> str:
     user = getattr(request.state, "user", None)
     if not user:
@@ -24,6 +27,12 @@ def _get_user_id(request: Request) -> str:
     if raw is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     return str(raw)
+
+@router.post("/set-root")
+async def set_root(request: Request, body: SetRootRequest):
+    """Cloud IDE workspace root is virtual — accept and acknowledge."""
+    return {"status": "success", "current_root": body.path}
+
 
 @router.get("/list")
 async def list_files(request: Request, path: str = ""):

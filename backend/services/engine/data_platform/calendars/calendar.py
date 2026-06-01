@@ -132,6 +132,19 @@ class UnitedStatesCalendar(_DbBackedCalendar):
     regular_close = time(16, 0)
 
 
+class CryptoCalendar(TradingCalendar):
+    """加密货币 7×24 交易，每天都是交易日。"""
+    market = "CRYPTO"
+    tz = ZoneInfo("UTC")
+    regular_open = time(0, 0)
+    regular_close = time(23, 59)
+
+    def _lookup(self, d: date) -> tuple[bool, bool]:
+        return (True, False)
+    regular_open = time(9, 30)
+    regular_close = time(16, 0)
+
+
 _CALENDARS: dict[str, TradingCalendar] = {}
 _CAL_LOCK = threading.Lock()
 
@@ -151,6 +164,8 @@ def get_calendar(
             cal = HongKongCalendar(db_loader=db_loader)
         elif m == "US":
             cal = UnitedStatesCalendar(db_loader=db_loader)
+        elif m == "CRYPTO":
+            cal = CryptoCalendar()
         else:
             cal = WeekdayFallbackCalendar()
             cal.market = m

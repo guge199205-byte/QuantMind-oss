@@ -1,10 +1,10 @@
-import React from 'react';
-import { Form, Slider, Select, Space, Typography, Divider, Card, Badge, Tooltip } from 'antd';
-import { 
-  Settings, 
-  Target, 
-  RefreshCcw, 
-  Trash2, 
+import React, { useEffect } from 'react';
+import { Form, Slider, Select, Space, Typography, Divider, Card, Badge, Tag, Tooltip } from 'antd';
+import {
+  Settings,
+  Target,
+  RefreshCcw,
+  Trash2,
   Info,
   Layers,
   Zap,
@@ -13,6 +13,9 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWizardV2Store } from '../store/wizardV2Store';
 import { QLIB_REBALANCE_DAY_OPTIONS, resolveRebalanceDays, RebalanceDays } from '../../../shared/qlib/rebalance';
+import { useAppSelector } from '../../../store';
+import { selectCurrentMarket } from '../../../store/slices/uiSlice';
+import { getMarketConfig } from '../../../config/marketConfig';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -67,8 +70,17 @@ const StrategyTypeCard: React.FC<{
 
 const QlibParamsConfig: React.FC<Props> = ({ onNext, onBack }) => {
   const { qlibParams, setQlibParams } = useWizardV2Store();
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const marketConfig = getMarketConfig(currentMarket);
   const params = qlibParams ?? { strategy_type: 'TopkDropout', topk: 10, n_drop: 2, rebalance_days: 5 };
   const normalizedRebalanceDays = resolveRebalanceDays(params);
+
+  // 确保 qlibParams 中包含当前市场
+  useEffect(() => {
+    if (!qlibParams?.market) {
+      setQlibParams({ ...params, market: currentMarket });
+    }
+  }, [currentMarket]);
 
   const update = (patch: Partial<typeof params>) => {
     const newParams = { ...params, ...patch };
@@ -80,9 +92,14 @@ const QlibParamsConfig: React.FC<Props> = ({ onNext, onBack }) => {
 
   return (
     <div className="w-full">
-      <div className="mb-8">
-        <Title level={4} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>Qlib 策略参数</Title>
-        <Text style={{ color: '#475569', fontWeight: 500 }}>配置 Alpha 引擎的选股逻辑与执行参数</Text>
+      <div className="mb-8 flex items-center gap-3">
+        <div>
+          <Title level={4} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>Qlib 策略参数</Title>
+          <Text style={{ color: '#475569', fontWeight: 500 }}>配置 Alpha 引擎的选股逻辑与执行参数</Text>
+        </div>
+        <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px', borderRadius: 8 }}>
+          {marketConfig.label}
+        </Tag>
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

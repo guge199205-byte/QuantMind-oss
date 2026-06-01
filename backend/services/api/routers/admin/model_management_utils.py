@@ -55,8 +55,8 @@ FEATURE_SNAPSHOT_DIR = Path(
     os.getenv("TRAINING_LOCAL_DATA_PATH", str(Path(os.getcwd()) / "db" / "feature_snapshots"))
 )
 FEATURE_COVERAGE_CACHE_TTL_SEC = max(5, int(os.getenv("FEATURE_COVERAGE_CACHE_TTL_SEC", "300")))
-_feature_coverage_cache_data: dict[str, Any] | None = None
-_feature_coverage_cache_expires_at: float = 0.0
+_feature_coverage_cache_data: dict[str, Any] = {}
+_feature_coverage_cache_expires_at: dict[str, float] = {}
 
 
 # ---------- 目录扫描工具函数 ----------
@@ -266,14 +266,33 @@ def _build_suggested_periods(min_date: date, max_date: date) -> dict[str, list[s
     }
 
 
-def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
+def _scan_feature_snapshot_coverage(market: str | None = None) -> dict[str, Any] | None:
     if not FEATURE_SNAPSHOT_DIR.exists() or not FEATURE_SNAPSHOT_DIR.is_dir():
         return None
 
-    # 支持两种文件命名模式: train_ready_*.parquet 和 model_features_*.parquet
-    files = sorted(FEATURE_SNAPSHOT_DIR.glob("train_ready_*.parquet"))
-    if not files:
-        files = sorted(FEATURE_SNAPSHOT_DIR.glob("model_features_*.parquet"))
+    # Market-specific parquet file mapping (single-file markets)
+    MARKET_PARQUET_MAP = {
+        "HK": "model_features_hk.parquet",
+        "US": "model_features_us.parquet",
+        "CRYPTO": "model_features_crypto.parquet",
+    }
+
+    if market and market.upper() in MARKET_PARQUET_MAP:
+        # Single-file markets: use only the market-specific parquet
+        target_file = FEATURE_SNAPSHOT_DIR / MARKET_PARQUET_MAP[market.upper()]
+        if target_file.exists():
+            files = [target_file]
+        else:
+            files = []
+    else:
+        # CN (default): scan all A-share year files (2016-2026)
+        files = sorted(FEATURE_SNAPSHOT_DIR.glob("train_ready_*.parquet"))
+        if not files:
+            files = sorted(FEATURE_SNAPSHOT_DIR.glob("model_features_20*.parquet"))
+            # Exclude market-specific files (HK/US/CRYPTO)
+            files = [f for f in files if not any(
+                f.name.endswith(suffix) for suffix in ("_hk.parquet", "_us.parquet", "_crypto.parquet")
+            )]
     if not files:
         return None
 
@@ -291,7 +310,12 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
 
     for file_path in files:
         try:
-            df_cols = pd.read_parquet(file_path, columns=["trade_date", "symbol"], engine="pyarrow")
+            # Market-specific parquet files use 'instrument' instead of 'symbol'
+            try:
+                df_cols = pd.read_parquet(file_path, columns=["trade_date", "symbol"], engine="pyarrow")
+            except Exception:
+                df_cols = pd.read_parquet(file_path, columns=["trade_date", "instrument"], engine="pyarrow")
+                df_cols = df_cols.rename(columns={"instrument": "symbol"})
             date_series = df_cols["trade_date"]
             if date_series.empty:
                 continue
@@ -320,7 +344,7 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
             try:
                 import pyarrow.parquet as pq
                 schema = pq.read_schema(str(file_path))
-                feature_dim = len([f for f in schema.names if f not in ("trade_date", "symbol")])
+                feature_dim = len([f for f in schema.names if f not in ("trade_date", "symbol", "instrument")])
             except Exception:
                 feature_dim = 0
 
@@ -354,26 +378,40 @@ def _scan_feature_snapshot_coverage() -> dict[str, Any] | None:
     }
 
 
-def _get_feature_snapshot_coverage_cached() -> dict[str, Any] | None:
+def _get_feature_snapshot_coverage_cached(market: str | None = None) -> dict[str, Any] | None:
     global _feature_coverage_cache_data
     global _feature_coverage_cache_expires_at
 
+    cache_key = (market or "default").upper()
     now_ts = time_module.time()
-    if _feature_coverage_cache_data is not None and now_ts < _feature_coverage_cache_expires_at:
-        return _feature_coverage_cache_data
 
-    payload = _scan_feature_snapshot_coverage()
-    _feature_coverage_cache_data = payload
-    _feature_coverage_cache_expires_at = now_ts + FEATURE_COVERAGE_CACHE_TTL_SEC
+    # Market-specific cache
+    if not isinstance(_feature_coverage_cache_data, dict):
+        _feature_coverage_cache_data = {}
+
+    cached = _feature_coverage_cache_data.get(cache_key)
+    cache_expires = _feature_coverage_cache_expires_at.get(cache_key, 0) if isinstance(_feature_coverage_cache_expires_at, dict) else 0
+
+    if cached is not None and now_ts < cache_expires:
+        return cached
+
+    payload = _scan_feature_snapshot_coverage(market=market)
+    _feature_coverage_cache_data[cache_key] = payload
+    if not isinstance(_feature_coverage_cache_expires_at, dict):
+        _feature_coverage_cache_expires_at = {}
+    _feature_coverage_cache_expires_at[cache_key] = now_ts + FEATURE_COVERAGE_CACHE_TTL_SEC
     return payload
 
 
 def _scan_feature_snapshots_status(
     target_date: str | None = None,
     topn: int = 20,
+    market: str = "a_share",
 ) -> dict[str, Any]:
     """
-    重构：直接读取 11 个年份的 metadata.json 文件，提取关键信息。
+    扫描特征快照状态。
+    market=a_share: 扫描 model_features_*.parquet（年份命名）+ metadata.json
+    market=crypto/hong_kong/us_stock: 扫描 model_features_{market}.parquet
     """
     result: dict[str, Any] = {
         "exists": False,
@@ -404,7 +442,11 @@ def _scan_feature_snapshots_status(
 
     result["exists"] = True
 
-    # 1. 扫描所有的 metadata.json 文件
+    # 非 A 股市场：扫描单个市场 parquet 文件
+    if market != "a_share":
+        return _scan_market_feature_parquet(market, result, target_date)
+
+    # A 股：扫描 metadata.json 文件（原有逻辑）
     json_files = sorted(FEATURE_SNAPSHOT_DIR.glob("*.metadata.json"), reverse=True)
     result["file_count"] = len(json_files)
 
@@ -469,16 +511,159 @@ def _scan_feature_snapshots_status(
     return result
 
 
-def _enrich_feature_catalog_with_data_coverage(catalog: dict[str, Any] | None) -> dict[str, Any] | None:
+def _scan_market_feature_parquet(
+    market: str,
+    result: dict[str, Any],
+    target_date: str | None = None,
+) -> dict[str, Any]:
+    """扫描非 A 股市场的特征 parquet 文件。"""
+    market_parquet_names = {
+        "crypto": "model_features_crypto.parquet",
+        "hong_kong": "model_features_hk.parquet",
+        "us_stock": "model_features_us.parquet",
+    }
+    parquet_name = market_parquet_names.get(market)
+    if not parquet_name:
+        return result
+
+    parquet_path = FEATURE_SNAPSHOT_DIR / parquet_name
+    if not parquet_path.exists():
+        return result
+
+    try:
+        import pandas as pd
+        import pyarrow.parquet as pq
+
+        schema = pq.read_schema(str(parquet_path))
+        feature_dim = len([f for f in schema.names if f not in ("trade_date", "symbol", "instrument")])
+
+        df_cols = pd.read_parquet(str(parquet_path), columns=["trade_date", "instrument"], engine="pyarrow")
+        date_series = pd.to_datetime(df_cols["trade_date"])
+        min_date = date_series.min()
+        max_date = date_series.max()
+        symbol_count = int(df_cols["instrument"].nunique())
+        row_count = len(df_cols)
+
+        result["exists"] = True
+        result["file_count"] = 1
+        result["scanned_files"] = 1
+        result["total_rows"] = row_count
+        result["min_date"] = min_date.date().isoformat() if hasattr(min_date, "date") else str(min_date)
+        result["max_date"] = max_date.date().isoformat() if hasattr(max_date, "date") else str(max_date)
+
+        result["metadata_files"] = [{
+            "year": None,
+            "start_date": result["min_date"],
+            "end_date": result["max_date"],
+            "row_count": row_count,
+            "feature_dim": feature_dim,
+            "symbol_count": symbol_count,
+            "filename": parquet_name,
+        }]
+
+        if result["min_date"] and result["max_date"]:
+            try:
+                min_d = date.fromisoformat(result["min_date"])
+                max_d = date.fromisoformat(result["max_date"])
+                result["suggested_periods"] = _build_suggested_periods(min_d, max_d)
+            except Exception:
+                pass
+
+        if target_date and result["max_date"]:
+            if result["max_date"] >= target_date:
+                result["latest_date_coverage"]["at_target_count"] = symbol_count
+            else:
+                result["latest_date_coverage"]["older_count"] = symbol_count
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+_NON_CN_BASE_FEATURES = {"open", "high", "low", "close", "volume", "factor"}
+
+
+def _get_market_parquet_columns(market: str) -> set[str] | None:
+    """Read available feature columns from market-specific parquet file(s)."""
+    market_upper = market.upper()
+
+    # CN: scan ALL year files, return intersection of columns
+    if market_upper == "CN":
+        try:
+            import pyarrow.parquet as pq
+            files = sorted(FEATURE_SNAPSHOT_DIR.glob("model_features_20*.parquet"))
+            files = [f for f in files if not any(
+                f.name.endswith(s) for s in ("_hk.parquet", "_us.parquet", "_crypto.parquet")
+            )]
+            if not files:
+                return None
+            # Start with columns from first file, intersect with each subsequent
+            common: set[str] | None = None
+            for fp in files:
+                schema = pq.read_schema(str(fp))
+                cols = {name for name in schema.names if not name.startswith("__") and name not in ("symbol", "trade_date")}
+                common = cols if common is None else common & cols
+            return common
+        except Exception:
+            return None
+
+    _MARKET_FILES = {
+        "HK": "model_features_hk.parquet",
+        "US": "model_features_us.parquet",
+        "CRYPTO": "model_features_crypto.parquet",
+    }
+    if market_upper not in _MARKET_FILES:
+        return None
+    parquet_path = FEATURE_SNAPSHOT_DIR / _MARKET_FILES[market_upper]
+    if not parquet_path.exists():
+        return None
+    try:
+        import pyarrow.parquet as pq
+        schema = pq.read_schema(str(parquet_path))
+        return {name for name in schema.names if name not in ("instrument", "trade_date")}
+    except Exception:
+        return None
+
+
+def _enrich_feature_catalog_with_data_coverage(catalog: dict[str, Any] | None, market: str | None = None) -> dict[str, Any] | None:
     if not isinstance(catalog, dict):
         return catalog
 
-    coverage = _get_feature_snapshot_coverage_cached()
+    # Filter to features available in market parquet(s)
+    if market:
+        catalog = _filter_catalog_for_non_cn(catalog, market=market.upper())
+
+    coverage = _get_feature_snapshot_coverage_cached(market=market)
     if not coverage:
         return catalog
 
     enriched = dict(catalog)
     enriched["data_coverage"] = coverage
+    return enriched
+
+
+def _filter_catalog_for_non_cn(catalog: dict[str, Any], market: str = "US") -> dict[str, Any]:
+    """Filter feature catalog to only include features available in the market's parquet."""
+    available = _get_market_parquet_columns(market)
+    if available is None:
+        available = _NON_CN_BASE_FEATURES
+    filtered_categories = []
+    for cat in catalog.get("categories", []):
+        filtered_features = [
+            f for f in cat.get("features", [])
+            if f.get("key") in available
+        ]
+        if filtered_features:
+            new_cat = dict(cat)
+            new_cat["features"] = filtered_features
+            new_cat["feature_count"] = len(filtered_features)
+            filtered_categories.append(new_cat)
+
+    enriched = dict(catalog)
+    enriched["categories"] = filtered_categories
+    enriched["feature_count"] = sum(c["feature_count"] for c in filtered_categories)
+    enriched["market_filtered"] = True
     return enriched
 
 

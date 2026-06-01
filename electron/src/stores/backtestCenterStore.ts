@@ -12,6 +12,8 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { BACKTEST_CONFIG } from '../config/backtest';
+import { getMarketConfig, type MarketConfig } from '../config/marketConfig';
+import type { AppMarket } from '../store/slices/uiSlice';
 
 // WebSocket 类型定义
 interface CustomWebSocket extends WebSocket {
@@ -58,6 +60,7 @@ interface BacktestCenterState {
   backtestConfig: Partial<BacktestConfig>;
   updateBacktestConfig: (config: Partial<BacktestConfig>) => void;
   resetBacktestConfig: () => void;
+  resetForMarket: (market: AppMarket) => void;
 
   // 运行中的回测
   runningBacktests: Map<string, BacktestProgress>;
@@ -94,6 +97,15 @@ const defaultBacktestConfig: Partial<BacktestConfig> = {
   qlib_provider_uri: 'db/qlib_data',
   qlib_region: 'cn',
 };
+
+function buildMarketBacktestConfig(market: AppMarket): Partial<BacktestConfig> {
+  const mc = getMarketConfig(market);
+  return {
+    ...defaultBacktestConfig,
+    qlib_provider_uri: mc.qlibProviderUri,
+    qlib_region: mc.qlibRegion,
+  };
+}
 
 export const useBacktestCenterStore = create<BacktestCenterState>()(
   devtools(
@@ -132,6 +144,14 @@ export const useBacktestCenterStore = create<BacktestCenterState>()(
 
         resetBacktestConfig: () =>
           set({ backtestConfig: defaultBacktestConfig }),
+
+        // 市场切换时重置配置
+        resetForMarket: (market: AppMarket) =>
+          set({
+            backtestConfig: buildMarketBacktestConfig(market),
+            selectedBacktests: [],
+            backtestHistory: [],
+          }),
 
         // 运行中回测管理
         addRunningBacktest: (id, progress) =>

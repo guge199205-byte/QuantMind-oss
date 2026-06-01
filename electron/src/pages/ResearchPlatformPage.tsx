@@ -68,6 +68,9 @@ import {
   safeNum,
 } from '../features/research/utils/formatters';
 import '../styles/research-next-theme.css';
+import { useAppSelector } from '../store';
+import { selectCurrentMarket } from '../store/slices/uiSlice';
+import { getMarketConfig } from '../config/marketConfig';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -176,6 +179,8 @@ const RangeInput: React.FC<{
 };
 
 export const ResearchPlatformPage: React.FC = () => {
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const marketConfig = getMarketConfig(currentMarket);
   const [availableModels, setAvailableModels] = React.useState<ResearchModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = React.useState<string>('');
   const [availableRuns, setAvailableRuns] = React.useState<ResearchRunOption[]>([]);
@@ -454,7 +459,7 @@ export const ResearchPlatformPage: React.FC = () => {
       setModelsLoading(true);
       setModelsError(null);
       try {
-        const models = await researchService.getAvailableModels();
+        const models = await researchService.getAvailableModels(currentMarket);
         if (cancelled) return;
         setAvailableModels(models);
         if (models.length > 0 && !selectedModelId) {
@@ -469,7 +474,7 @@ export const ResearchPlatformPage: React.FC = () => {
     };
     void loadModels();
     return () => { cancelled = true; };
-  }, []);
+  }, [currentMarket]);
 
   // 模型切换时加载批次
   React.useEffect(() => {
@@ -519,28 +524,30 @@ export const ResearchPlatformPage: React.FC = () => {
             ...item,
             score: safeNum(item?.score, 0),
             latestChange: safeNum(item?.latestChange, 0),
-            nextDayReturn: item?.nextDayReturn !== null && item?.nextDayReturn !== undefined ? safeNum(item?.nextDayReturn, 0) : null,
-            day3Return: item?.day3Return !== null && item?.day3Return !== undefined ? safeNum(item?.day3Return, 0) : null,
+            nextDayReturn: item?.nextDayReturn != null ? safeNum(item?.nextDayReturn, 0) : null,
+            day3Return: item?.day3Return != null ? safeNum(item?.day3Return, 0) : null,
             consecutiveLimitUpDays: safeNum(item?.consecutiveLimitUpDays, 0),
-            turnoverRate: safeNum(item?.turnoverRate, 0),
-            amount: safeNum(item?.amount, 0),
-            pe: safeNum(item?.pe, 0),
-            roe: normalizeRoe(item?.roe),
-            rsi: safeNum(item?.rsi, 0),
-            profitGrowth: safeNum(item?.profitGrowth ?? item?.profit_growth, 0),
-            mainFlow: safeNum(item?.mainFlow ?? item?.main_flow, 0),
-            instOwnership: safeNum(item?.instOwnership ?? item?.inst_ownership, 0),
-            ma5: safeNum(item?.ma5, 0),
-            ma10: safeNum(item?.ma10, 0),
-            pb: safeNum(item?.pb, 0),
-            totalMv: normalizeYiValue(item?.totalMv ?? item?.total_mv ?? item?.marketCap),
-            floatMv: normalizeYiValue(item?.floatMv ?? item?.float_mv),
-            listedDays: safeNum(item?.listedDays ?? item?.listed_days, 0),
-            return3d: safeNum(item?.return3d ?? item?.return_3d, 0),
-            maGap10: safeNum(item?.maGap10 ?? item?.ma_gap_10, 0),
-            maGap20: safeNum(item?.maGap20 ?? item?.ma_gap_20, 0),
-            rsi14: safeNum(item?.rsi14 ?? item?.rsi_14 ?? item?.rsi, 0),
-            volRatio20: safeNum(item?.volumeRatio20 ?? item?.volume_ratio_20, 0),
+            turnoverRate: item?.turnoverRate != null ? safeNum(item?.turnoverRate, 0) : null,
+            amount: item?.amount != null ? safeNum(item?.amount, 0) : null,
+            pe: item?.pe != null ? safeNum(item?.pe, 0) : null,
+            roe: item?.roe != null ? normalizeRoe(item?.roe) : null,
+            rsi: item?.rsi != null ? safeNum(item?.rsi, 0) : null,
+            profitGrowth: item?.profitGrowth ?? item?.profit_growth ?? null,
+            mainFlow: item?.mainFlow ?? item?.main_flow ?? null,
+            instOwnership: item?.instOwnership ?? item?.inst_ownership ?? null,
+            ma5: item?.ma5 != null ? safeNum(item?.ma5, 0) : null,
+            ma10: item?.ma10 != null ? safeNum(item?.ma10, 0) : null,
+            pb: item?.pb != null ? safeNum(item?.pb, 0) : null,
+            totalMv: item?.totalMv ?? item?.total_mv ?? item?.marketCap ?? null,
+            floatMv: item?.floatMv ?? item?.float_mv ?? null,
+            listedDays: item?.listedDays ?? item?.listed_days ?? null,
+            return3d: item?.return3d ?? item?.return_3d ?? null,
+            maGap10: item?.maGap10 ?? item?.ma_gap_10 ?? null,
+            maGap20: item?.maGap20 ?? item?.ma_gap_20 ?? null,
+            rsi14: item?.rsi14 ?? item?.rsi_14 ?? item?.rsi ?? null,
+            volRatio20: item?.volumeRatio20 ?? item?.volume_ratio_20 ?? null,
+            atr: item?.atr ?? null,
+            macdHist: item?.macdHist ?? item?.macd_hist ?? null,
             conceptTags: Array.isArray(item?.conceptTags) ? item.conceptTags : [],
             indexTags: Array.isArray(item?.indexTags) ? item.indexTags : [],
             concept: item?.concept || '',
@@ -549,8 +556,8 @@ export const ResearchPlatformPage: React.FC = () => {
             isHs300: Boolean(item?.isHs300),
             isCsi500: Boolean(item?.isCsi500),
             isCsi1000: Boolean(item?.isCsi1000),
-            maGap5: safeNum(item?.maGap5 ?? item?.ma_gap_5, 0),
-            volRatio5: safeNum(item?.volRatio5 ?? item?.volume_ratio_5, 0),
+            maGap5: item?.maGap5 ?? item?.ma_gap_5 ?? null,
+            volRatio5: item?.volRatio5 ?? item?.volume_ratio_5 ?? null,
             confidence: item?.confidence || 'watch',
           }))
         );
@@ -744,10 +751,10 @@ export const ResearchPlatformPage: React.FC = () => {
       else if (item.consecutiveLimitUpDays < appliedFilters.limitUpDays) isMatch = false;
       else {
         const amountRange = appliedFilters.amountRange || [0, 10000];
-        if (item.amount < amountRange[0] || item.amount > amountRange[1]) isMatch = false;
+        if (item.amount != null && (item.amount < amountRange[0] || item.amount > amountRange[1])) isMatch = false;
 
         const turnoverRange = appliedFilters.turnoverRange || [0, 100];
-        if (item.turnoverRate < turnoverRange[0] || item.turnoverRate > turnoverRange[1]) isMatch = false;
+        if (item.turnoverRate != null && (item.turnoverRate < turnoverRange[0] || item.turnoverRate > turnoverRange[1])) isMatch = false;
 
         // 高置信标的筛选
         if (isMatch && appliedFilters.highConfidenceOnly && item.confidence !== 'high') isMatch = false;
@@ -808,17 +815,17 @@ export const ResearchPlatformPage: React.FC = () => {
         // 技术指标筛选
         if (isMatch) {
           const rsiRange = appliedFilters.rsiRange || [0, 100];
-          if (item.rsi < rsiRange[0] || item.rsi > rsiRange[1]) isMatch = false;
+          if (item.rsi != null && (item.rsi < rsiRange[0] || item.rsi > rsiRange[1])) isMatch = false;
         }
 
         if (isMatch) {
           const mainFlowRange = appliedFilters.mainFlowRange || [-100000, 100000];
-          if (item.mainFlow < mainFlowRange[0] || item.mainFlow > mainFlowRange[1]) isMatch = false;
+          if (item.mainFlow != null && (item.mainFlow < mainFlowRange[0] || item.mainFlow > mainFlowRange[1])) isMatch = false;
         }
 
         // 修正机构持仓过滤逻辑：由于底层数据存在负值异常，默认不进行下限过滤，除非用户明确设置
         if (isMatch && appliedFilters.instOwnershipRange && appliedFilters.instOwnershipRange[0] > 0) {
-          if (item.instOwnership < appliedFilters.instOwnershipRange[0]) isMatch = false;
+          if (item.instOwnership != null && item.instOwnership < appliedFilters.instOwnershipRange[0]) isMatch = false;
         }
 
         // 特殊标签/状态：多维校验排除 ST / 退市股票
@@ -842,26 +849,23 @@ export const ResearchPlatformPage: React.FC = () => {
         }
 
         if (isMatch && appliedFilters.volRatio5Range > 0) {
-          const vr = item.volRatio5 || 0;
-          if (vr < appliedFilters.volRatio5Range) isMatch = false;
+          const vr = item.volRatio5;
+          if (vr != null && vr < appliedFilters.volRatio5Range) isMatch = false;
         }
 
         if (isMatch) {
           const maGap5Range = appliedFilters.maGap5Range || [-100, 100];
-          const gap = item.maGap5 || 0;
-          if (gap < maGap5Range[0] || gap > maGap5Range[1]) isMatch = false;
+          if (item.maGap5 != null && (item.maGap5 < maGap5Range[0] || item.maGap5 > maGap5Range[1])) isMatch = false;
         }
 
         if (isMatch) {
           const maGap20Range = appliedFilters.maGap20Range || [-100, 100];
-          const gap20 = (item as any).maGap20 || item.maGap20 || 0;
-          if (gap20 < maGap20Range[0] || gap20 > maGap20Range[1]) isMatch = false;
+          if (item.maGap20 != null && (item.maGap20 < maGap20Range[0] || item.maGap20 > maGap20Range[1])) isMatch = false;
         }
 
         if (isMatch) {
           const peRange = appliedFilters.peRange || [-10000, 100000];
-          // 强制执行 PE 过滤，不再依赖 advancedFiltersEnabled 开关
-          if (item.pe < peRange[0] || item.pe > peRange[1]) isMatch = false;
+          if (item.pe != null && (item.pe < peRange[0] || item.pe > peRange[1])) isMatch = false;
         }
       }
 
@@ -1358,30 +1362,30 @@ export const ResearchPlatformPage: React.FC = () => {
         dataIndex: 'turnoverRate',
         width: 90,
         align: 'center',
-        render: (value: number) => <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(2)}%</span>,
+        render: (value: number | null | undefined) => value != null ? <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(2)}%</span> : <span className="text-slate-300">-</span>,
       },
       {
         title: <span className="whitespace-nowrap">成交额</span>,
         dataIndex: 'amount',
         width: 108,
         align: 'center',
-        render: (value: number) => <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(2)}亿</span>,
+        render: (value: number | null | undefined) => value != null ? <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(2)}亿</span> : <span className="text-slate-300">-</span>,
       },
       {
         title: <span className="whitespace-nowrap">PE(TTM)</span>,
         dataIndex: 'pe',
         width: 92,
         align: 'center',
-        render: (value: number) => <span className="text-slate-600 font-medium whitespace-nowrap">{value >= 0 ? value.toFixed(1) : '-'}</span>,
+        render: (value: number | null | undefined) => value != null && value > 0 ? <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(1)}</span> : <span className="text-slate-300">-</span>,
       },
       {
         title: <span className="whitespace-nowrap">ROE(%)</span>,
         dataIndex: 'roe',
         width: 92,
         align: 'center',
-        render: (value: number) => (
+        render: (value: number | null | undefined) => (
           <span className="text-rose-500 font-bold whitespace-nowrap">
-            {value > -100 && value < 100 ? `${value.toFixed(1)}%` : '-'}
+            {value != null && value > -100 && value < 100 ? `${value.toFixed(1)}%` : '-'}
           </span>
         ),
       },
@@ -1390,9 +1394,9 @@ export const ResearchPlatformPage: React.FC = () => {
         dataIndex: 'maGap5',
         width: 92,
         align: 'center',
-        render: (value: number) => (
-          <span className={`whitespace-nowrap ${value >= 0 ? 'text-indigo-500 font-medium' : 'text-slate-400'}`}>
-            {value ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '-'}
+        render: (value: number | null | undefined) => (
+          <span className={`whitespace-nowrap ${value != null && value >= 0 ? 'text-indigo-500 font-medium' : 'text-slate-400'}`}>
+            {value != null ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '-'}
           </span>
         ),
       },
@@ -1401,9 +1405,9 @@ export const ResearchPlatformPage: React.FC = () => {
         dataIndex: 'rsi',
         width: 76,
         align: 'center',
-        render: (value: number) => (
-          <span className={`whitespace-nowrap ${value >= 70 ? 'text-rose-500 font-bold' : value <= 30 ? 'text-emerald-500' : 'text-slate-600'}`}>
-            {value ? value.toFixed(1) : '-'}
+        render: (value: number | null | undefined) => (
+          <span className={`whitespace-nowrap ${value != null && value >= 70 ? 'text-rose-500 font-bold' : value != null && value <= 30 ? 'text-emerald-500' : 'text-slate-600'}`}>
+            {value != null ? value.toFixed(1) : '-'}
           </span>
         ),
       },
@@ -1412,16 +1416,16 @@ export const ResearchPlatformPage: React.FC = () => {
         dataIndex: 'atr',
         width: 80,
         align: 'center',
-        render: (value: number) => <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(3)}</span>,
+        render: (value: number | null | undefined) => value != null ? <span className="text-slate-600 font-medium whitespace-nowrap">{value.toFixed(3)}</span> : <span className="text-slate-300">-</span>,
       },
       {
         title: <span className="whitespace-nowrap">MACD</span>,
         dataIndex: 'macdHist',
         width: 80,
         align: 'center',
-        render: (value: number) => (
-          <span className={`whitespace-nowrap ${value >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-            {value.toFixed(3)}
+        render: (value: number | null | undefined) => (
+          <span className={`whitespace-nowrap ${value != null && value >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+            {value != null ? value.toFixed(3) : '-'}
           </span>
         ),
       },
@@ -1430,9 +1434,9 @@ export const ResearchPlatformPage: React.FC = () => {
         dataIndex: 'maGap20',
         width: 92,
         align: 'center',
-        render: (value: number) => (
-          <span className={`whitespace-nowrap ${value >= 0 ? 'text-indigo-500 font-medium' : 'text-slate-400'}`}>
-            {value ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '-'}
+        render: (value: number | null | undefined) => (
+          <span className={`whitespace-nowrap ${value != null && value >= 0 ? 'text-indigo-500 font-medium' : 'text-slate-400'}`}>
+            {value != null ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '-'}
           </span>
         ),
       },
@@ -1771,7 +1775,7 @@ export const ResearchPlatformPage: React.FC = () => {
                 <Microscope className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-lg font-bold tracking-tight text-slate-900">投研平台</h1>
+                <h1 className="text-lg font-bold tracking-tight text-slate-900">投研平台 ({marketConfig.label})</h1>
                 <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Professional Quant Workspace</p>
               </div>
             </div>

@@ -7,6 +7,9 @@ import { type WorkingPoolItemV2 } from '../services/wizardV2Service';
 import { previewPoolFile, deletePoolFile } from '../services/wizardService';
 import { getWizardUserId } from '../utils/userId';
 import { loadFeaturesBySymbolsInBatches } from '../utils/featureEnrichment';
+import { useAppSelector } from '../../../store';
+import { selectCurrentMarket } from '../../../store/slices/uiSlice';
+import { getMarketConfig } from '../../../config/marketConfig';
 
 const { Text } = Typography;
 
@@ -16,7 +19,9 @@ export type PoolPreviewHandle = {
 
 export const PoolPreview = React.forwardRef<PoolPreviewHandle, { onNext: () => void; onBack: () => void }>(
   ({ onNext, onBack: _onBack }, ref) => {
-  const { 
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const marketConfig = getMarketConfig(currentMarket);
+  const {
     workingPool, 
     setWorkingPool, 
     activePoolVersionId, 
@@ -217,19 +222,21 @@ export const PoolPreview = React.forwardRef<PoolPreviewHandle, { onNext: () => v
   const selectedList = useMemo(() => workingPool.filter((x) => selectedSymbols.includes(x.symbol)), [workingPool, selectedSymbols]);
   const listForStats = selectedList.length > 0 ? selectedList : workingPool;
 
-  const capThresholdYi = 300; 
-  const capSmallCount = listForStats.filter((x) => (x.marketCap || 0) < capThresholdYi).length;
-  const capLargeCount = listForStats.length - capSmallCount;
+  const capThresholdYi = 300;
+  const capWithData = listForStats.filter((x) => Number(x.marketCap) > 0);
+  const capNoData = listForStats.length - capWithData.length;
+  const capSmallCount = capWithData.filter((x) => (x.marketCap || 0) < capThresholdYi).length;
+  const capLargeCount = capWithData.length - capSmallCount;
   
   const marketCapOption = {
     title: { text: '市值分布（300亿阈值）', left: 'center', textStyle: { fontSize: 14 } },
     tooltip: { trigger: 'item' },
     grid: { top: 40, bottom: 20, left: 40, right: 20 },
-    xAxis: { type: 'category', data: ['< 300亿', '≥ 300亿'] },
+    xAxis: { type: 'category', data: capNoData > 0 ? ['< 300亿', '≥ 300亿', '暂无数据'] : ['< 300亿', '≥ 300亿'] },
     yAxis: { type: 'value' },
     series: [{
       type: 'bar',
-      data: [capSmallCount, capLargeCount],
+      data: capNoData > 0 ? [capSmallCount, capLargeCount, capNoData] : [capSmallCount, capLargeCount],
       itemStyle: { color: '#1677ff' }
     }],
   };
@@ -339,6 +346,9 @@ export const PoolPreview = React.forwardRef<PoolPreviewHandle, { onNext: () => v
             title={
               <Space>
                 <span>筛选结果 ({dataSource.length})</span>
+                <Tag color="blue" style={{ fontSize: 11, padding: '0 6px', borderRadius: 6, lineHeight: '18px' }}>
+                  {marketConfig.label}
+                </Tag>
                 {selectedSymbols && selectedSymbols.length < dataSource.length && (
                   <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 'normal' }}>
                     已选 {selectedSymbols.length} 只
@@ -381,7 +391,7 @@ export const PoolPreview = React.forwardRef<PoolPreviewHandle, { onNext: () => v
                     dataIndex: 'marketCap',
                     width: 140,
                     align: 'center',
-                    render: (v) => (v !== undefined && v !== null) ? Number(v).toFixed(2) : '-',
+                    render: (v) => (v !== undefined && v !== null && Number(v) > 0) ? Number(v).toFixed(2) : '--',
                     sorter: (a, b) => (a.marketCap || 0) - (b.marketCap || 0)
                   },
                   {
@@ -390,7 +400,7 @@ export const PoolPreview = React.forwardRef<PoolPreviewHandle, { onNext: () => v
                     width: 140,
                     onHeaderCell: () => ({ style: { paddingRight: 30 } }),
                     onCell: () => ({ style: { paddingRight: 30 } }),
-                    render: (v) => (v !== undefined && v !== null && v !== 0) ? Number(v).toFixed(2) : (v === 0 ? '0.00' : '-'),
+                    render: (v) => (v !== undefined && v !== null && Number(v) !== 0 && Number.isFinite(Number(v))) ? Number(v).toFixed(2) : '--',
                     sorter: (a, b) => (a.pe || 0) - (b.pe || 0)
                   },
                 ]}

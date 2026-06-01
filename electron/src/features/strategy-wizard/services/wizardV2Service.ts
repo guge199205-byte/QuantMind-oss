@@ -42,10 +42,10 @@ export interface SavedPoolVersionV2 {
 /**
  * 选股查询并同步到后端 WorkingPool
  */
-export async function fetchWorkingPoolByDsl(dsl: string): Promise<WorkingPoolItemV2[]> {
+export async function fetchWorkingPoolByDsl(dsl: string, market?: string): Promise<WorkingPoolItemV2[]> {
   // 1. 获取查询结果
   const { queryPool } = await import('./wizardService');
-  const res = await queryPool({ dsl });
+  const res = await queryPool({ dsl, market });
   const items = Array.isArray(res?.items) ? res.items : [];
   const mapped = items.map((x: any) => ({
     symbol: String(x?.symbol || x?.code || '').trim(),

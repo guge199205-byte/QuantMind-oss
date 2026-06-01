@@ -200,6 +200,7 @@ class ModelRegistryService:
         else:
             canonical_model_id = f"sys-{raw}"
 
+        context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
         return {
             "model_id": canonical_model_id,
             "dir_name": raw,
@@ -215,6 +216,7 @@ class ModelRegistryService:
                 "feature_count": metadata.get("feature_count"),
                 "features": metadata.get("feature_columns", []),
                 "performance_metrics": metadata.get("performance_metrics", {}),
+                "context": context,
                 "train_start": metadata.get("train_start"),
                 "train_end": metadata.get("train_end"),
                 "valid_start": metadata.get("valid_start"),
@@ -1033,6 +1035,7 @@ class ModelRegistryService:
         else:
             canonical_model_id = f"sys-{raw}"
 
+        context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
         return {
             "model_id": canonical_model_id,
             "dir_name": raw,
@@ -1048,6 +1051,7 @@ class ModelRegistryService:
                 "feature_count": metadata.get("feature_count"),
                 "features": metadata.get("feature_columns", []),
                 "performance_metrics": metadata.get("performance_metrics", {}),
+                "context": context,
                 "train_start": metadata.get("train_start"),
                 "train_end": metadata.get("train_end"),
                 "valid_start": metadata.get("valid_start"),

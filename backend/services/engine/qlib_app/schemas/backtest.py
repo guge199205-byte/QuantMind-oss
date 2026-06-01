@@ -142,6 +142,13 @@ class QlibBacktestRequest(BaseModel):
         0.02, description="无风险利率（年化，用于Sharpe/Alpha计算）", ge=0.0, le=0.2
     )
 
+    qlib_provider_uri: str | None = Field(
+        None, description="Qlib 数据目录路径（按市场切换，如 db/qlib_data_hk）"
+    )
+    qlib_region: str | None = Field(
+        None, description="Qlib 市场区域（cn/hk/us/crypto）"
+    )
+
     backtest_id: str | None = Field(
         None, description="回测任务ID（异步模式由服务端注入并透传）"
     )

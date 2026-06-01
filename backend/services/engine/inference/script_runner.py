@@ -443,16 +443,30 @@ class InferenceScriptRunner:
         return min(required, total_rows)
 
     @staticmethod
-    def _resolve_prediction_trade_date(data_trade_date: str) -> str:
+    def _resolve_prediction_trade_date(data_trade_date: str, market: str = "A") -> str:
         """
         统一口径：
         - data_trade_date：用于读取特征的数据交易日 (T)
         - prediction_trade_date：信号生效交易日 (T+1)
         """
+        from datetime import date as _date, timedelta
+
+        market_upper = (market or "A").upper()
+
+        # 加密货币 7×24，T+1 自然日
+        if market_upper == "CRYPTO":
+            try:
+                d = _date.fromisoformat(str(data_trade_date)[:10])
+                return (d + timedelta(days=1)).isoformat()
+            except Exception:
+                return str(data_trade_date)
+
         try:
             import exchange_calendars as xcals
 
-            cal = xcals.get_calendar("XSHG")
+            _MARKET_XCAL = {"A": "XSHG", "HK": "XHKG", "US": "XNYS"}
+            xcal_name = _MARKET_XCAL.get(market_upper, "XSHG")
+            cal = xcals.get_calendar(xcal_name)
             # 将输入日期转换为下一个交易日
             nxt = cal.next_session(data_trade_date)
             return (
@@ -773,8 +787,9 @@ class InferenceScriptRunner:
         redis_client: 可选 Redis 客户端，用于写完成标记
         """
         script_path = self.primary_model_dir / self.primary_script_name
-        prediction_trade_date = self._resolve_prediction_trade_date(date)
         primary_meta = self._read_primary_metadata()
+        model_market = str((primary_meta.get("context") or {}).get("market") or "A").upper()
+        prediction_trade_date = self._resolve_prediction_trade_date(date, market=model_market)
         data_source = str(primary_meta.get("data_source") or "").lower()
         active_data_source = self._resolve_primary_active_data_source(primary_meta)
         if not script_path.is_file():

@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { marketService, MarketOverviewResponse } from '../services/marketService';
+import { marketService, MarketOverviewResponse, type MarketId } from '../services/marketService';
 
 export interface UseMarketDataOptions {
   autoRefresh?: boolean;
   refreshInterval?: number;
   mockData?: boolean;
+  market?: MarketId;
 }
 
 export interface UseMarketDataReturn {
@@ -20,16 +21,17 @@ export const useMarketData = (options: UseMarketDataOptions = {}): UseMarketData
   const {
     autoRefresh = true,
     refreshInterval = 10000, // 10秒
-    mockData = false
+    mockData = false,
+    market = 'CN',
   } = options;
 
   const { data, error, isLoading, isError, refetch } = useQuery<MarketOverviewResponse, Error>({
-    queryKey: ['marketData', mockData],
+    queryKey: ['marketData', market, mockData],
     queryFn: async () => {
       if (mockData) {
-        return marketService.generateMockData();
+        return marketService.generateMarketMockData(market);
       }
-      const response = await marketService.getMarketOverview();
+      const response = await marketService.getMarketOverview(market);
       if (!response.success) {
         throw new Error(response.error || '获取数据失败');
       }

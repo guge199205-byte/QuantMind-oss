@@ -454,6 +454,70 @@ def _sqlite_page_ids_in_range(
         return []
 
 
+def _sqlite_keyword_ids(
+    *,
+    keyword: str,
+    source_id: int | None,
+    folder_id: int | None,
+    starred: bool | None,
+    since_iso: str | None,
+    until_iso: str | None,
+    limit: int = 5000,
+) -> list[int]:
+    """从 SQLite 按关键词在标题/描述/正文中匹配, 返回 page id 列表.
+
+    搜索范围: page.title + page.description + page_article_content.content (全文).
+    用于 enrichment 标签搜索 + SQLite 全文搜索的 UNION 合并.
+    """
+    where: list[str] = []
+    params: list = []
+    if source_id is not None:
+        where.append("p.connector_id = ?"); params.append(int(source_id))
+    if folder_id is not None and folder_id > 0:
+        where.append("p.folder_id = ?"); params.append(int(folder_id))
+    if starred is True:
+        where.append("p.is_starred = 1")
+
+    def _iso_to_local_str(iso: str | None) -> str | None:
+        if not iso:
+            return None
+        try:
+            d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            local = d.astimezone(_HUNTLY_TZ)
+            return local.strftime("%Y-%m-%d %H:%M:%S.000")
+        except Exception:
+            return None
+
+    s = _iso_to_local_str(since_iso)
+    u = _iso_to_local_str(until_iso)
+    if s:
+        where.append("p.connected_at >= ?"); params.append(s)
+    if u:
+        where.append("p.connected_at <= ?"); params.append(u)
+
+    kw = f"%{keyword}%"
+    # 标题/描述/正文三路匹配, EXISTS 子查询避免 JOIN 产生重复
+    where.append(
+        "(p.title LIKE ? OR p.description LIKE ? OR EXISTS "
+        "(SELECT 1 FROM page_article_content pac WHERE pac.page_id = p.id AND pac.content LIKE ?))"
+    )
+    params.extend([kw, kw, kw])
+
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    sql = f"SELECT DISTINCT p.id FROM page p{where_sql} ORDER BY p.connected_at DESC LIMIT ?"
+    params.append(int(limit))
+    try:
+        with _huntly_sqlite() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            return [int(r["id"]) for r in cur.fetchall()]
+    except sqlite3.Error as e:
+        logger.warning("sqlite 关键词 ID 查询失败: %s", e)
+        return []
+
+
 def _list_articles_from_sqlite(
     *,
     source_id: int | None,
@@ -501,10 +565,16 @@ def _list_articles_from_sqlite(
     if until_local:
         where.append("p.connected_at <= ?"); params.append(until_local)
 
-    if keyword and keyword.strip():
+    if keyword and keyword.strip() and only_ids is None:
+        # 仅在无 only_ids 限制时走 SQLite 关键词搜索;
+        # 有 only_ids 时关键词匹配已在上游 enrichment + UNION 合并中完成.
         kw = f"%{keyword.strip()}%"
-        where.append("(p.title LIKE ? OR p.description LIKE ?)")
-        params.extend([kw, kw])
+        # 标题/描述/正文三路匹配, EXISTS 子查询避免 JOIN 产生重复
+        where.append(
+            "(p.title LIKE ? OR p.description LIKE ? OR EXISTS "
+            "(SELECT 1 FROM page_article_content pac WHERE pac.page_id = p.id AND pac.content LIKE ?))"
+        )
+        params.extend([kw, kw, kw])
 
     if only_financial_event:
         # SQL 内 OR (title LIKE %kw%) — 词表很短, 接受 N 次 OR
@@ -933,6 +1003,8 @@ async def list_articles(
       - 无 enrichment 标签过滤: SQL 真分页 (offset/limit + COUNT). 用户可以翻到任意一页.
       - 有 enrichment 过滤: 先在 PG enrichment 表里倒排查出 huntly_page_id 列表 (上限 5000),
         再用 SQLite IN(...) 求交集 + SQL 真分页. 仍然走 SQL, 不再受 REST 500 上限.
+      - keyword 搜索: 同时走 enrichment 标签匹配 (key_terms 等) + SQLite 标题/描述匹配,
+        两路 UNION 确保不遗漏. 无其他标签过滤时也走 enrichment 以提升搜索精度.
     """
     def _split(s: str | None) -> list[str]:
         return [x.strip() for x in (s or "").split(",") if x.strip()]
@@ -961,9 +1033,13 @@ async def list_articles(
         or want_departments
     )
 
+    # keyword 同时走 enrichment 标签匹配 (key_terms 等) + SQLite 标题/描述匹配,
+    # 两路 UNION 确保不遗漏. 无其他标签过滤时也走 enrichment 以提升搜索精度.
+    keyword_only_enrichment = bool(keyword and keyword.strip() and not has_enrichment_filter)
+
     only_ids: list[int] | None = None
     matched_total: int | None = None
-    if has_enrichment_filter:
+    if has_enrichment_filter or keyword_only_enrichment:
         # 当用户同时提供日期/source/folder 过滤时, 先用 SQLite 把候选 IDs 裁出来,
         # 再让 PG 在该子集内做标签匹配 — 避免 ORDER BY enriched_at LIMIT 5000 把
         # 早期时间窗的命中文章筛掉.
@@ -1009,7 +1085,31 @@ async def list_articles(
             limit=5000,
         )
         matched_total = len(only_ids)
-        if not only_ids:
+
+        # keyword-only: enrichment 可能为空 (标签里没命中), 回退到 SQLite 全文搜索
+        if keyword_only_enrichment and not only_ids:
+            only_ids = None  # 回退: 让 SQLite 用 title/description LIKE 搜索
+            matched_total = None
+
+        # 有 keyword + 其他标签过滤: enrichment 非空时, 同时取 SQLite 关键词匹配 ID
+        # 做 UNION, 避免漏掉标题/描述含关键词但标签不含的文章
+        if has_enrichment_filter and keyword and keyword.strip() and only_ids and _huntly_sqlite_available():
+            sqlite_kw_ids = await asyncio.to_thread(
+                _sqlite_keyword_ids,
+                keyword=keyword.strip(),
+                source_id=source_id,
+                folder_id=folder_id,
+                starred=starred,
+                since_iso=since,
+                until_iso=until,
+                limit=5000,
+            )
+            if sqlite_kw_ids:
+                merged = set(only_ids) | set(sqlite_kw_ids)
+                only_ids = sorted(merged, reverse=True)
+                matched_total = len(only_ids)
+
+        if has_enrichment_filter and not only_ids:
             return {
                 "articles": [],
                 "page": page,

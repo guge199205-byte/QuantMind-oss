@@ -916,13 +916,34 @@ async def sync_alpha_agent_market(
         result = await loop.run_in_executor(None, _do_sync)
 
         if result:
+            # 数据同步成功后，自动触发特征计算
+            feature_msg = ""
+            try:
+                import subprocess
+                script_path = Path(__file__).resolve().parents[3] / "scripts" / "update_market_features.py"
+                if not script_path.exists():
+                    script_path = Path("/app/backend/scripts/update_market_features.py")
+                if script_path.exists():
+                    proc = subprocess.run(
+                        ["python", str(script_path), "--market", market],
+                        capture_output=True, text=True, timeout=600, check=False,
+                    )
+                    if proc.returncode == 0:
+                        feature_msg = "，特征快照已更新"
+                    else:
+                        feature_msg = "，特征计算失败"
+                        logger.warning("Feature computation failed for %s: %s", market, proc.stderr[-500:])
+            except Exception as e:
+                feature_msg = "，特征计算异常"
+                logger.warning("Feature computation error for %s: %s", market, e)
+
             return {
                 "success": True,
                 "data": {
                     "market": market,
                     "market_name": adapter.market_name,
                     "status": "completed",
-                    "message": f"{adapter.market_name}数据同步完成",
+                    "message": f"{adapter.market_name}数据同步完成{feature_msg}",
                 },
             }
         else:

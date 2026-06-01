@@ -40,16 +40,16 @@ export async function parseConditions(payload: { conditions: Condition }) {
   return res.data;
 }
 
-export async function queryPool(payload: { dsl: string }) {
+export async function queryPool(payload: { dsl: string; market?: string }) {
   const res = await client.post('/strategy/query-pool', payload);
   return res.data;
 }
 
 
-export async function parseText(text: string) {
+export async function parseText(text: string, market?: string) {
   const res = await client.post(
     '/strategy/parse-text',
-    { text },
+    { text, market },
     { timeout: 120000 } // 首次解析可能触发向量预热，给足时间
   );
   return res.data;
@@ -185,6 +185,7 @@ export async function generateQlib(payload: {
   conditions: Record<string, any>;
   pool_file_key: string;
   pool_file_url?: string;
+  market?: string;
   qlib_params: {
     strategy_type: 'TopkDropout' | 'TopkWeight';
     topk: number;
@@ -193,6 +194,7 @@ export async function generateQlib(payload: {
     rebalance_period?: 'daily' | 'weekly' | 'monthly';
     min_score?: number;
     max_weight?: number;
+    market?: string;
   };
   custom_notes?: string;
 }) {

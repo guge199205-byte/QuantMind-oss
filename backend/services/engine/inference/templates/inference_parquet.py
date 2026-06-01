@@ -165,6 +165,9 @@ def load_date_data(trade_date: str, data_dir: Path, meta: dict) -> pd.DataFrame 
         return None
 
     df = pd.read_parquet(parquet_path, engine="pyarrow")
+    # 非 A 股 parquet 使用 'instrument' 列而非 'symbol'
+    if "symbol" not in df.columns and "instrument" in df.columns:
+        df = df.rename(columns={"instrument": "symbol"})
     df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.strftime("%Y-%m-%d")
     day_df = df[df["trade_date"] == trade_date].copy()
 

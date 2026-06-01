@@ -208,8 +208,20 @@ class QlibBacktestService(QlibBacktestServiceRuntimeMixin):
 
         raise ValueError("策略代码未提供可实例化对象")
 
-    def initialize(self):
-        """初始化 Qlib 并进行数据完整性预检"""
+    def initialize(self, provider_uri: str | None = None, region: str | None = None):
+        """初始化 Qlib 并进行数据完整性预检。
+
+        支持按市场切换 provider_uri / region：如果传入值与当前不同，
+        会重置 _initialized 并重新初始化 qlib。
+        """
+        # 如果请求的 provider_uri/region 与当前不同，需要重新初始化
+        if provider_uri and provider_uri != self.provider_uri:
+            self.provider_uri = provider_uri
+            self._initialized = False
+        if region and region != self.region:
+            self.region = region
+            self._initialized = False
+
         if not self._initialized:
             try:
                 qlib.init(

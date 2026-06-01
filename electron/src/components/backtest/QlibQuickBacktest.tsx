@@ -3,7 +3,7 @@
  * 仅支持标准参数配置，追求极致简洁与稳定性。
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Play, RefreshCw, BarChart3, Settings2, Info, AlertCircle, Copy, Check, ExternalLink, CalendarRange
 } from 'lucide-react';
@@ -24,15 +24,30 @@ import { blendBacktestProgress, getBacktestStageMessage } from './progressUtils'
 import { getDefaultStrategyParams, sanitizeStrategyParams } from '../../shared/qlib/strategyParams';
 import { getStoredTailTradeMode, setStoredTailTradeMode, getTailTradeDealPrice, getTailTradeSignalLagDays, ALLOW_FEATURE_SIGNAL_FALLBACK } from '../../shared/qlib/tailTradeMode';
 import { strategyManagementService } from '../../services/strategyManagementService';
+import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
+import { getMarketConfig } from '../../config/marketConfig';
 import dayjs from 'dayjs';
 
-const UNIVERSE_PRESETS = [
-  { label: '全部', value: 'all' },
-  { label: '沪深300', value: 'csi300' },
-  { label: '中证500', value: 'csi500' },
-  { label: '中证800', value: 'csi800' },
-  { label: '中证1000', value: 'csi1000' },
-];
+const MARKET_UNIVERSE_PRESETS: Record<string, { label: string; value: string }[]> = {
+  CN: [
+    { label: '全部', value: 'all' },
+    { label: '沪深300', value: 'csi300' },
+    { label: '中证500', value: 'csi500' },
+    { label: '中证800', value: 'csi800' },
+    { label: '中证1000', value: 'csi1000' },
+  ],
+  HK: [
+    { label: '全部港股', value: 'all' },
+  ],
+  US: [
+    { label: '全部美股', value: 'all' },
+  ],
+  CRYPTO: [
+    { label: '全部加密货币', value: 'all' },
+    { label: 'Layer 1', value: 'layer1' },
+  ],
+};
 
 const DEFAULT_TEMPLATE_ID = 'standard_topk';
 const DEFAULT_TEMPLATE = getTemplateById(DEFAULT_TEMPLATE_ID);
@@ -45,16 +60,20 @@ export const QlibQuickBacktest: React.FC = () => {
   const runStartedAtRef = useRef<number>(0);
   const backtestConfig = useBacktestCenterStore((state) => state.backtestConfig);
   const activeModule = useBacktestCenterStore((state) => state.activeModule);
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const marketConfig = getMarketConfig(currentMarket);
+  const UNIVERSE_PRESETS = useMemo(() => MARKET_UNIVERSE_PRESETS[currentMarket] || MARKET_UNIVERSE_PRESETS.CN, [currentMarket]);
+  const MARKET_BENCHMARKS = useMemo(() => BACKTEST_CONFIG.QLIB.MARKET_BENCHMARKS[currentMarket] || BACKTEST_CONFIG.QLIB.MARKET_BENCHMARKS.CN, [currentMarket]);
 
   // 策略相关状态
   const [strategyInfo, setStrategyInfo] = useState<StrategyFile | null>(null);
 
   // 基础配置
-  const [universePath, setUniversePath] = useState<string>(UNIVERSE_PRESETS[0].value);
+  const [universePath, setUniversePath] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>(BACKTEST_CONFIG.QLIB.DEFAULT_START);
   const [endDate, setEndDate] = useState<string>(BACKTEST_CONFIG.QLIB.DEFAULT_END);
   const [initialCapital, setInitialCapital] = useState(1000000);
-  const [benchmark, setBenchmark] = useState('SH000300');
+  const [benchmark, setBenchmark] = useState(marketConfig.benchmark);
   const [seed] = useState('');
   const [dealPrice, setDealPrice] = useState<'open' | 'close'>('open');
 
@@ -126,6 +145,12 @@ export const QlibQuickBacktest: React.FC = () => {
     };
     fetchDataRange();
   }, []);
+
+  // 市场切换时重置基准和股票池
+  useEffect(() => {
+    setBenchmark(marketConfig.benchmark);
+    setUniversePath('all');
+  }, [currentMarket]);
 
   const loadPendingStrategy = async (id: string) => {
     try {
@@ -259,6 +284,8 @@ export const QlibQuickBacktest: React.FC = () => {
         deal_price: getTailTradeDealPrice(tailTradeEnabled),
         signal_lag_days: getTailTradeSignalLagDays(tailTradeEnabled),
         allow_feature_signal_fallback: ALLOW_FEATURE_SIGNAL_FALLBACK,
+        qlib_provider_uri: marketConfig.qlibProviderUri,
+        qlib_region: marketConfig.qlibRegion,
       };
 
       setLastConfig(config);
@@ -520,7 +547,7 @@ export const QlibQuickBacktest: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-2">基准指数 (Benchmark)</label>
                 <select value={benchmark} onChange={(e) => setBenchmark(e.target.value)} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500">
-                  {BACKTEST_CONFIG.QLIB.BENCHMARKS.map((bm) => (
+                  {MARKET_BENCHMARKS.map((bm) => (
                     <option key={bm.code} value={bm.code}>{bm.name} ({bm.code})</option>
                   ))}
                 </select>

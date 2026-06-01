@@ -96,6 +96,9 @@ def _build_runner_environment(
         "model_id": "AI_IDE_BACKTEST_MODEL_ID",
         "strategy_id": "AI_IDE_BACKTEST_STRATEGY_ID",
         "run_id": "AI_IDE_BACKTEST_RUN_ID",
+        "qlib_provider_uri": "AI_IDE_BACKTEST_PROVIDER_URI",
+        "qlib_region": "AI_IDE_BACKTEST_REGION",
+        "benchmark": "AI_IDE_BACKTEST_BENCHMARK",
     }
     for meta_key, env_key in meta_env_map.items():
         value = str(request_meta.get(meta_key) or "").strip()
@@ -144,6 +147,9 @@ class StartRequest(BaseModel):
     strategy_id: str | None = None
     model_id: str | None = None
     run_id: str | None = None
+    qlib_provider_uri: str | None = None
+    qlib_region: str | None = None
+    benchmark: str | None = None
 
 
 class SmokeImageRequest(BaseModel):
@@ -625,13 +631,14 @@ def _init_qlib():
     import qlib
     from qlib.data import D
 
-    provider_uri = QLIB_DATA_PATH
+    provider_uri = os.getenv("AI_IDE_BACKTEST_PROVIDER_URI") or QLIB_DATA_PATH
+    region = os.getenv("AI_IDE_BACKTEST_REGION") or "cn"
     if not os.path.exists(provider_uri):
         print(f"[ERROR] Qlib 数据目录不存在: {provider_uri}")
         return False
 
-    print(f"[SYSTEM] 初始化 Qlib: provider_uri={provider_uri}")
-    qlib.init(provider_uri=provider_uri, region="cn")
+    print(f"[SYSTEM] 初始化 Qlib: provider_uri={provider_uri}, region={region}")
+    qlib.init(provider_uri=provider_uri, region=region)
     print("[SYSTEM] Qlib 初始化成功")
     return True
 
@@ -733,6 +740,8 @@ def _run_module_backtest(module):
             allow_feature_signal_fallback=os.getenv(
                 "AI_IDE_ALLOW_FEATURE_SIGNAL_FALLBACK", "true"
             ).strip().lower() in {"1", "true", "yes", "on"},
+            qlib_provider_uri=os.getenv("AI_IDE_BACKTEST_PROVIDER_URI"),
+            qlib_region=os.getenv("AI_IDE_BACKTEST_REGION"),
         )
 
         print("[SYSTEM] 开始执行回测...")
