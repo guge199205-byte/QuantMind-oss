@@ -124,12 +124,44 @@ def filter_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     return filtered
 
 
+def _resolve_parquet_path(data_dir: Path, trade_date: str, meta: dict) -> Path | None:
+    """Resolve parquet file path based on market context."""
+    market = str(
+        (meta.get("context") or {}).get("market", "")
+    ).upper() if isinstance(meta.get("context"), dict) else ""
+
+    # Market-specific parquet files (no year suffix)
+    _MARKET_PARQUET: dict[str, str] = {
+        "HK": "model_features_hk.parquet",
+        "US": "model_features_us.parquet",
+        "CRYPTO": "model_features_crypto.parquet",
+    }
+
+    if market in _MARKET_PARQUET:
+        p = Path(data_dir) / _MARKET_PARQUET[market]
+        if p.exists():
+            return p
+        logger.warning("市场 parquet 文件不存在: %s", p)
+
+    # CN or fallback: year-based parquet
+    year = int(trade_date[:4])
+    p = Path(data_dir) / f"model_features_{year}.parquet"
+    if p.exists():
+        return p
+
+    # Legacy: no year suffix
+    p = Path(data_dir) / "model_features.parquet"
+    if p.exists():
+        return p
+
+    return None
+
+
 def load_date_data(trade_date: str, data_dir: Path, meta: dict) -> pd.DataFrame | None:
     """加载指定日期的特征数据。返回 None 表示该日期无数据（exit 2）。"""
-    year = int(trade_date[:4])
-    parquet_path = Path(data_dir) / f"model_features_{year}.parquet"
-    if not parquet_path.exists():
-        logger.warning("parquet 文件不存在: %s", parquet_path)
+    parquet_path = _resolve_parquet_path(data_dir, trade_date, meta)
+    if parquet_path is None:
+        logger.warning("找不到可用的 parquet 文件 (data_dir=%s, market=%s)", data_dir, (meta.get("context") or {}).get("market", ""))
         return None
 
     df = pd.read_parquet(parquet_path, engine="pyarrow")

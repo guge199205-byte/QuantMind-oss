@@ -348,8 +348,32 @@ class InferenceScriptRunner:
             meta.get("data_dir")
             or os.getenv("MODEL_TRAINING_DATA_DIR", "/app/db/feature_snapshots")
         )
-        year = int(trade_date[:4])
-        parquet_path = parquet_dir / f"model_features_{year}.parquet"
+
+        # Market-aware parquet file resolution
+        market = ""
+        ctx = meta.get("context")
+        if isinstance(ctx, dict):
+            market = str(ctx.get("market", "")).upper()
+
+        _MARKET_PARQUET: dict[str, str] = {
+            "HK": "model_features_hk.parquet",
+            "US": "model_features_us.parquet",
+            "CRYPTO": "model_features_crypto.parquet",
+        }
+
+        parquet_path = None
+        if market in _MARKET_PARQUET:
+            p = parquet_dir / _MARKET_PARQUET[market]
+            if p.exists():
+                parquet_path = p
+
+        if parquet_path is None:
+            year = int(trade_date[:4])
+            parquet_path = parquet_dir / f"model_features_{year}.parquet"
+
+        if not parquet_path.exists():
+            # Legacy fallback
+            parquet_path = parquet_dir / "model_features.parquet"
 
         if not parquet_path.exists():
             return {
@@ -856,12 +880,19 @@ class InferenceScriptRunner:
 
         # 注入平台环境变量
         env = self._get_subprocess_env()
+        # Resolve parquet data dir from metadata or default
+        primary_meta = self._read_primary_metadata()
+        parquet_data_dir = str(
+            primary_meta.get("data_dir")
+            or os.getenv("MODEL_TRAINING_DATA_DIR", "/app/db/feature_snapshots")
+        )
         env.update(
             {
                 "MODEL_DIR": str(self.primary_model_dir),
                 "TRADE_DATE": date,
                 "OUTPUT_FORMAT": "json",
                 "QLIB_PROVIDER_URI": self.primary_data_dir,
+                "MODEL_TRAINING_DATA_DIR": parquet_data_dir,
             }
         )
 
@@ -1070,6 +1101,14 @@ class InferenceScriptRunner:
                     if symbol.startswith("BJ") or ".BJ" in symbol:
                         continue
                     if symbol.startswith(("43", "83", "87", "88")):
+                        continue
+
+                    # 3. 排除指数代码: SH000xxx, SZ399xxx 等
+                    if symbol.startswith("SH000") or symbol.startswith("SZ399"):
+                        continue
+                    if symbol.startswith("000") and symbol.endswith(".SH"):
+                        continue
+                    if symbol.startswith("399") and symbol.endswith(".SZ"):
                         continue
 
                     valid.append(

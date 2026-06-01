@@ -1246,8 +1246,15 @@ class ModelRegistryService:
 
         metrics = result_payload.get("metrics") if isinstance(result_payload.get("metrics"), dict) else {}
         metadata = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+
+        # Propagate context (market, benchmark, etc.) from request to metadata
+        req_context = request_payload.get("context") if isinstance(request_payload.get("context"), dict) else {}
+        existing_context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
+        merged_context = {**existing_context, **req_context}
+
         metadata = {
             **metadata,
+            "context": merged_context,
             "display_name": str(
                 request_payload.get("display_name")
                 or metadata.get("display_name")
