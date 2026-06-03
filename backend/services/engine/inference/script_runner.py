@@ -1100,24 +1100,25 @@ class InferenceScriptRunner:
             return set()
 
     @staticmethod
-    def _is_st_symbol(symbol: str, st_symbols: set[str]) -> bool:
+    def _normalize_code(code: str) -> str:
+        """提取纯 6 位数字代码，去掉 SH/SZ/BJ 前缀和 .SH/.SZ/.BJ 后缀。"""
+        c = code.strip().upper()
+        for prefix in ("SH", "SZ", "BJ"):
+            if c.startswith(prefix):
+                c = c[len(prefix):]
+                break
+        c = c.split(".")[0]
+        return c
+
+    @staticmethod
+    def _is_st_symbol(symbol: str, st_symbols: set[str], st_normalized: set[str] | None = None) -> bool:
         """判断股票代码是否为 ST。"""
-        # 直接匹配
         if symbol in st_symbols:
             return True
-        # 去掉前缀后匹配 (SH600xxx -> 600xxx)
-        pure = symbol
-        for prefix in ("SH", "SZ", "BJ"):
-            if symbol.startswith(prefix):
-                pure = symbol[len(prefix):]
-                break
-        if pure in st_symbols:
-            return True
-        # 去掉后缀后匹配 (600xxx.SH -> 600xxx)
-        pure = symbol.split(".")[0]
-        if pure in st_symbols:
-            return True
-        return False
+        if st_normalized is None:
+            st_normalized = {InferenceScriptRunner._normalize_code(s) for s in st_symbols}
+        sym_code = InferenceScriptRunner._normalize_code(symbol)
+        return sym_code in st_normalized if sym_code else False
 
     @staticmethod
     def _parse_signals(file_path: str) -> list[dict] | None:
@@ -1139,8 +1140,9 @@ class InferenceScriptRunner:
         if not isinstance(data, list):
             return None
 
-        # 获取 ST 股票列表
+        # 获取 ST 股票列表（预计算标准化代码集合）
         st_symbols = InferenceScriptRunner._get_st_symbols()
+        st_normalized = {InferenceScriptRunner._normalize_code(s) for s in st_symbols}
 
         valid = []
         for item in data:
@@ -1173,8 +1175,13 @@ class InferenceScriptRunner:
                     if symbol.startswith("399") and symbol.endswith(".SZ"):
                         continue
 
-                    # 4. 排除 ST/*ST 股票
-                    if InferenceScriptRunner._is_st_symbol(symbol, st_symbols):
+                    # 4. 排除 ST/*ST 股票（代码匹配 + 名称匹配）
+                    sym_code = InferenceScriptRunner._normalize_code(symbol)
+                    if sym_code and sym_code in st_normalized:
+                        continue
+                    # 名称包含 ST 的也要排除（兜底）
+                    name = str(item.get("name", "")).upper()
+                    if "ST" in name and ("*" in name or name.startswith("ST")):
                         continue
 
                     valid.append(
@@ -1215,8 +1222,10 @@ class InferenceScriptRunner:
         Args:
             data_trade_date: 推理日期（数据截止日期），若不传则默认等于 prediction_trade_date
         """
-        symbols = [s["symbol"] for s in signals]
-        scores = [s["score"] for s in signals]
+        # 按分数降序排列，排名越靠前分数越高
+        signals_sorted = sorted(signals, key=lambda x: x["score"], reverse=True)
+        symbols = [s["symbol"] for s in signals_sorted]
+        scores = [s["score"] for s in signals_sorted]
         feature_dim = max(1, self._resolve_expected_feature_dim())
         model_name = str(active_model_id or self.primary_model_id or "inference_script")
         feature_version = self._resolve_feature_version(model_name)
@@ -1388,9 +1397,18 @@ class InferenceScriptRunner:
                     signal_side = EXCLUDED.signal_side,
                     expected_price = EXCLUDED.expected_price
             """)
-            for sym, score in zip(symbols, scores, strict=True):
+            # 基于排名的信号：前 20% 为 BUY，后 10% 为 SELL，其余 HOLD
+            n_signals = len(symbols)
+            buy_cutoff = max(1, int(n_signals * 0.20))
+            sell_cutoff = max(1, int(n_signals * 0.90))
+            for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
                 expected_price = None
-                signal_side = "BUY" if score > 0 else "HOLD"
+                if idx < buy_cutoff:
+                    signal_side = "BUY"
+                elif idx >= sell_cutoff:
+                    signal_side = "SELL"
+                else:
+                    signal_side = "HOLD"
                 if quote_redis:
                     try:
                         raw_sym = (
@@ -1470,9 +1488,16 @@ class InferenceScriptRunner:
                     :confidence_level, NOW(), NOW()
                 )
             """)
-            for sym, score in zip(symbols, scores, strict=True):
-                signal_side = "BUY" if score > 0 else "HOLD"
-                confidence_level = "high" if score > 0.5 else ("medium" if score > 0.2 else "watch")
+            buy_cutoff = max(1, int(len(symbols) * 0.20))
+            sell_cutoff = max(1, int(len(symbols) * 0.90))
+            for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
+                if idx < buy_cutoff:
+                    signal_side = "BUY"
+                elif idx >= sell_cutoff:
+                    signal_side = "SELL"
+                else:
+                    signal_side = "HOLD"
+                confidence_level = "high" if idx < buy_cutoff else ("medium" if idx < sell_cutoff else "watch")
                 # 获取 expected_price（从之前 Redis 查询的结果）
                 expected_price_val = None
                 if quote_redis:
