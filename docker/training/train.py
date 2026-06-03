@@ -45,12 +45,16 @@ DEFAULT_LGB_PARAMS: dict[str, Any] = {
     "objective":         "regression",
     "metric":            "l2",
     "boosting":          "gbdt",
-    "num_leaves":        127,
+    "num_leaves":        31,              # 降低复杂度（127→31），减少过拟合
     "learning_rate":     0.05,
-    "feature_fraction":  0.8,
-    "bagging_fraction":  0.8,
+    "feature_fraction":  0.6,             # 每棵树只用 60% 特征
+    "bagging_fraction":  0.7,             # 每棵树只用 70% 样本
     "bagging_freq":      5,
-    "min_child_samples": 50,
+    "min_child_samples": 50,              # 叶子最少样本数，防拟合噪声
+    "lambda_l1":         0.1,             # L1 正则化
+    "lambda_l2":         1.0,             # L2 正则化
+    "max_depth":         6,               # 限制树深度
+    "path_smooth":       0.5,             # 路径平滑
     "n_jobs":            -1,
     "verbosity":         -1,
 }
