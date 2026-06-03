@@ -1077,6 +1077,43 @@ class InferenceScriptRunner:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _get_st_symbols() -> set[str]:
+        """从数据库获取当前 ST/*ST 股票代码集合。"""
+        try:
+            from backend.shared.database_manager_v2 import get_db_manager
+            from sqlalchemy import text as sql_text
+
+            db = get_db_manager()
+            with db.get_engine().begin() as conn:
+                rows = conn.execute(sql_text(
+                    "SELECT DISTINCT symbol FROM stock_daily_latest "
+                    "WHERE is_st = 1 AND trade_date >= CURRENT_DATE - INTERVAL '30 days'"
+                )).fetchall()
+            return {r[0] for r in rows}
+        except Exception:
+            return set()
+
+    @staticmethod
+    def _is_st_symbol(symbol: str, st_symbols: set[str]) -> bool:
+        """判断股票代码是否为 ST。"""
+        # 直接匹配
+        if symbol in st_symbols:
+            return True
+        # 去掉前缀后匹配 (SH600xxx -> 600xxx)
+        pure = symbol
+        for prefix in ("SH", "SZ", "BJ"):
+            if symbol.startswith(prefix):
+                pure = symbol[len(prefix):]
+                break
+        if pure in st_symbols:
+            return True
+        # 去掉后缀后匹配 (600xxx.SH -> 600xxx)
+        pure = symbol.split(".")[0]
+        if pure in st_symbols:
+            return True
+        return False
+
+    @staticmethod
     def _parse_signals(file_path: str) -> list[dict] | None:
         """从指定的 json 文件读取信号数组，解析成功后自动删除文件。返回 None 表示失败。"""
         p = Path(file_path)
@@ -1095,6 +1132,10 @@ class InferenceScriptRunner:
 
         if not isinstance(data, list):
             return None
+
+        # 获取 ST 股票列表
+        st_symbols = _get_st_symbols()
+
         valid = []
         for item in data:
             if isinstance(item, dict) and "symbol" in item and "score" in item:
@@ -1111,7 +1152,7 @@ class InferenceScriptRunner:
                     if symbol.isdigit() and len(symbol) == 6:
                         if symbol.startswith("900") or symbol.startswith("200"):
                             continue
-                    
+
                     # 2. 排除北交所: BJ 前缀或 .BJ 后缀，或数字开头 (43, 83, 87, 88)
                     if symbol.startswith("BJ") or ".BJ" in symbol:
                         continue
@@ -1124,6 +1165,10 @@ class InferenceScriptRunner:
                     if symbol.startswith("000") and symbol.endswith(".SH"):
                         continue
                     if symbol.startswith("399") and symbol.endswith(".SZ"):
+                        continue
+
+                    # 4. 排除 ST/*ST 股票
+                    if _is_st_symbol(symbol, st_symbols):
                         continue
 
                     valid.append(

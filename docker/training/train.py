@@ -317,7 +317,7 @@ def load_data(
     horizon_col = f"mom_ret_{horizon}d"
     required_columns = list(
         dict.fromkeys(
-            ["trade_date", "symbol", "mom_ret_1d", horizon_col] + list(features)
+            ["trade_date", "symbol", "mom_ret_1d", horizon_col, "is_st"] + list(features)
         )
     )
     logger.info(
@@ -411,6 +411,13 @@ def load_data(
         df["symbol"] = df["symbol"].astype(str).str.zfill(6)
         df = df[~df["symbol"].str.startswith(("4", "8"))].copy()
         logger.info(f"After symbol filter: {len(df)} rows")
+
+        # 过滤 ST/*ST 股票
+        if "is_st" in df.columns:
+            before = len(df)
+            df["is_st"] = pd.to_numeric(df["is_st"], errors="coerce").fillna(0).astype(int)
+            df = df[df["is_st"] == 0].copy()
+            logger.info(f"After ST filter: {len(df)} rows (removed {before - len(df)} ST rows)")
 
     # 标签：基于 target_horizon_days 构建 N 日远期收益
     if "mom_ret_1d" not in df.columns:
