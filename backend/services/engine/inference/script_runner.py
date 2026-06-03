@@ -1134,7 +1134,7 @@ class InferenceScriptRunner:
             return None
 
         # 获取 ST 股票列表
-        st_symbols = _get_st_symbols()
+        st_symbols = InferenceScriptRunner._get_st_symbols()
 
         valid = []
         for item in data:
@@ -1168,7 +1168,7 @@ class InferenceScriptRunner:
                         continue
 
                     # 4. 排除 ST/*ST 股票
-                    if _is_st_symbol(symbol, st_symbols):
+                    if InferenceScriptRunner._is_st_symbol(symbol, st_symbols):
                         continue
 
                     valid.append(
