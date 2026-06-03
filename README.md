@@ -1,19 +1,19 @@
 <h1 align="center">QuantMind</h1>
 
 <p align="center">
-  <strong>新一代智能量化交易开源平台</strong>
+  <strong>AI 驱动的多市场量化交易平台</strong>
 </p>
 
 <p align="center">
-  打通 <b>数据 → 模型训练 → 回测 → 推理 → 实盘</b> 全流程闭环
+  数据采集 → 因子挖掘 → 模型训练 → 策略回测 → 智能推理 → 实盘交易
 </p>
 
 <p align="center">
   <a href="#-快速开始">快速开始</a> •
-  <a href="#-核心特性">核心特性</a> •
-  <a href="#-技术架构">技术架构</a> •
-  <a href="#-文档导航">文档导航</a> •
-  <a href="#-贡献">贡献</a>
+  <a href="#-系统架构">系统架构</a> •
+  <a href="#-多市场数据">多市场数据</a> •
+  <a href="#-ai-能力">AI 能力</a> •
+  <a href="#-部署指南">部署指南</a>
 </p>
 
 <p align="center">
@@ -25,768 +25,458 @@
 
 ---
 
-## 📖 项目起源
+## 项目简介
 
-本项目基于 [qusong0627/QuantMind](https://github.com/qusong0627/QuantMind) 分支开发，感谢原作者提供的基础架构和核心思路。
+QuantMind 是一个端到端的量化交易平台，集成了微软 Qlib 量化框架和 RD-Agent 智能体，支持 A 股、港股、美股、加密货币四个市场。
 
-在原项目基础上，本分支进行了以下主要扩展和整合：
-
-- **Qlib 深度集成** — 集成微软 Qlib 量化框架，实现 Alpha158 因子集 + LightGBM 模型训练
-- **RD-Agent 因子挖掘** — 整合微软 RD-Agent，实现 AI 自动因子进化
-- **TradingAgents 投研** — 整合 TradingAgents-Astock 多 Agent A 股投研框架
-- **数据平台** — 统一多市场多数据源接入（A/HK/US），151 维特征工程
-- **模型全生命周期** — 训练 → 版本管理 → 推理 → 信号生成完整闭环
-- **实盘交易** — QMT 券商对接、模拟盘验证、风控系统
-- **QuantBot 智能助手** — 自然语言交互，意图识别驱动操作
-
-感谢原项目奠定的基础，使后续扩展成为可能。
+**核心能力：**
+- **多市场数据管线** — 自动采集、清洗、校准 A/HK/US/Crypto 行情数据
+- **AI 因子挖掘** — 基于 RD-Agent 的自动化因子进化
+- **模型训练与推理** — Alpha158 + LightGBM，支持增量训练和自动推理
+- **策略生成** — AI 辅助生成 Qlib 策略代码，支持自然语言交互
+- **回测引擎** — 基于 Qlib 的高性能回测，支持多策略对比
+- **投研平台** — 多 Agent 协作的 A 股研究报告生成
 
 ---
 
-## ✨ 核心特性
-
-### Qlib 内核驱动
-
-基于微软 **Qlib** 量化框架深度集成，提供业界领先的量化研究能力：
-
-- **LightGBM 模型** — 高性能梯度提升模型，专为金融时序预测优化
-- **Alpha158 因子集** — 158 个经典量化因子，覆盖动量、估值、质量等多维度
-- **自动化特征工程** — 51 维标准化特征，开箱即用
-
-### 双引擎回测系统
-
-独创 **Qlib + Pandas** 双引擎架构，灵活应对不同场景：
-
-| 引擎 | 适用场景 | 性能 |
-|------|----------|------|
-| **Qlib Engine** | 复杂策略、多因子模型、机构级研究 | 极高性能 |
-| **Pandas Engine** | 快速验证、简单策略、教学演示 | 轻量极快 |
-
-### AI 模型全生命周期管理
-
-从训练到推理，完整闭环：
-
-- **一键训练** — 自动化特征提取、样本划分、超参优化
-- **模型版本管理** — 多模型共存，一键切换
-- **实时推理** — 每日自动生成交易信号
-
-### Alpha Agent 因子进化
-
-集成 **AlphaAgent**，AI 自主生成并进化量化因子：
-
-- **自动因子演化** — 从 seed factors 出发，自动探索新因子
-- **自动回测验证** — 生成的因子自动运行 Qlib 回测并保存结果
-- **Chat 触发** — 通过 QuantBot 聊天即可启动因子挖掘任务
-- **多轮迭代** — 支持配置进化轮次，持续优化因子质量
-
-### 数据平台 (Data Platform)
-
-统一多市场多数据源的接入、清洗、路由、监控：
-
-- **多市场支持** — A 股、港股、美股数据统一接入
-- **数据源适配** — 通达信、investment_data、simonlin 等多数据源适配
-- **标准化模型** — OHLCV、基本面、符号元数据统一格式
-- **健康监控** — Redis 指标监控数据源状态
-
-### TradingAgents 投研分析
-
-集成 **TradingAgents-Astock** 多 Agent A 股投研框架：
-
-- **7 位 AI 分析师** — 技术分析、情绪分析、新闻舆情、基本面、政策分析、游资追踪、解禁监控
-- **多空辩论** — 通过 LangGraph 流水线进行 Bull/Bear 辩论和风控评估
-- **交易信号** — 自动输出 Buy/Hold/Sell 信号及完整分析报告
-- **历史管理** — 分析结果持久化到 PostgreSQL，支持下载和回溯
-
-### 数据管理自动化
-
-统一日常数据同步流水线（Celery Beat 每日 18:00 自动执行）：
-
-- **增量拉取** — investment_data → baostock → akshare → eltdx 多源级联
-- **Parquet 更新** — 151 维模型特征增量计算（动量/波动率/流动性/资金流/风格因子）
-- **Qlib 引擎** — 增量更新 Qlib 二进制引擎数据
-- **指标校准** — MA/收益率/波动率等技术指标自动校准
-
-### 财经资讯 (News & RSS)
-
-集成 **Huntly** + **RSSHub**，提供财经资讯聚合：
-
-- **RSS 订阅** — 支持 Twitter、微博、雪球等多平台 RSS 源
-- **资讯聚合** — Huntly 统一管理订阅源和文章
-- **智能匹配** — 自动匹配资讯与持仓股票
-- **标签管理** — 支持自定义资讯分类标签
-
-### QuantBot 智能助手
-
-- **自然语言交互** — 用中文对话即可完成数据同步、回测、训练等操作
-- **意图识别** — 自动识别用户意图并执行对应操作
-- **QwenPaw 驱动** — 基于 agentscope/qwenpaw，支持多轮对话
-
-### 实盘交易对接
-
-- **QMT 券商** — 迅投 QMT 深度对接
-- **模拟盘验证** — 实盘前完整模拟
-- **风控系统** — 止损止盈、仓位控制、风险预警
-
----
-
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
-| 组件 | 要求 |
-|------|------|
-| **操作系统** | Ubuntu 22.04+（推荐 Ubuntu 24.04 LTS） |
-| **Docker** | 20.10+ |
-| **Docker Compose** | 2.0+ |
+- Docker & Docker Compose
+- 8GB+ 内存（推荐 16GB）
+- 50GB+ 磁盘空间（含数据）
 
-### 硬件配置
-
-| 功能模块 | 最低配置 | 推荐配置 |
-|----------|----------|----------|
-| 基础功能（智能策略、AI-IDE、回测中心、QuantBot） | 4核 8GB | 4核 16GB |
-| 完整功能（含模型训练、模型推理、RD-Agent） | 8核 32GB | 16核 64GB |
-
-### 一键部署（推荐）
+### 一键部署
 
 ```bash
+# 克隆仓库
 git clone https://github.com/guge199205-byte/QuantMind-oss.git
 cd QuantMind-oss
-chmod +x setup.sh && ./setup.sh
-```
 
-脚本会自动完成：环境检查 → 生成 `.env`（随机密钥）→ 构建镜像 → 启动服务 → 初始化。
-
-部署完成后访问 `http://<服务器IP>:3080`，默认账号 `admin` / `admin123`。
-
-### 手动部署
-
-如果需要自定义配置，按以下步骤操作：
-
-#### Step 1: 克隆项目
-
-```bash
-git clone https://github.com/guge199205-byte/QuantMind-oss.git
-cd QuantMind-oss
-```
-
-> **重要**: 首次克隆后需要同步 RD-Agent 子项目：
-> ```bash
-> # 如果 RD-Agent 以 subtree 方式合并，确保 rd-agent/ 目录存在
-> # 如果缺失，从 https://github.com/microsoft/RD-Agent 获取
-> ```
-
-#### Step 2: 配置环境变量
-
-```bash
+# 配置环境变量
 cp .env.example .env
-```
+# 编辑 .env，设置 DB_PASSWORD、SECRET_KEY 等
 
-编辑 `.env` 文件，**必须修改以下配置**：
-
-```bash
-# 安全密钥（生产环境必须修改！）
-SECRET_KEY=YOUR_OWN_SECRET_KEY
-JWT_SECRET_KEY=YOUR_OWN_JWT_SECRET
-
-# 数据库密码
-DB_PASSWORD=YOUR_DB_PASSWORD
-```
-
-> 完整环境变量说明见 [.env.example](.env.example)
-
-#### Step 3: 配置 API Key（必选）
-
-QuantBot、AI 策略生成、RD-Agent 因子挖掘等功能需要配置 API Key。
-
-**方式 A: DeepSeek API Key（推荐）**
-
-1. 注册 [DeepSeek 平台](https://platform.deepseek.com/) 并获取 API Key
-2. 在 `.env` 中配置：
-
-```bash
-AI_IDE_LLM_API_KEY=sk-YOUR_DEEPSEEK_API_KEY
-AI_IDE_LLM_BASE_URL=https://api.deepseek.com
-AI_IDE_LLM_MODEL=deepseek-v4-pro
-```
-
-**方式 B: Qwen / DashScope API Key**
-
-1. 注册 [阿里云 DashScope](https://dashscope.console.aliyun.com/) 并获取 API Key
-2. 在 `.env` 中配置：
-
-```bash
-DASHSCOPE_API_KEY=sk-YOUR_DASHSCOPE_API_KEY
-QWEN_API_KEY=sk-YOUR_QWEN_API_KEY
-```
-
-> 也支持任何 OpenAI 兼容接口的 API Key（如 OpenAI、本地 Ollama 等）
-
-#### Step 4: 启动服务
-
-```bash
+# 启动所有服务
 docker compose up -d
-```
-
-启动后等待服务就绪（约 30 秒）：
-
-```bash
-# 查看所有服务状态
-docker compose ps
 
 # 查看日志
-docker compose logs -f quantmind
+docker compose logs -f api
 ```
 
-### Step 5: 初始化系统
+服务启动后：
+- **Web 界面**: http://localhost:3000
+- **API 文档**: http://localhost:8000/docs
+- **引擎服务**: http://localhost:8001
+
+### 下载市场数据
+
+从 [Releases](https://github.com/guge199205-byte/QuantMind-oss/releases) 下载数据文件：
 
 ```bash
-# 安装 RD-Agent 模块 + 检查数据状态
-docker exec quantmind bash /app/scripts/setup/init.sh
+# 下载港股数据（41MB H5 + 24MB Qlib）
+wget https://github.com/guge199205-byte/QuantMind-oss/releases/download/v1.0.0-data/hk_data_h5.tar.gz
+wget https://github.com/guge199205-byte/QuantMind-oss/releases/download/v1.0.0-data/hk_qlib_data.tar.gz
+
+# 解压到 db 目录
+tar xzf hk_data_h5.tar.gz -C db/
+tar xzf hk_qlib_data.tar.gz -C db/
+
+# 复制到 Docker 容器
+docker cp db/hk_data quantmind:/app/db/
+docker cp db/qlib_data/hk_data quantmind:/app/db/qlib_data/
+
+# 美股、加密货币同理
 ```
-
-### Step 6: 初始化数据（首次使用必做）
-
-QuantMind 需要历史行情数据才能运行回测和训练。有两种方式获取数据：
-
-#### 方式 A: 使用离线数据包
-
-1. 下载离线数据包：[https://oss.quantmindai.cn/data-download.html](https://oss.quantmindai.cn/data-download.html)
-2. 安装方法详见：[docs/数据包安装指南.md](docs/数据包安装指南.md)
-
-#### 方式 B: 从本地数据源同步
-
-```bash
-# 全量同步（从 parquet 源数据同步到数据库）
-docker exec quantmind python /app/scripts/data/maintenance/sync_stock_daily_full.py
-
-# Qlib 数据更新
-docker exec quantmind python /app/scripts/daily_update.py --force
-```
-
-### Step 7: 访问系统
-
-QuantMind 提供 **两种** 客户端访问方式，任选其一：
-
-#### 🌐 方式 A: 浏览器访问（推荐，无需安装）
-
-服务启动后直接打开浏览器访问：`http://<服务器IP>:3080`
-
-- `quantmind-web` 容器（nginx + React 静态资源）已随 `docker compose up -d` 一起启动
-- 默认端口 `3080`，可在 `.env` 中通过 `WEB_PORT=xxxx` 修改
-- 已内置 `/api/` 和 `/ws/` 反向代理，自动转发到后端 `quantmind:8000`
-- 适合服务器部署、多人共用、移动办公
-
-#### 🖥️ 方式 B: Electron 桌面客户端
-
-下载并安装 `.exe`（Windows）/ `.dmg`（macOS）/ `.AppImage`（Linux），双击启动。
-
-- 自带本地数据缓存与原生窗口控制
-- 适合个人独占式重度使用
 
 ---
 
-**默认管理员账号**: `admin` / `admin123`
-
-> ⚠️ 首次登录后请立即修改默认密码
-
----
-
-## 🏗️ 技术架构
-
-### 服务拓扑
+## 系统架构
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│                          客户端层                                  │
-│              Electron Desktop  •  Web Browser                     │
-└──────────────────────────┬────────────────────────────────────────┘
-                           │
-┌──────────────────────────▼────────────────────────────────────────┐
-│                     API Gateway  (:8000)                           │
-│  用户认证 • 策略管理 • 社区 • 管理后台 • QuantBot 代理            │
-└─┬───────────┬───────────┬────────────────┬────────────────────────┘
-  │           │           │                │
-┌─▼────────┐┌▼──────────┐│┌───────────────▼────────────────────────┐
-│ Engine   ││ Trade     │││  Stream                                │
-│ (:8001)  ││ (:8002)   │││  (:8003)                               │
-│ Qlib     ││ 订单管理   │││  实时行情 • WebSocket 推送              │
-│ 回测     ││ 持仓管理   │││                                        │
-│ AI 推理  ││ 风控       │││                                        │
-│ RD-Agent ││           │││                                        │
-└────┬─────┘└─────┬─────┘│└────────────┬───────────────────────────┘
-     │            │      │             │
-┌────▼────────────▼──────▼─────────────▼───────────────────────────┐
-│                        数据层                                     │
-│  PostgreSQL 15  •  Redis 7  •  Celery 队列  •  本地存储 /data    │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│                    QwenPaw  (:8088 → 外部 :8089)                  │
-│  QuantBot 聊天机器人 • 已挂载 QuantMind 代码库 + 数据 + Docker   │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│                    Alpha Agent (因子进化)                          │
-│  因子演化 → 自动回测 → rd_agent_factors 表 → 结果查询             │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│                    Huntly + RSSHub (:8090 / :1200)                │
-│  财经资讯聚合 • RSS 订阅 • 智能匹配                               │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Electron 桌面端                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │
+│  │ 仪表盘   │ │ 策略向导 │ │ 回测中心 │ │ 投研平台 │          │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘          │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ HTTP/WebSocket
+┌───────────────────────────┴─────────────────────────────────────┐
+│                      API Gateway (Nginx)                        │
+└───┬──────────┬──────────┬──────────┬────────────────────────────┘
+    │          │          │          │
+    ▼          ▼          ▼          ▼
+┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
+│ API   │ │Engine │ │Trade  │ │Stream │
+│ :8000 │ │ :8001 │ │ :8002 │ │ :8003 │
+└───┬───┘ └───┬───┘ └───┬───┘ └───┬───┘
+    │         │         │         │
+    ▼         ▼         ▼         ▼
+┌───────────────────────────────────────┐
+│          PostgreSQL + Redis           │
+└───────────────────────────────────────┘
 ```
 
-### 端口映射
+### 服务职责
 
-| 端口 | 服务 | 说明 |
+| 服务 | 端口 | 职责 |
 |------|------|------|
-| **3000** | Web 前端 (nginx) | 浏览器访问入口，反代 `/api/` `/ws/` 到 8000 |
-| **8000** | API Gateway | 用户认证、策略管理、社区、管理后台 |
-| **8001** | Engine | Qlib 回测、AI 策略生成、模型推理、Alpha Agent |
-| **8002** | Trade | 订单管理、持仓、风控 |
-| **8003** | Stream | 实时行情、WebSocket 推送 |
-| **5432** | PostgreSQL | 数据库 |
-| **6379** | Redis | 缓存 / Celery 消息队列 |
-| **8089** | QwenPaw | QuantBot 聊天机器人（外部访问） |
-| **8090** | Huntly | 财经资讯聚合（RSS/新闻） |
-| **1200** | RSSHub | RSS 源生成（Twitter/微博/雪球等） |
+| **api** | 8000 | 用户认证、策略管理、社区、新闻代理 |
+| **engine** | 8001 | Qlib 回测、AI 策略生成、模型推理、Alpha Agent |
+| **trade** | 8002 | 订单管理、持仓、风控 |
+| **stream** | 8003 | 实时行情、WebSocket 推送 |
 
 ### 技术栈
 
-| 层级 | 技术选型 |
-|------|----------|
-| **前端** | Electron + React 18 + TypeScript + Ant Design + Framer Motion（同代码同时构建为浏览器版 nginx 镜像 `quantmind-web`） |
-| **后端** | Python 3.10 + FastAPI + SQLAlchemy (asyncpg) |
-| **回测引擎** | Qlib + Pandas 双引擎 |
-| **AI 模型** | LightGBM + Qlib Model Framework + AlphaAgent |
-| **数据库** | PostgreSQL 15（分区表） + Redis 7 |
-| **消息队列** | Celery + Redis（Beat 定时任务：每日数据同步、新闻增强、模型推理） |
-| **聊天机器人** | agentscope/qwenpaw |
-| **投研分析** | TradingAgents-Astock（LangGraph 多 Agent 流水线） |
-| **资讯聚合** | Huntly + RSSHub |
-| **数据平台** | 多市场多数据源统一接入（A/HK/US），151 维特征 Parquet |
-| **容器化** | Docker + Docker Compose |
-
-### 目录结构
-
-```
-quantmind/
-├── setup.sh                    # 一键部署脚本
-├── docker-compose.yml          # Docker 服务编排（所有相对路径，任意目录可用）
-├── .env.example                # 环境变量模板（复制为 .env 使用）
-├── .gitignore                  # Git 忽略规则
-├── LICENSE                     # AGPL v3 许可证
-├── README.md                   # 本文档
-├── CLAUDE.md                   # 项目开发指引
-├── QUANTMIND_FRAMEWORK.md      # 完整框架文档（API + 数据流 + 调用方式）
-│
-├── backend/                    # Python 后端（FastAPI）
-│   ├── main_oss.py             # 统一入口：SERVICE_MODE=all/api/engine/trade/stream
-│   ├── run_tests.py            # 测试运行器（unit/integration/all）
-│   │
-│   ├── services/               # 四大服务实现
-│   │   ├── api/                # API 网关 (:8000)
-│   │   │   ├── main.py         # API 服务入口
-│   │   │   ├── routers/        # 路由定义
-│   │   │   │   ├── admin/      # 管理后台（需 admin 角色）
-│   │   │   │   │   ├── dashboard.py        # 仪表盘统计
-│   │   │   │   │   ├── model_management.py # 模型管理
-│   │   │   │   │   ├── model_management_ops.py  # 数据管理操作
-│   │   │   │   │   ├── admin_training.py   # 管理训练
-│   │   │   │   │   ├── strategy_templates.py # 策略模板管理
-│   │   │   │   │   ├── data_platform.py    # 数据平台管理
-│   │   │   │   │   └── users.py            # 用户管理
-│   │   │   │   ├── auth.py                 # 登录/注册
-│   │   │   │   ├── model_training.py       # 模型训练
-│   │   │   │   ├── news.py                 # 资讯代理
-│   │   │   │   ├── market_kline.py         # K 线行情
-│   │   │   │   ├── qwenpaw_proxy.py        # QwenPaw 代理
-│   │   │   │   ├── profiles.py             # 用户画像
-│   │   │   │   ├── research.py             # 投研平台
-│   │   │   │   └── community/              # 社区功能
-│   │   │   ├── models/                     # 数据库模型
-│   │   │   └── user_app/                   # 用户应用（中间件、认证）
-│   │   │
-│   │   ├── engine/             # 引擎服务 (:8001)
-│   │   │   ├── main.py         # Engine 服务入口
-│   │   │   ├── routers/        # 路由
-│   │   │   │   ├── rd_agent.py            # Alpha Agent 因子提交
-│   │   │   │   ├── quantbot_router.py     # QuantBot 聊天接口
-│   │   │   │   ├── alpha_agent.py         # Alpha Agent 因子进化
-│   │   │   │   ├── trading_agents.py      # TradingAgents 投研分析
-│   │   │   │   └── model_training.py      # 模型训练路由
-│   │   │   ├── qlib_app/       # Qlib 回测引擎
-│   │   │   ├── ai_strategy/    # AI 策略生成
-│   │   │   ├── alpha_agent/    # Alpha Agent 因子进化
-│   │   │   │   └── launcher.py            # 因子进化启动器
-│   │   │   ├── data_platform/  # 数据平台（多市场多数据源）
-│   │   │   │   ├── adapters/              # 数据源适配器
-│   │   │   │   ├── calendars/             # 市场交易日历
-│   │   │   │   └── storage.py             # 数据存储
-│   │   │   ├── trading_agents/ # TradingAgents 投研分析
-│   │   │   │   ├── runner.py              # 后台线程运行器
-│   │   │   │   └── progress.py            # 进度追踪器
-│   │   │   ├── quantbot/       # QuantBot 意图识别 + 任务调度
-│   │   │   │   ├── intent_parser.py       # 意图识别
-│   │   │   │   ├── rd_agent_launcher.py   # RD-Agent 启动器
-│   │   │   │   └── task_store.py          # 任务存储
-│   │   │   ├── inference/      # 模型推理服务
-│   │   │   ├── training/       # 模型训练
-│   │   │   └── tasks/          # Celery 异步任务
-│   │   │       └── celery_tasks.py        # 回测/推理任务
-│   │   │
-│   │   ├── trade/              # 交易服务 (:8002)
-│   │   │   ├── main.py         # Trade 服务入口
-│   │   │   ├── runner/         # 交易执行器
-│   │   │   │   └── main.py   # 主交易循环
-│   │   │   ├── services/       # 交易业务逻辑
-│   │   │   ├── portfolio/      # 投资组合管理
-│   │   │   ├── simulation/     # 模拟交易
-│   │   │   ├── routers/        # 交易路由
-│   │   │   └── sandbox/        # 交易沙盒
-│   │   │
-│   │   ├── stream/             # 实时行情 (:8003)
-│   │   │   ├── main.py         # Stream 服务入口
-│   │   │   ├── market_app/     # 行情应用
-│   │   │   │   └── services/   # 数据源（opentdx 等）
-│   │   │   └── ws_core/        # WebSocket 核心
-│   │   │
-│   │   ├── ai_ide/             # AI-IDE 服务
-│   │   └── tests/              # 服务集成测试
-│   │
-│   ├── shared/                 # 跨服务共享模块
-│   │   ├── auth.py             # JWT 认证中间件
-│   │   ├── database_manager_v2.py  # 数据库管理器（asyncpg）
-│   │   ├── db_manager.py       # DB 连接池
-│   │   ├── redis_client.py     # Redis 客户端
-│   │   ├── trading_calendar.py # 交易日历（exchange_calendars）
-│   │   ├── stock_utils.py      # 股票代码工具
-│   │   ├── config.py           # 配置管理
-│   │   ├── strategy_storage.py # 策略存储
-│   │   ├── ai_providers/       # AI 提供商（DeepSeek/Qwen/OpenAI）
-│   │   ├── backtest_engine/    # 回测引擎核心
-│   │   ├── cache/              # 多级缓存
-│   │   ├── dsl/                # 领域特定语言
-│   │   ├── event_bus/          # 事件总线
-│   │   └── schema/             # 数据 schema 定义
-│   │
-│   ├── config/                 # 配置文件
-│   │   ├── settings.py         # 应用设置
-│   │   ├── data_sources/       # 数据源配置
-│   │   ├── qwenpaw/            # QwenPaw 配置
-│   │   └── users/              # 用户配置（QMT 等）
-│   │
-│   └── scripts/                # 后端工具脚本
-│       ├── fill_sdl_from_parquet.py    # 从 parquet 填充 SDL
-│       └── sync_official_data_update.py # 官方数据同步
-│
-├── electron/                   # Electron 前端（桌面应用）
-│   ├── src/
-│   │   ├── features/
-│   │   │   ├── quantbot/       # QuantBot 聊天功能
-│   │   │   │   ├── pages/      # 页面组件
-│   │   │   │   ├── components/ # UI 组件
-│   │   │   │   └── services/   # API 服务
-│   │   │   ├── trading-agents/ # TradingAgents 投研分析
-│   │   │   │   ├── pages/      # TradingAgentsPage
-│   │   │   │   ├── components/ # ProgressPanel, SignalCard, ReportViewer
-│   │   │   │   ├── services/   # API 服务
-│   │   │   │   └── types/      # 类型定义
-│   │   │   ├── news/           # 资讯模块
-│   │   │   │   ├── components/ # NewsPanel 等
-│   │   │   │   └── services/   # 资讯 API
-│   │   │   ├── admin/          # 管理后台
-│   │   │   │   └── components/ # AdminDataPlatform, AdminRssSources 等
-│   │   │   ├── alpha-research/ # Alpha 研究平台
-│   │   │   └── strategy-wizard/# 策略向导
-│   │   ├── components/
-│   │   │   └── KlineChart.tsx  # K 线图表组件
-│   │   ├── store/              # Redux 状态管理
-│   │   └── utils/              # 工具函数
-│   └── package.json
-│
-├── docker/
-│   ├── Dockerfile.oss          # 后端镜像构建
-│   └── patch_qlib.py           # Qlib bug 修复补丁
-│
-├── scripts/                    # 运维脚本（均可独立运行）
-│   ├── setup/
-│   │   └── init.sh             # 系统初始化（安装 RD-Agent + 数据检查）
-│   ├── eltdx_daily_update.py   # 通达信日 K 线增量更新
-│   └── data/
-│       ├── maintenance/
-│       │   ├── sync_stock_daily_full.py       # 全量同步（parquet → DB）
-│       │   ├── sync_qlib_from_fundamental_parquet.py  # Qlib 数据同步
-│       │   ├── sync_parquets_from_remote_pg.py        # 远程数据库同步
-│       │   └── backfill_financial.py           # 财务数据回填
-│       └── processing/
-│           └── backfill_return_fields.py       # 收益率字段回填
-│
-├── backend/scripts/            # 后端数据脚本（Celery Beat 调用）
-│   ├── daily_data_sync.py      # 统一日常同步（PG + Qlib + 指标 + Parquet）
-│   ├── sync_investment_data.py # GitHub investment_data 下载解压
-│   └── update_feature_parquet.py # 151 维特征 Parquet 计算
-│
-├── alphaagent/                 # AlphaAgent 因子进化框架
-│   ├── scenarios/qlib/         # Qlib 场景实验
-│   └── pyproject.toml          # 项目配置
-│
-├── rd-agent/                   # RD-Agent（微软因子挖掘工具，需 git clone）
-│   ├── rdagent/                # 核心代码
-│   ├── requirements.txt        # 依赖
-│   └── pyproject.toml          # 项目配置
-│
-├── requirements/               # Python 依赖拆分
-│   ├── base.txt                # 基础依赖
-│   ├── production.txt          # 生产环境
-│   ├── ai.txt                  # AI 相关
-│   ├── data.txt                # 数据相关
-│   ├── database.txt            # 数据库相关
-│   ├── auth.txt                # 认证相关
-│   ├── dev.txt                 # 开发工具
-│   └── trade.txt               # 交易相关
-│
-├── strategy_templates/         # 策略模板（11 个预置策略 .py + .json 配对）
-├── db/                         # Qlib 数据 + parquet 源数据
-│   ├── custom/
-│   │   └── fundamental_aligned.parquet  # 720万行 × 88列
-│   ├── qlib_data/              # Qlib 格式数据（日历、行情、特征）
-│   └── feature_snapshots/      # 特征快照（model_features_*.parquet）
-├── data/                       # 运行时数据
-│   ├── 融资融券.json           # 融资融券股票池
-│   ├── backtest_results/       # 回测结果
-│   └── migrations/             # 数据库迁移记录
-├── models/                     # AI 模型文件（按需下载/训练）
-├── logs/                       # 日志
-└── docs/                       # 详细技术文档（30+ 篇）
-    ├── 部署指南.md
-    ├── 数据包安装指南.md
-    ├── 系统架构文档.md
-    ├── 数据初始化指南.md       # 数据流转 + 初始化流程
-    ├── 智能体配置指南.md       # QuantBot/QwenPaw 配置
-    ├── quantbot代理服务.md     # QuantBot 代理服务文档
-    ├── stock_daily_latest_维护文档.md  # 日线数据维护
-    └── PLAN_multi_market_datasource.md  # 多市场数据源规划
-```
-
----
-
-## 📚 文档导航
-
-| 类别 | 文档 |
+| 层级 | 技术 |
 |------|------|
-| **部署** | [部署指南](docs/部署指南.md) · [数据包安装](docs/数据包安装指南.md) · [Web 部署](docs/Web部署指南.md) |
-| **开发** | [Electron 编译](docs/Electron编译方案.md) |
-| **架构** | [系统架构](docs/系统架构文档.md) · [Qlib 架构](docs/Qlib架构与回测原理.md) · [完整框架文档](QUANTMIND_FRAMEWORK.md) |
-| **策略** | [Alpha158 训练](docs/alpha158训练计划.md) · [策略比较](docs/策略比较分析.md) · [多模型切换](docs/多模型训练与推理切换设计方案.md) |
-| **规范** | [Qlib 策略开发](docs/Qlib内部策略开发规范.md) · [回测费用](docs/回测费用配置说明.md) |
-| **数据** | [高维特征存储](docs/高维特征存储与统一访问方案.md) · [152 维特征](docs/QuantMind_152维特征方案规范.md) · [stock_daily_latest 维护](docs/stock_daily_latest_维护文档.md) |
-| **智能体** | [QuantBot 代理服务](docs/quantbot代理服务.md) · [智能体配置指南](docs/智能体配置指南.md) |
-| **投研分析** | TradingAgents 多 Agent A 股投研（7 位 AI 分析师 → 多空辩论 → 风控评估 → 交易信号） |
-| **数据源** | [多市场数据源规划](docs/PLAN_multi_market_datasource.md) · [数据初始化指南](docs/数据初始化指南.md) |
+| **前端** | Electron + React + TypeScript + Ant Design |
+| **后端** | Python + FastAPI + SQLAlchemy + Celery |
+| **量化** | Qlib + LightGBM + RD-Agent |
+| **数据库** | PostgreSQL + Redis |
+| **部署** | Docker Compose + Nginx |
 
 ---
 
-## 🛡️ 角色与权限
+## 多市场数据
 
-QuantMind 采用 **基于角色的访问控制（RBAC）**，通过 JWT Token 中的 `roles` 字段进行权限校验。
+QuantMind 支持四个市场的数据采集和管理：
 
-### 角色定义
+### 数据表结构
 
-| 角色 | 标识 | 权限范围 |
-|------|------|----------|
-| **管理员** | `admin` | 完整权限：用户管理、模型管理、数据管理、系统配置 |
-| **普通用户** | `user` | 个人账户：策略管理、回测、训练、投研、社区 |
+| 市场 | 表名 | 数据源 | 覆盖范围 |
+|------|------|--------|----------|
+| A 股 | `stock_daily_latest` | investment_data + baostock | 2010 ~ 今 |
+| 港股 | `stock_daily_latest_hk` | Parquet + yfinance | 2020 ~ 今 |
+| 美股 | `stock_daily_latest_us` | yfinance | 2020 ~ 今 |
+| 加密货币 | `stock_daily_latest_crypto` | Binance API | 2020 ~ 今 |
 
-### 权限矩阵
-
-| 功能模块 | admin | user | 未登录 |
-|----------|-------|------|--------|
-| 查看仪表盘 | ✅ | ✅（个人） | ❌ |
-| 用户管理 | ✅ | ❌ | ❌ |
-| 模型管理 | ✅ | ❌ | ❌ |
-| 数据同步 | ✅ | ❌ | ❌ |
-| 数据平台管理 | ✅ | ❌ | ❌ |
-| RSS 源管理 | ✅ | ❌ | ❌ |
-| 策略管理 | ✅ | ✅（本人） | ❌ |
-| 回测 | ✅ | ✅ | ❌ |
-| 模型训练 | ✅ | ✅ | ❌ |
-| QuantBot 聊天 | ✅ | ✅ | ❌ |
-| Alpha Agent 因子挖掘 | ✅ | ✅ | ❌ |
-| TradingAgents 投研分析 | ✅ | ✅ | ❌ |
-| 投研平台 | ✅ | ✅ | ❌ |
-| 财经资讯 | ✅ | ✅ | ❌ |
-| 社区浏览 | ✅ | ✅ | ✅（只读） |
-
-### 认证方式
-
-- **登录**: `POST /api/v1/auth/login` → 返回 JWT Token
-- **认证**: 请求头携带 `Authorization: Bearer <token>`
-- **管理接口**: 额外通过 `require_admin` 中间件校验 `roles` 包含 `admin`
-
-### Admin 数据管理 API
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/v1/admin/data-platform/sync-status` | GET | 查看同步状态（PG/Qlib/Calendar） |
-| `/api/v1/admin/data-platform/daily-sync` | POST | 触发 Celery 日常同步任务 |
-| `/api/v1/admin/data-platform/update-investment-data` | POST | 下载最新 investment_data qlib_bin |
-| `/api/v1/admin/data-platform/update-feature-parquet` | POST | 增量更新 151 维特征 Parquet |
-| `/api/v1/admin/data-platform/health-matrix` | GET | 数据源健康矩阵 |
-| `/api/v1/admin/data-platform/freshness` | GET | 数据新鲜度检查 |
-
-### TradingAgents API
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/v1/trading-agents/analyze` | POST | 启动分析（ticker + trade_date + LLM 配置） |
-| `/api/v1/trading-agents/progress/{id}` | GET | 查询分析进度（12 阶段） |
-| `/api/v1/trading-agents/report/{id}` | GET | 获取完整分析报告 |
-| `/api/v1/trading-agents/history` | GET | 历史分析列表 |
-| `/api/v1/trading-agents/download/{id}` | GET | 下载报告 JSON |
-| `/api/v1/trading-agents/config` | GET | 获取 LLM 供应商/模型配置 |
-
-### 默认管理员
+### 数据管线
 
 ```
-用户名: admin
-密码: admin123
-角色: admin
+原始数据源 → PostgreSQL → 技术指标计算 → Qlib bin → H5 文件 → 特征工程 Parquet
 ```
 
-> ⚠️ 首次部署后请立即修改默认管理员密码！
+每个市场包含 35+ 技术指标：
+- **均线**: MA5/10/20/60, 距均线偏离度
+- **动量**: RSI(6/14), MACD(12/26/9), KDJ(9)
+- **波动**: ATR(14/20), 标准差, 下行波动率
+- **资金**: VPIN, 量比, 换手率
+- **风格**: Beta, 特质波动率, 市值因子
+
+### A 股数据同步
+
+A 股数据通过 `daily_data_sync.py` 自动同步：
+
+```bash
+# 手动触发同步
+python backend/scripts/daily_data_sync.py
+
+# 仅同步行情数据
+python backend/scripts/daily_data_sync.py --skip-indicators
+
+# 仅计算指标
+python backend/scripts/daily_data_sync.py --indicators-only
+```
+
+同步流程：
+1. 拉取 investment_data（GitHub releases）
+2. 更新 baostock 日线
+3. 合并数据到 PostgreSQL
+4. 生成 Qlib bin 格式
+5. 计算 35+ 技术指标
+6. 生成特征 Parquet（151 维）
+
+### 港股数据导入
+
+```bash
+# 从 Parquet 文件导入（2020-2026）
+python backend/scripts/import_hk_parquet.py --since 2020
+
+# 从 yfinance 同步近期数据
+python backend/scripts/sync_hk_recent.py --since 2026-05-09
+
+# 重建 H5 和 Qlib 格式
+python backend/scripts/rebuild_hk_h5.py --qlib
+```
+
+### 数据管理
+
+管理员可通过 Web 界面管理数据：
+- **数据管理** → 查看各市场数据状态
+- **同步数据** → 触发增量同步
+- **更新特征** → 重新计算特征 Parquet
+- **同步基本面** → 更新 PE/PB/ROE 等指标
 
 ---
 
-## 🧪 测试
+## AI 能力
 
-```bash
-# 单元测试
-python backend/run_tests.py unit
+### 1. AI 策略生成（AI-IDE）
 
-# 集成测试
-python backend/run_tests.py integration
+自然语言描述策略需求，AI 自动生成 Qlib 策略代码：
 
-# 全量测试
-python backend/run_tests.py all
-
-# QMT MVP 链路测试
-python backend/run_tests.py trade-long-short
+```
+用户: 帮我写一个港股动量策略，选 RSI 低于 30 的股票，MA5 金叉 MA20 时买入
+AI: [生成完整的 Qlib 策略代码，包含选股、买入、卖出、风控逻辑]
 ```
 
-### 开发环境
+支持的市场：
+- **CN** — A 股，使用 `/app/db/qlib_data` 数据
+- **HK** — 港股，使用 `/app/db/qlib_data/hk_data` 数据
+- **US** — 美股，使用 `/app/db/qlib_data/us_data` 数据
+- **CRYPTO** — 加密货币，使用 `/app/db/qlib_data/crypto_data` 数据
+
+### 2. RD-Agent 因子挖掘
+
+基于微软 RD-Agent 的自动化因子进化：
 
 ```bash
-# 后端开发
-source .venv/bin/activate
-pip install -r requirements.txt
+# 启动因子进化
+POST /api/v1/alpha-agent/evolve
+{
+  "market": "hong_kong",
+  "iterations": 10
+}
+```
+
+流程：
+1. 从市场数据中提取候选因子
+2. 使用 LLM 生成因子假设
+3. 回测验证因子有效性
+4. 迭代优化，保留有效因子
+
+### 3. TradingAgents 投研
+
+多 Agent 协作的 A 股研究框架（7 个 AI 分析师）：
+
+- **基本面分析师** — 财报、估值分析
+- **技术分析师** — K 线形态、技术指标
+- **消息面分析师** — 新闻、公告解读
+- **情绪分析师** — 市场情绪、资金流向
+- **风险评估师** — 风险量化、回撤控制
+- **辩论模块** — 多空观点碰撞
+- **决策模块** — 综合研判，生成报告
+
+### 4. QuantBot 智能助手
+
+自然语言交互，支持：
+- 策略查询和修改
+- 回测执行和结果解读
+- 市场行情问答
+- 操作指引
+
+---
+
+## 回测引擎
+
+基于微软 Qlib 的高性能回测：
+
+### 快速回测
+
+```python
+from qlib.contrib.strategy import TopkDropoutStrategy
+from qlib.backtest import backtest
+
+# 配置策略
+strategy = TopkDropoutStrategy(
+    signal=pred_signal,
+    topk=50,
+    n_drop=5,
+)
+
+# 执行回测
+report, indicator = backtest(
+    strategy=strategy,
+    start_time="2024-01-01",
+    end_time="2024-12-31",
+    account=1000000,
+)
+```
+
+### 回测参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `topk` | 持仓股票数 | 50 |
+| `n_drop` | 每次换仓数 | 5 |
+| `rebalance_period` | 调仓周期 | 5 天 |
+| `benchmark` | 基准指数 | CSI300 |
+
+---
+
+## 项目结构
+
+```
+QuantMind-oss/
+├── backend/
+│   ├── main_oss.py                 # 统一入口
+│   ├── shared/                     # 跨服务共享模块
+│   │   ├── db_manager.py           # 数据库连接池
+│   │   ├── redis_client.py         # Redis 客户端
+│   │   ├── stock_utils.py          # 股票代码工具
+│   │   └── trading_calendar.py     # 交易日历
+│   ├── services/
+│   │   ├── api/                    # API 服务
+│   │   │   ├── routers/            # 路由定义
+│   │   │   └── user_app/           # 用户认证
+│   │   ├── engine/                 # 引擎服务
+│   │   │   ├── ai_strategy/        # AI 策略生成
+│   │   │   ├── qlib_app/           # Qlib 回测
+│   │   │   ├── alpha_agent/        # Alpha Agent
+│   │   │   ├── rd_agent/           # RD-Agent 因子挖掘
+│   │   │   ├── trading_agents/     # TradingAgents 投研
+│   │   │   └── routers/            # 引擎路由
+│   │   ├── trade/                  # 交易服务
+│   │   └── stream/                 # 行情服务
+│   └── scripts/
+│       ├── daily_data_sync.py      # 每日数据同步
+│       ├── import_hk_parquet.py    # 港股 Parquet 导入
+│       ├── sync_hk_recent.py       # 港股近期数据同步
+│       └── rebuild_hk_h5.py        # H5/Qlib 重建
+├── electron/
+│   ├── src/
+│   │   ├── components/             # UI 组件
+│   │   ├── features/               # 功能模块
+│   │   │   ├── dashboard/          # 仪表盘
+│   │   │   ├── strategy-wizard/    # 策略向导
+│   │   │   ├── backtest/           # 回测中心
+│   │   │   ├── trading-agents/     # 投研平台
+│   │   │   └── admin/              # 管理后台
+│   │   ├── services/               # API 调用
+│   │   └── config/                 # 配置
+│   └── package.json
+├── docker/
+│   ├── Dockerfile                  # 后端镜像
+│   └── nginx.conf                  # Nginx 配置
+├── db/                             # 数据目录（gitignore）
+│   ├── qlib_data/                  # Qlib bin 格式
+│   │   ├── cn_data/                # A 股
+│   │   ├── hk_data/                # 港股
+│   │   ├── us_data/                # 美股
+│   │   └── crypto_data/            # 加密货币
+│   ├── hk_data/                    # 港股 H5
+│   ├── us_data/                    # 美股 H5
+│   └── crypto_data/                # 加密货币 H5
+└── docker-compose.yml
+```
+
+---
+
+## 部署指南
+
+### 生产环境部署
+
+```bash
+# 1. 克隆代码
+git clone https://github.com/guge199205-byte/QuantMind-oss.git
+cd QuantMind-oss
+
+# 2. 配置环境变量
+cat > .env << EOF
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=quantmind
+DB_USER=quantmind
+DB_PASSWORD=your_secure_password
+REDIS_HOST=redis
+REDIS_PORT=6379
+SECRET_KEY=your_secret_key
+JWT_SECRET_KEY=your_jwt_secret
+EOF
+
+# 3. 启动服务
+docker compose up -d
+
+# 4. 下载数据
+# 从 Releases 下载数据文件并解压到 db/
+
+# 5. 初始化数据库
+docker exec quantmind python -c "from backend.shared.db_manager import DatabaseManager; DatabaseManager().init_tables()"
+
+# 6. 构建股票索引
+docker exec quantmind python backend/services/api/scripts/build_stock_index.py
+```
+
+### 前端开发
+
+```bash
+cd electron
+npm install
+npm run dev          # Electron 桌面端
+npm run dev:web      # Web 浏览器
+npm run typecheck    # 类型检查
+```
+
+### 后端开发
+
+```bash
+# 单服务启动
 SERVICE_MODE=api python backend/main_oss.py
+SERVICE_MODE=engine python backend/main_oss.py
 
-# 前端开发（Electron）
-cd electron && npm install && npm run dev
-
-# 类型检查（前端）
-cd electron && npm run typecheck
-
-# 代码检查（后端）
-ruff check backend/
-ruff format backend/
+# 运行测试
+python backend/run_tests.py unit
+python backend/run_tests.py integration
 ```
 
 ---
 
-## 🔧 常用运维命令
+## 定时任务
 
-```bash
-# 查看所有服务状态
-docker compose ps
-
-# 查看日志
-docker compose logs -f quantmind
-
-# 重启服务
-docker compose restart quantmind
-
-# 进入容器
-docker exec -it quantmind bash
-
-# 数据库连接
-docker exec -it quantmind-db psql -U quantmind -d quantmind
-
-# 安装/更新 RD-Agent
-docker exec quantmind bash /app/scripts/setup/init.sh
-
-# 数据全量同步
-docker exec quantmind python /app/scripts/data/maintenance/sync_stock_daily_full.py
-
-# 统一日常数据同步（PG + Qlib + 指标 + Parquet）
-docker exec quantmind python /app/backend/scripts/daily_data_sync.py --incremental
-
-# 仅更新 investment_data（下载最新 qlib_bin）
-docker exec quantmind python /app/backend/scripts/daily_data_sync.py --update-investment-data
-
-# 仅更新 feature parquet
-docker exec quantmind python /app/backend/scripts/update_feature_parquet.py
-
-# 仅校准技术指标
-docker exec quantmind python /app/backend/scripts/daily_data_sync.py --calibrate-only
-
-# 查看同步状态
-docker exec quantmind python /app/backend/scripts/daily_data_sync.py --status
-
-# Qlib 数据更新
-docker exec quantmind python /app/scripts/daily_update.py --force
-
-# 查看 Celery Worker 日志
-docker compose logs -f celery-worker
-
-# 查看 Celery Beat 日志（定时任务）
-docker compose logs -f celery-beat
-
-# 查看 Huntly 资讯日志
-docker compose logs -f huntly
-
-# 查看 RSSHub 日志
-docker compose logs -f rsshub
-```
+| 任务 | 时间 | 说明 |
+|------|------|------|
+| `daily_data_sync` | 18:00 工作日 | A 股数据同步 |
+| `auto_inference` | 00:00 工作日 | 模型自动推理 |
+| `news_enrich` | 每 1 分钟 | 新闻 AI 增强 |
+| `news_reload` | 每 10 分钟 | 新闻规则重载 |
 
 ---
 
-## ⏰ 定时任务 (Celery Beat)
+## 环境变量
 
-| 任务 | 调度时间 | 说明 |
-|------|----------|------|
-| **daily_data_sync** | 18:00 工作日 | 增量拉取行情 → PG → Qlib bin → 指标校准 → Parquet 更新 |
-| **auto_inference_if_needed** | 00:00 工作日 | 自动模型推理，生成交易信号 |
-| **news_enrich_recent** | 每 1 分钟 | 新闻资讯增强（AI 摘要 + 情绪分析） |
-| **news_matcher_reload** | 每 10 分钟 | 重新加载新闻匹配规则 |
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_HOST` | PostgreSQL 主机 | `db` |
+| `DB_PORT` | PostgreSQL 端口 | `5432` |
+| `DB_NAME` | 数据库名 | `quantmind` |
+| `DB_USER` | 数据库用户 | `quantmind` |
+| `DB_PASSWORD` | 数据库密码 | - |
+| `REDIS_HOST` | Redis 主机 | `redis` |
+| `REDIS_PORT` | Redis 端口 | `6379` |
+| `SECRET_KEY` | 应用密钥 | - |
+| `JWT_SECRET_KEY` | JWT 密钥 | - |
+| `OPENAI_API_KEY` | OpenAI API Key | - |
+| `CHAT_MODEL` | AI 模型 | `gpt-4` |
 
 ---
 
-## 🤝 贡献
+## 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
 
-### 提交 Issue
-- Bug 报告：请包含复现步骤、环境信息、日志
-- Feature 请求：请描述使用场景和期望效果
+```bash
+# 1. Fork 仓库
+# 2. 创建特性分支
+git checkout -b feature/your-feature
 
-### 提交 PR
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 提交 Pull Request
+# 3. 提交更改
+git commit -m "feat: add your feature"
+
+# 4. 推送并创建 PR
+git push origin feature/your-feature
+```
 
 ---
 
-## 📄 License
+## License
 
 [GNU Affero General Public License v3.0](LICENSE)
 
 ---
 
-## ⚠️ 免责声明
+## 免责声明
 
 > **本项目仅供学习研究与技术演示，不构成任何投资建议。**
 >
@@ -797,47 +487,16 @@ docker compose logs -f rsshub
 
 ---
 
-## 🙏 致谢
-
-### 核心框架
+## 致谢
 
 - [Qlib](https://github.com/microsoft/qlib) — 微软量化投资平台
 - [RD-Agent](https://github.com/microsoft/RD-Agent) — 微软研发智能体
-- [AlphaAgent](https://github.com/ModelTC/AlphaAgent) — 因子进化框架
-- [TradingAgents-Astock](https://github.com/simonlin1212/TradingAgents-astock) — 多 Agent A 股投研框架
-- [QwenPaw](https://github.com/agentscope-ai/qwenpaw) — 阿里 agentscope 智能对话框架（QuantBot 底层）
-- [LightGBM](https://github.com/microsoft/LightGBM) — 微软梯度提升框架
-- [FastAPI](https://fastapi.tiangolo.com/) — 现代高性能 Web 框架
-- [Huntly](https://github.com/lcomplete/huntly) — 财经资讯聚合平台
-- [RSSHub](https://github.com/DIYgod/RSSHub) — RSS 源生成工具
-
-### 数据源与工具
-
-- [exchange_calendars](https://github.com/gerrymanoim/exchange_calendars) — 全球交易所交易日历（forked from quantopian/trading_calendars），覆盖 A 股、美股、港股、日股、韩股等多市场
-- [investment_data](https://github.com/chenditc/investment_data) — 开源 A 股历史行情数据，提供完整的日线/分钟线/财务数据，支持 Qlib 格式
-- [eltdx / opentdx](https://github.com/LisonEvf/opentdx) — 开源通达信行情数据接口（A 股日 K 线 + 实时行情）
-- [baostock](http://baostock.com/) — 证券宝，免费 A 股行情数据接口
-- [akshare](https://akshare.akfamily.xyz/) — AKShare，开源财经数据接口
-- [pandas](https://pandas.pydata.org/) / [pyarrow](https://arrow.apache.org/) — 数据处理与 parquet 格式支持
-
-| 数据源 | 说明 | 脚本 |
-|--------|------|------|
-| **investment_data** (chenditc) | 开源 A 股历史行情数据（parquet + Qlib 格式） | `scripts/data/maintenance/` 目录 |
-| **通达信日 K** (eltdx) | 全 A 股每日增量更新（5000+ 股票，约 500MB/天） | `scripts/eltdx_daily_update.py` |
-| **通达信实时行情** (opentdx) | 实时报价、盘口数据 | `backend/services/stream/market_app/services/opentdx_source.py` |
-| **exchange_calendars** | 全球交易所交易日历（A 股 XSHG、美股 XNYS、港股 XHKG 等） | `backend/shared/trading_calendar.py` |
-| **远程数据库** | 增量数据同步（通过 SOURCE_DATABASE_URL） | `scripts/data/maintenance/sync_parquets_from_remote_pg.py` |
-
----
-
-## 💬 QQ 群
-
-<p align="center">
-  <img src="docs/images/1097406397.png" alt="QuantMind QQ 群二维码" width="260">
-</p>
+- [TradingAgents-Astock](https://github.com/simonlin1212/TradingAgents-astock) — 多 Agent A 股投研
+- [FastAPI](https://fastapi.tiangolo.com/) — 高性能 Web 框架
+- [investment_data](https://github.com/chenditc/investment_data) — A 股历史行情数据
 
 ---
 
 <p align="center">
-  <strong>QuantMind</strong> — 让量化交易更简单
+  <strong>QuantMind</strong> — AI 驱动的量化交易
 </p>
