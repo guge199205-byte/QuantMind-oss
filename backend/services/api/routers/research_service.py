@@ -763,49 +763,27 @@ def _humanize_model_name(model_id: str) -> str:
 
 async def get_available_models(tid: str, uid: str, market: str | None = None) -> dict[str, Any]:
     async with get_session(read_only=True) as session:
-        # Build market filter condition for metadata_json
-        market_filter = ""
-        params: dict[str, Any] = {"tid": tid, "uid": uid}
-        if market:
-            # metadata_json->'context'->>'market' stores the training market
-            market_upper = market.upper()
-            market_filter = "AND COALESCE(um.metadata_json->'context'->>'market', 'CN') = :market"
-            params["market"] = market_upper
+        market_upper = market.upper() if market else "CN"
+        params: dict[str, Any] = {"tid": tid, "uid": uid, "market": market_upper}
 
-        sql = (
-            "SELECT model_id, display_name FROM ("
-            # Models with completed inference runs + research snapshots
-            "  SELECT DISTINCT ir.model_id,"
-            "         COALESCE(um.metadata_json->>'display_name', um.metadata_json->>'model_name') AS display_name,"
-            "         1 AS priority"
-            "  FROM qm_model_inference_runs ir"
-            "  INNER JOIN qm_research_candidate_snapshot snap ON snap.tenant_id = ir.tenant_id"
-            "                                                  AND snap.user_id = ir.user_id"
-            "                                                  AND snap.model_id = ir.model_id"
-            "  LEFT JOIN qm_user_models um ON um.tenant_id = ir.tenant_id"
-            "                              AND um.user_id = ir.user_id"
-            "                              AND um.model_id = ir.model_id"
-            "  WHERE ir.tenant_id = :tid AND ir.user_id = :uid AND ir.status = 'completed'"
-            f"  {market_filter}"
-            "  UNION"
-            # All trained models (even without inference runs)
-            "  SELECT um.model_id,"
-            "         COALESCE(um.metadata_json->>'display_name', um.metadata_json->>'model_name') AS display_name,"
-            "         2 AS priority"
-            "  FROM qm_user_models um"
-            "  WHERE um.tenant_id = :tid AND um.user_id = :uid AND um.status != 'archived'"
-            f"  {market_filter}"
-            ") combined"
-            " ORDER BY priority, display_name"
-        )
-        res = await session.execute(text(sql), params)
-        seen = set()
+        # 优化：先查 qm_user_models（小表 38 行），再用 EXISTS 检查快照（大表 162K 行）
+        sql = text("""
+            SELECT um.model_id,
+                   COALESCE(um.metadata_json->>'display_name', um.metadata_json->>'model_name') AS display_name,
+                   EXISTS (
+                       SELECT 1 FROM qm_model_inference_runs ir
+                       WHERE ir.tenant_id = um.tenant_id AND ir.user_id = um.user_id
+                         AND ir.model_id = um.model_id AND ir.status = 'completed'
+                   ) AS has_inference
+            FROM qm_user_models um
+            WHERE um.tenant_id = :tid AND um.user_id = :uid AND um.status != 'archived'
+              AND COALESCE(um.metadata_json->'context'->>'market', 'CN') = :market
+            ORDER BY has_inference DESC, um.updated_at DESC
+        """)
+        res = await session.execute(sql, params)
         models = []
         for r in res.mappings():
             mid = r["model_id"]
-            if mid in seen:
-                continue
-            seen.add(mid)
             name = r["display_name"] or _humanize_model_name(mid)
             models.append({"modelId": mid, "name": name})
         return {"code": 200, "data": {"models": models}}
