@@ -460,6 +460,78 @@ def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
     vwap = vwap.replace([np.inf, -np.inf], np.nan).fillna((h + lo + c) / 3)     # fallback: 典型价格
     g["prel_vwap0"] = vwap / c.clip(lower=1e-8)                                 # VWAP/收盘
 
+    # ═══ 第一梯队: 价格位置因子 (5 个) ═══
+    # 价格在N日区间的位置 (0=最低, 1=最高)
+    low_20 = lo.rolling(20, min_periods=1).min()
+    high_20 = h.rolling(20, min_periods=1).max()
+    g["price_position_20"] = (c - low_20) / (high_20 - low_20).clip(lower=1e-8)
+
+    low_60 = lo.rolling(60, min_periods=1).min()
+    high_60 = h.rolling(60, min_periods=1).max()
+    g["price_position_60"] = (c - low_60) / (high_60 - low_60).clip(lower=1e-8)
+
+    # 距离N日新高的回撤幅度
+    g["dist_to_high_20"] = c / high_20.clip(lower=1e-8) - 1
+    g["dist_to_low_20"] = c / low_20.clip(lower=1e-8) - 1
+
+    # 20日内收益率排名 (0~1) — 向量化近似
+    ret_1d = c.pct_change()
+    ret_min_20 = ret_1d.rolling(20, min_periods=5).min()
+    ret_max_20 = ret_1d.rolling(20, min_periods=5).max()
+    g["ret_rank_20"] = (ret_1d - ret_min_20) / (ret_max_20 - ret_min_20).clip(lower=1e-8)
+
+    # ═══ 第二梯队: 波动率调整动量 (4 个) ═══
+    # Sharpe型动量 = 收益 / 波动率
+    ret_std_5 = ret_1d.rolling(5, min_periods=2).std()
+    ret_std_20 = ret_1d.rolling(20, min_periods=5).std()
+    ret_std_60 = ret_1d.rolling(60, min_periods=10).std()
+    g["mom_sharpe_5"] = c.pct_change(5) / ret_std_5.clip(lower=1e-6)
+    g["mom_sharpe_20"] = c.pct_change(20) / ret_std_20.clip(lower=1e-6)
+    g["mom_sharpe_60"] = c.pct_change(60) / ret_std_60.clip(lower=1e-6)
+
+    # 风险调整后的相对强度
+    ret_20 = c.pct_change(20)
+    g["mom_risk_adj_20"] = (ret_20 - ret_20.rolling(20, min_periods=5).mean()) / ret_std_20.clip(lower=1e-6)
+
+    # ═══ 第三梯队: 量价配合度 (4 个) ═══
+    log_vol = np.log(v.clip(lower=1))
+
+    # 量价相关性 (正=量价齐升)
+    g["pv_corr_20"] = ret_1d.rolling(20, min_periods=10).corr(log_vol)
+    g["pv_corr_10"] = ret_1d.rolling(10, min_periods=5).corr(log_vol)
+
+    # 放量上涨占比 (20日里上涨日成交量占总量比)
+    up_vol = pd.Series(np.where(ret_1d > 0, v, 0), index=g.index)
+    g["up_volume_ratio_20"] = up_vol.rolling(20, min_periods=5).sum() / v.rolling(20, min_periods=5).sum().clip(lower=1e-6)
+
+    # 量价背离 (价格排名 - 成交量排名) — 向量化近似
+    c_min_20 = c.rolling(20, min_periods=5).min()
+    c_max_20 = c.rolling(20, min_periods=5).max()
+    v_min_20 = v.rolling(20, min_periods=5).min()
+    v_max_20 = v.rolling(20, min_periods=5).max()
+    c_rank = (c - c_min_20) / (c_max_20 - c_min_20).clip(lower=1e-8)
+    v_rank = (v - v_min_20) / (v_max_20 - v_min_20).clip(lower=1e-8)
+    g["pv_divergence_20"] = c_rank - v_rank
+
+    # ═══ 第四梯队: 趋势质量因子 (3 个) ═══
+    # 20日趋势R² — 向量化: R² = corr(price, time_index)²
+    time_idx = pd.Series(np.arange(len(c), dtype=float), index=c.index)
+    g["trend_r2_20"] = c.rolling(20, min_periods=10).corr(time_idx) ** 2
+
+    # 20日趋势斜率 — 向量化: slope = corr * std(price) / std(t) / mean(price)
+    c_std_20 = c.rolling(20, min_periods=10).std()
+    t_std = np.sqrt((np.arange(20) - np.arange(20).mean()) ** 2).sum() / 20
+    corr_ct = c.rolling(20, min_periods=10).corr(time_idx)
+    g["trend_slope_20"] = corr_ct * c_std_20 / (t_std + 1e-6) / c.rolling(20, min_periods=10).mean().clip(lower=1e-6)
+
+    # 连续上涨/下跌强度 (5日涨跌天数差)
+    up_down = pd.Series(np.where(ret_1d > 0, 1, np.where(ret_1d < 0, -1, 0)), index=g.index)
+    g["consecutive_updown_5"] = up_down.rolling(5, min_periods=1).sum()
+
+    # ═══ 第五梯队: 时序滞后特征 (2 个) ═══
+    g["ret_1d_lag1"] = ret_1d.shift(1)
+    g["ret_1d_lag2"] = ret_1d.shift(2)
+
     return g
 
 

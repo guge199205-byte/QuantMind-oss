@@ -117,6 +117,86 @@ def compute_alpha158_for_group(g: pd.DataFrame) -> pd.DataFrame:
     return g
 
 
+# New factors: price position, sharpe momentum, volume-price, trend quality, lag
+NEW_FACTOR_COLS = [
+    "price_position_20", "price_position_60",
+    "dist_to_high_20", "dist_to_low_20", "ret_rank_20",
+    "mom_sharpe_5", "mom_sharpe_20", "mom_sharpe_60", "mom_risk_adj_20",
+    "pv_corr_20", "pv_corr_10", "up_volume_ratio_20", "pv_divergence_20",
+    "trend_r2_20", "trend_slope_20", "consecutive_updown_5",
+    "ret_1d_lag1", "ret_1d_lag2",
+]
+
+
+def compute_new_factors_for_group(g: pd.DataFrame) -> pd.DataFrame:
+    """Compute 18 new factors from OHLCV."""
+    g = g.sort_values("trade_date").copy()
+    c = g["close"]
+    h = g["high"]
+    lo = g["low"]
+    v = g["volume"]
+    ret_1d = c.pct_change()
+
+    # Tier 1: Price position
+    low_20 = lo.rolling(20, min_periods=1).min()
+    high_20 = h.rolling(20, min_periods=1).max()
+    g["price_position_20"] = (c - low_20) / (high_20 - low_20).clip(lower=1e-8)
+    low_60 = lo.rolling(60, min_periods=1).min()
+    high_60 = h.rolling(60, min_periods=1).max()
+    g["price_position_60"] = (c - low_60) / (high_60 - low_60).clip(lower=1e-8)
+    g["dist_to_high_20"] = c / high_20.clip(lower=1e-8) - 1
+    g["dist_to_low_20"] = c / low_20.clip(lower=1e-8) - 1
+    # Rank approximation: (value - min) / (max - min) in window
+    ret_min_20 = ret_1d.rolling(20, min_periods=5).min()
+    ret_max_20 = ret_1d.rolling(20, min_periods=5).max()
+    g["ret_rank_20"] = (ret_1d - ret_min_20) / (ret_max_20 - ret_min_20).clip(lower=1e-8)
+
+    # Tier 2: Sharpe momentum
+    ret_std_5 = ret_1d.rolling(5, min_periods=2).std()
+    ret_std_20 = ret_1d.rolling(20, min_periods=5).std()
+    ret_std_60 = ret_1d.rolling(60, min_periods=10).std()
+    g["mom_sharpe_5"] = c.pct_change(5) / ret_std_5.clip(lower=1e-6)
+    g["mom_sharpe_20"] = c.pct_change(20) / ret_std_20.clip(lower=1e-6)
+    g["mom_sharpe_60"] = c.pct_change(60) / ret_std_60.clip(lower=1e-6)
+    ret_20 = c.pct_change(20)
+    g["mom_risk_adj_20"] = (ret_20 - ret_20.rolling(20, min_periods=5).mean()) / ret_std_20.clip(lower=1e-6)
+
+    # Tier 3: Volume-price
+    log_vol = np.log(v.clip(lower=1))
+    g["pv_corr_20"] = ret_1d.rolling(20, min_periods=10).corr(log_vol)
+    g["pv_corr_10"] = ret_1d.rolling(10, min_periods=5).corr(log_vol)
+    up_vol = pd.Series(np.where(ret_1d > 0, v, 0), index=g.index)
+    g["up_volume_ratio_20"] = up_vol.rolling(20, min_periods=5).sum() / v.rolling(20, min_periods=5).sum().clip(lower=1e-6)
+    # Price rank - volume rank (vectorized approximation)
+    c_min_20 = c.rolling(20, min_periods=5).min()
+    c_max_20 = c.rolling(20, min_periods=5).max()
+    v_min_20 = v.rolling(20, min_periods=5).min()
+    v_max_20 = v.rolling(20, min_periods=5).max()
+    c_rank = (c - c_min_20) / (c_max_20 - c_min_20).clip(lower=1e-8)
+    v_rank = (v - v_min_20) / (v_max_20 - v_min_20).clip(lower=1e-8)
+    g["pv_divergence_20"] = c_rank - v_rank
+
+    # Tier 4: Trend quality (vectorized using rolling correlation)
+    # R² = corr(price, time_index)²
+    time_idx = pd.Series(np.arange(len(c), dtype=float), index=c.index)
+    g["trend_r2_20"] = c.rolling(20, min_periods=10).corr(time_idx) ** 2
+
+    # Slope = cov(price, t) / var(t), normalized by mean(price)
+    # Using: slope = corr * std(price) / std(t)
+    c_std_20 = c.rolling(20, min_periods=10).std()
+    t_std = np.sqrt((np.arange(20) - np.arange(20).mean()) ** 2).sum() / 20  # constant for window=20
+    corr_ct = c.rolling(20, min_periods=10).corr(time_idx)
+    g["trend_slope_20"] = corr_ct * c_std_20 / (t_std + 1e-6) / c.rolling(20, min_periods=10).mean().clip(lower=1e-6)
+    up_down = pd.Series(np.where(ret_1d > 0, 1, np.where(ret_1d < 0, -1, 0)), index=g.index)
+    g["consecutive_updown_5"] = up_down.rolling(5, min_periods=1).sum()
+
+    # Tier 5: Lag features
+    g["ret_1d_lag1"] = ret_1d.shift(1)
+    g["ret_1d_lag2"] = ret_1d.shift(2)
+
+    return g
+
+
 def add_alpha158_to_parquet(year: int, dry_run: bool = False) -> None:
     """Add Alpha158 K-line and price relative factors to an existing year parquet."""
     parquet_path = PARQUET_DIR / f"model_features_{year}.parquet"
@@ -162,6 +242,52 @@ def add_alpha158_to_parquet(year: int, dry_run: bool = False) -> None:
     _log(f"  Computed: {len(result):,} rows, {len(result.columns)} columns")
 
     # Write back
+    _log(f"  Writing {parquet_path}...")
+    result.to_parquet(parquet_path, engine="pyarrow", compression="zstd", index=False)
+    _log(f"  DONE: {len(result):,} rows, {len(result.columns)} columns")
+
+
+def add_new_factors_to_parquet(year: int, dry_run: bool = False) -> None:
+    """Add 18 new factors (price position, sharpe, vol-price, trend, lag) to parquet."""
+    parquet_path = PARQUET_DIR / f"model_features_{year}.parquet"
+    if not parquet_path.exists():
+        _log(f"  SKIP: {parquet_path} not found")
+        return
+
+    _log(f"Reading {parquet_path}...")
+    df = pd.read_parquet(parquet_path, engine="pyarrow")
+    _log(f"  {len(df):,} rows, {df['symbol'].nunique()} symbols, {len(df.columns)} columns")
+
+    missing = [c for c in NEW_FACTOR_COLS if c not in df.columns]
+    if not missing:
+        _log(f"  All 18 new factors already present, skipping")
+        return
+
+    _log(f"  Need to add {len(missing)} factors: {missing[:5]}...")
+
+    if dry_run:
+        _log(f"  DRY RUN - would compute {len(missing)} factors")
+        return
+
+    required = {"open", "high", "low", "close", "volume"}
+    if not required.issubset(set(df.columns)):
+        _log(f"  ERROR: Missing OHLCV columns: {required - set(df.columns)}")
+        return
+
+    _log(f"  Computing new factors...")
+    results = []
+    total = df["symbol"].nunique()
+    done = 0
+    for sym, group in df.groupby("symbol"):
+        feat = compute_new_factors_for_group(group)
+        results.append(feat)
+        done += 1
+        if done % 2000 == 0:
+            _log(f"    Progress: {done}/{total}")
+
+    result = pd.concat(results, ignore_index=True)
+    _log(f"  Computed: {len(result):,} rows, {len(result.columns)} columns")
+
     _log(f"  Writing {parquet_path}...")
     result.to_parquet(parquet_path, engine="pyarrow", compression="zstd", index=False)
     _log(f"  DONE: {len(result):,} rows, {len(result.columns)} columns")
@@ -235,6 +361,7 @@ def main():
     parser.add_argument("--year", type=int, default=0, help="Rebuild specific year (default: all)")
     parser.add_argument("--dry-run", action="store_true", help="Check only")
     parser.add_argument("--alpha158", action="store_true", help="Add Alpha158 K-line/price relative factors only")
+    parser.add_argument("--new-factors", action="store_true", help="Add 18 new factors (price position, sharpe, vol-price, trend, lag)")
     args = parser.parse_args()
 
     if args.year:
@@ -252,6 +379,11 @@ def main():
         for year in years:
             _log(f"\n=== Year {year} ===")
             add_alpha158_to_parquet(year, dry_run=args.dry_run)
+    elif args.new_factors:
+        _log(f"Adding 18 new factors to {len(years)} parquet files: {years}")
+        for year in years:
+            _log(f"\n=== Year {year} ===")
+            add_new_factors_to_parquet(year, dry_run=args.dry_run)
     else:
         _log(f"Will rebuild {len(years)} parquet files: {years}")
         for year in years:

@@ -97,6 +97,9 @@ services:
       - STORAGE_MODE=local
       - STORAGE_ROOT=/data
 
+      # 训练容器内存限制
+      - TRAINING_MEM_LIMIT=48g
+
       # 融资融券股票池文件路径（容器内）
       - MARGIN_STOCK_POOL_PATH=/data/融资融券.json
 
