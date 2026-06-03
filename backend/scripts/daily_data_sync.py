@@ -988,6 +988,39 @@ def _calibrate_indicators(engine, symbols: Optional[list[str]] = None, days: int
 
 
 # ---------------------------------------------------------------------------
+# Auto-create future partitions for stock_daily_latest
+# ---------------------------------------------------------------------------
+def _ensure_future_partitions(engine, months_ahead: int = 3):
+    """Create monthly partitions for stock_daily_latest if they don't exist."""
+    from datetime import date
+    from dateutil.relativedelta import relativedelta
+
+    today = date.today()
+    with engine.begin() as conn:
+        for i in range(0, months_ahead + 1):
+            target = today + relativedelta(months=i)
+            year_month = target.strftime("%Y_%m")
+            start = target.replace(day=1)
+            if target.month == 12:
+                end = start.replace(year=start.year + 1, month=1)
+            else:
+                end = start.replace(month=start.month + 1)
+
+            part_name = f"stock_daily_new_{year_month}"
+            exists = conn.execute(
+                sql_text("SELECT 1 FROM pg_class WHERE relname = :name"),
+                {"name": part_name},
+            ).scalar()
+            if not exists:
+                conn.execute(sql_text(
+                    f"CREATE TABLE IF NOT EXISTS {part_name} "
+                    f"PARTITION OF stock_daily_latest "
+                    f"FOR VALUES FROM ('{start}') TO ('{end}')"
+                ))
+                log.info("Created partition %s (%s to %s)", part_name, start, end)
+
+
+# ---------------------------------------------------------------------------
 # Main sync logic
 # ---------------------------------------------------------------------------
 def run_sync(
@@ -1016,6 +1049,10 @@ def run_sync(
 
     engine = _get_engine()
     _update_sync_progress("init", "初始化同步环境...", pct=5)
+
+    # Auto-create future partitions for stock_daily_latest
+    if market.upper() in ("A", "CN"):
+        _ensure_future_partitions(engine, months_ahead=3)
 
     # 1. 确定股票列表
     if symbols:
