@@ -438,6 +438,28 @@ def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
     if "is_st" in g.columns:
         g["is_st"] = pd.to_numeric(g["is_st"], errors="coerce").fillna(0).astype(int)
 
+    # ═══ Alpha158 K 线形态因子 (9 个) ═══
+    # 来源: Qlib Alpha158 — 仅需 OHLCV，无窗口依赖
+    o = g["open"]
+    denom = (h - lo).replace(0, np.nan)
+    g["kline_kmid"] = (c - o) / o.clip(lower=1e-8)                              # 实体比
+    g["kline_klen"] = (h - lo) / o.clip(lower=1e-8)                             # 振幅比
+    g["kline_kmid2"] = (c - o) / denom                                          # 实体占振幅比
+    g["kline_kup"] = (h - pd.concat([o, c], axis=1).max(axis=1)) / o.clip(lower=1e-8)   # 上影线比
+    g["kline_kup2"] = (h - pd.concat([o, c], axis=1).max(axis=1)) / denom              # 上影线占振幅比
+    g["kline_klow"] = (pd.concat([o, c], axis=1).min(axis=1) - lo) / o.clip(lower=1e-8) # 下影线比
+    g["kline_klow2"] = (pd.concat([o, c], axis=1).min(axis=1) - lo) / denom             # 下影线占振幅比
+    g["kline_ksft"] = (2 * c - h - lo) / o.clip(lower=1e-8)                     # 重心偏移
+    g["kline_ksft2"] = (2 * c - h - lo) / denom                                  # 重心偏移归一化
+
+    # ═══ Alpha158 价格相对因子 (4 个) ═══
+    g["prel_open0"] = o / c.clip(lower=1e-8)                                    # 开盘/收盘
+    g["prel_high0"] = h / c.clip(lower=1e-8)                                    # 最高/收盘
+    g["prel_low0"] = lo / c.clip(lower=1e-8)                                    # 最低/收盘
+    vwap = amt / v.clip(lower=1)                                                 # VWAP = 成交额/成交量
+    vwap = vwap.replace([np.inf, -np.inf], np.nan).fillna((h + lo + c) / 3)     # fallback: 典型价格
+    g["prel_vwap0"] = vwap / c.clip(lower=1e-8)                                 # VWAP/收盘
+
     return g
 
 
