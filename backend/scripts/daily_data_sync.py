@@ -835,8 +835,18 @@ def _sync_market_stock_tables(engine) -> dict[str, int]:
             with engine.begin() as conn:
                 conn.execute(sql_text(f"CREATE TABLE IF NOT EXISTS {table_name} ({cols_ddl})"))
 
-                # Clear and re-insert
-                conn.execute(sql_text(f"DELETE FROM {table_name}"))
+                # Check if DB already has newer data than parquet
+                db_max = conn.execute(sql_text(f"SELECT MAX(trade_date) FROM {table_name}")).scalar()
+                parquet_max = df_out["trade_date"].max() if "trade_date" in df_out.columns else None
+                if db_max and parquet_max and pd.Timestamp(db_max) >= pd.Timestamp(parquet_max):
+                    log.info("  %s: DB already has data up to %s, parquet only to %s — skipping overwrite",
+                             table_name, db_max, parquet_max)
+                    results[market] = 0
+                    continue
+
+                # Upsert instead of delete+insert
+                update_cols = [c for c in df_out.columns if c not in ("symbol", "trade_date")]
+                set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
 
                 batch_size = 1000
                 total_inserted = 0
@@ -844,17 +854,20 @@ def _sync_market_stock_tables(engine) -> dict[str, int]:
                     batch = df_out.iloc[i:i + batch_size]
                     cols = ", ".join(batch.columns)
                     placeholders = ", ".join([f":{col}" for col in batch.columns])
-                    insert_sql = f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})"
+                    upsert_sql = f"""
+                        INSERT INTO {table_name} ({cols}) VALUES ({placeholders})
+                        ON CONFLICT (symbol, trade_date) DO UPDATE SET {set_clause}
+                    """
                     for _, row in batch.iterrows():
                         params = {col: (None if pd.isna(row[col]) else row[col]) for col in batch.columns}
-                        conn.execute(sql_text(insert_sql), params)
+                        conn.execute(sql_text(upsert_sql), params)
                     total_inserted += len(batch)
 
                 # Create indexes
                 conn.execute(sql_text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_symbol ON {table_name} (symbol)"))
                 conn.execute(sql_text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_trade_date ON {table_name} (trade_date)"))
 
-            log.info("  %s: %d rows inserted", table_name, total_inserted)
+            log.info("  %s: %d rows upserted", table_name, total_inserted)
             results[market] = total_inserted
         except Exception as exc:
             log.warning("Failed to sync %s: %s", market, exc)
