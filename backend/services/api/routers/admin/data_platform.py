@@ -805,7 +805,14 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
         from pathlib import Path
         from backend.services.engine.rd_agent.market_adapters import list_markets, get_adapter
 
-        # 市场 → H5 数据文件路径
+        # 市场 → PostgreSQL 表名
+        table_map = {
+            "a_share": "stock_daily_latest",
+            "crypto": "stock_daily_latest_crypto",
+            "hong_kong": "stock_daily_latest_hk",
+            "us_stock": "stock_daily_latest_us",
+        }
+        # 市场 → H5 数据文件路径（fallback）
         h5_map = {
             "a_share": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5",
             "crypto": "/app/db/crypto_data/5min_pv.h5",
@@ -820,6 +827,32 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
             "us_stock": "/app/db/qlib_data/us_data",
         }
 
+        # 查询 PostgreSQL 获取各市场实时数据统计
+        from backend.shared.database_manager_v2 import get_session
+        from sqlalchemy import text as sql_text
+
+        pg_stats: dict[str, dict] = {}
+        for mid, tbl in table_map.items():
+            try:
+                async with get_session(read_only=True) as session:
+                    result = await session.execute(sql_text(f"""
+                        SELECT COUNT(*) AS rows,
+                               COUNT(DISTINCT symbol) AS symbols,
+                               MIN(trade_date) AS start_date,
+                               MAX(trade_date) AS end_date
+                        FROM {tbl}
+                    """))
+                    row = result.mappings().first()
+                    if row and row["rows"] and row["rows"] > 0:
+                        pg_stats[mid] = {
+                            "rows": int(row["rows"]),
+                            "symbols": int(row["symbols"]),
+                            "start_date": str(row["start_date"]),
+                            "end_date": str(row["end_date"]),
+                        }
+            except Exception:
+                pass
+
         markets = list_markets()
         for m in markets:
             mid = m["market_id"]
@@ -829,25 +862,31 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
             except Exception:
                 m["data_ready"] = False
 
-            # 读取 H5 文件详情
-            h5_path = h5_map.get(mid)
-            if h5_path and Path(h5_path).exists():
-                try:
-                    import pandas as pd
-                    df = pd.read_hdf(h5_path, key="data")
-                    dates = df.index.get_level_values("datetime")
-                    instruments = df.index.get_level_values("instrument")
-                    m["h5_info"] = {
-                        "rows": len(df),
-                        "symbols": int(instruments.nunique()),
-                        "start_date": str(dates.min().date()),
-                        "end_date": str(dates.max().date()),
-                        "file_size_mb": round(Path(h5_path).stat().st_size / 1024 / 1024, 1),
-                    }
-                except Exception:
-                    m["h5_info"] = None
+            # 优先使用 PostgreSQL 实时数据
+            if mid in pg_stats:
+                m["h5_info"] = pg_stats[mid]
+                m["data_source"] = "postgresql"
             else:
-                m["h5_info"] = None
+                # Fallback: 读取 H5 文件
+                h5_path = h5_map.get(mid)
+                if h5_path and Path(h5_path).exists():
+                    try:
+                        import pandas as pd
+                        df = pd.read_hdf(h5_path, key="data")
+                        dates = df.index.get_level_values("datetime")
+                        instruments = df.index.get_level_values("instrument")
+                        m["h5_info"] = {
+                            "rows": len(df),
+                            "symbols": int(instruments.nunique()),
+                            "start_date": str(dates.min().date()),
+                            "end_date": str(dates.max().date()),
+                            "file_size_mb": round(Path(h5_path).stat().st_size / 1024 / 1024, 1),
+                        }
+                        m["data_source"] = "h5"
+                    except Exception:
+                        m["h5_info"] = None
+                else:
+                    m["h5_info"] = None
 
             # 读取 Qlib 目录详情
             qlib_dir = qlib_map.get(mid)
