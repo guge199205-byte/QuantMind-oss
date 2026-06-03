@@ -508,7 +508,7 @@ class ModelTrainingService {
         code: item.symbol,
         name: item.stock_name || item.symbol,
         score: Number(item.fusion_score ?? 0),
-        signal: item.signal_side === 'buy' ? 'buy' : item.signal_side === 'sell' ? 'sell' : 'hold',
+        signal: (item.signal_side || '').toUpperCase() === 'BUY' ? 'buy' : (item.signal_side || '').toUpperCase() === 'SELL' ? 'sell' : 'hold',
       })),
     };
   }

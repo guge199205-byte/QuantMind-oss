@@ -1080,15 +1080,21 @@ class InferenceScriptRunner:
     def _get_st_symbols() -> set[str]:
         """从数据库获取当前 ST/*ST 股票代码集合。"""
         try:
-            from backend.shared.database_manager_v2 import get_db_manager
-            from sqlalchemy import text as sql_text
+            import os
+            from sqlalchemy import create_engine, text as sql_text
 
-            db = get_db_manager()
-            with db.get_engine().begin() as conn:
+            db_url = os.getenv("DATABASE_URL", "")
+            if "+asyncpg" in db_url:
+                db_url = db_url.replace("+asyncpg", "+psycopg2")
+            if not db_url.startswith("postgresql"):
+                return set()
+            engine = create_engine(db_url, pool_pre_ping=True)
+            with engine.begin() as conn:
                 rows = conn.execute(sql_text(
                     "SELECT DISTINCT symbol FROM stock_daily_latest "
                     "WHERE is_st = 1 AND trade_date >= CURRENT_DATE - INTERVAL '30 days'"
                 )).fetchall()
+            engine.dispose()
             return {r[0] for r in rows}
         except Exception:
             return set()
