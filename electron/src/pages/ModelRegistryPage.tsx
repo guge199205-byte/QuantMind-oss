@@ -55,10 +55,15 @@ import {
   toDynamicCategories,
 } from './training/trainingUtils';
 import { PAGE_LAYOUT } from '../config/pageLayout';
+import { useAppSelector } from '../store';
+import { selectCurrentMarket } from '../store/slices/uiSlice';
+import { getMarketConfig } from '../config/marketConfig';
 const { Text } = Typography;
 
 export const ModelRegistryPage: React.FC = () => {
   const navigate = useNavigate();
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const marketConfig = getMarketConfig(currentMarket);
   const [loading, setLoading] = useState(true);
   const [userModels, setUserModels] = useState<UserModelRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -147,9 +152,17 @@ export const ModelRegistryPage: React.FC = () => {
     if (!silent) setLoading(true);
     try {
       const resp = await modelTrainingService.listUserModels(true);
-      const items = resp.items ?? [];
+      const allItems = resp.items ?? [];
+      // 按当前市场过滤模型
+      const items = allItems.filter((m) => {
+        const meta = m.metadata_json || {};
+        const modelMarket = (meta.market as string) || '';
+        // 如果模型没有标记市场，则兼容显示（旧数据）
+        if (!modelMarket) return true;
+        return modelMarket === currentMarket;
+      });
       setUserModels(items);
-      
+
       if (!selectedId && items.length > 0) {
         const def = items.find(m => m.is_default) ?? items[0];
         if (def) setSelectedId(def.model_id);
@@ -159,9 +172,10 @@ export const ModelRegistryPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, [selectedId, currentMarket]);
 
   useEffect(() => { loadModels(); }, []);
+  useEffect(() => { loadModels(); }, [currentMarket]);
 
   useEffect(() => {
     setMainTab('detail');
@@ -258,8 +272,8 @@ export const ModelRegistryPage: React.FC = () => {
     setInferenceTargetLoading(true);
     try {
       const base = inferenceDate.format('YYYY-MM-DD');
-      const resolved = await modelTrainingService.resolveInferenceDateByCalendar('SSE', base);
-      const predicted = await modelTrainingService.calcTargetDateByCalendar('SSE', resolved.date, horizonDays);
+      const resolved = await modelTrainingService.resolveInferenceDateByCalendar(marketConfig.calendar, base);
+      const predicted = await modelTrainingService.calcTargetDateByCalendar(marketConfig.calendar, resolved.date, horizonDays);
       setInferenceTargetDate(predicted || '—');
     } catch {
       setInferenceTargetDate('—');
@@ -389,7 +403,7 @@ export const ModelRegistryPage: React.FC = () => {
     setLastInferenceRun(null);
     try {
       const requestedDateStr = inferenceDate.format('YYYY-MM-DD');
-      const resolvedDate = await modelTrainingService.resolveInferenceDateByCalendar('SSE', requestedDateStr);
+      const resolvedDate = await modelTrainingService.resolveInferenceDateByCalendar(marketConfig.calendar, requestedDateStr);
       const inferenceDateStr = resolvedDate.date;
       if (resolvedDate.adjusted && inferenceDateStr) {
         setInferenceDate(dayjs(inferenceDateStr));
@@ -524,7 +538,7 @@ export const ModelRegistryPage: React.FC = () => {
                   <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center shadow shadow-blue-500/30 text-white">
                     <Layers size={17} />
                   </div>
-                  <span className="text-[15px] font-black text-slate-800 tracking-tight">模型资产库</span>
+                  <span className="text-[15px] font-black text-slate-800 tracking-tight">模型资产库 ({marketConfig.label})</span>
                 </div>
                 <button
                   onClick={() => loadModels()}

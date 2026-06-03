@@ -45,6 +45,9 @@ import HelpCenterLink from '../components/common/HelpCenterLink';
 import type { BacktestResult } from '../services/backtestService';
 import { SERVICE_ENDPOINTS } from '../config/services';
 import { PAGE_LAYOUT } from '../config/pageLayout';
+import { useAppSelector } from '../store';
+import { selectCurrentMarket } from '../store/slices/uiSlice';
+import { getMarketConfig } from '../config/marketConfig';
 
 /**
  * AI-IDE Page Implementation
@@ -124,6 +127,8 @@ type SetRootOptions = {
 };
 
 const AIIDEPage: React.FC = () => {
+    const currentMarket = useAppSelector(selectCurrentMarket);
+    const marketConfig = getMarketConfig(currentMarket);
     const [searchParams] = useSearchParams();
 
     // UI State
@@ -380,6 +385,16 @@ const AIIDEPage: React.FC = () => {
     React.useEffect(() => {
         fetchSystemConfig();
     }, []);
+
+    // 市场切换时切换到对应的策略文件夹
+    React.useEffect(() => {
+        const marketDir = `strategies/${currentMarket.toLowerCase()}`;
+        setRootDirectory(marketDir).then((ok) => {
+            if (ok) {
+                fetchLocalFileList();
+            }
+        });
+    }, [currentMarket]);
 
     // 处理 URL 参数自动加载策略
     React.useEffect(() => {
@@ -832,9 +847,11 @@ const AIIDEPage: React.FC = () => {
             initial_capital: 100000000,
             commission: 0.00025,
             user_id: resolvedUserId || 'default',
-            benchmark_symbol: 'SH000300',
+            benchmark_symbol: marketConfig.benchmark,
             deal_price: 'close' as const,
             is_third_party: true,
+            qlib_provider_uri: marketConfig.qlibProviderUri,
+            qlib_region: marketConfig.qlibRegion,
             strategy_params: {
                 signal: '<PRED>',
             },
@@ -888,6 +905,9 @@ const AIIDEPage: React.FC = () => {
             strategy_id: strategyId,
             model_id: modelId,
             run_id: runId,
+            qlib_provider_uri: marketConfig.qlibProviderUri,
+            qlib_region: marketConfig.qlibRegion,
+            benchmark: marketConfig.benchmark,
         };
     };
 
@@ -938,7 +958,7 @@ const AIIDEPage: React.FC = () => {
         setFinalResultSummary({
             backtestId: jobId || undefined,
             strategyName: activeTab === 'remote' ? selectedRemote?.name : selectedFile?.name,
-            benchmarkSymbol: 'SH000300',
+            benchmarkSymbol: marketConfig.benchmark,
             status: current.status || 'completed',
             executionTime:
                 typeof current.execution_time === 'number' && Number.isFinite(current.execution_time)
@@ -1611,6 +1631,8 @@ const AIIDEPage: React.FC = () => {
                     extra_context: {
                         assistant_rules: AI_ASSISTANT_DEVELOPMENT_RULES,
                         assistant_mode: 'strict',
+                        market: currentMarket,
+                        market_name: marketConfig.label,
                     },
                     ...(context || {})
                 })

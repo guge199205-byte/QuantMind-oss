@@ -13,6 +13,14 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Per-market Qlib configuration (mirrors frontend marketConfig.ts)
+MARKET_QLIB_CONFIG = {
+    "CN": {"provider_uri": "/app/db/qlib_data", "region": "cn", "region_upper": "CN"},
+    "HK": {"provider_uri": "/app/db/qlib_data/hk_data", "region": "cn", "region_upper": "CN"},
+    "US": {"provider_uri": "/app/db/qlib_data/us_data", "region": "us", "region_upper": "US"},
+    "CRYPTO": {"provider_uri": "/app/db/qlib_data/crypto_data", "region": "cn", "region_upper": "CN"},
+}
+
 
 class SkillEngine:
     """策略生成模板路由引擎"""
@@ -92,15 +100,23 @@ class SkillEngine:
         """构建 skill 提示词
 
         将检测到的模板内容组合成一个完整的约束提示。
+        根据当前市场替换模板中的占位符。
         """
         templates = self.detect_intent(user_input, context)
         if not templates:
             return ""
 
+        market = str(context.get("market", "") or "").strip().upper() or "CN"
+        market_cfg = MARKET_QLIB_CONFIG.get(market, MARKET_QLIB_CONFIG["CN"])
+
         parts = []
         for template_name in templates:
             content = self.load_template(template_name)
             if content:
+                # Substitute market-specific placeholders
+                content = content.replace("{{PROVIDER_URI}}", market_cfg["provider_uri"])
+                content = content.replace("{{MARKET_REGION}}", market_cfg["region"])
+                content = content.replace("{{MARKET_REGION_UPPER}}", market_cfg["region_upper"])
                 parts.append(f"### {template_name}\n{content}")
 
         if not parts:
@@ -108,19 +124,25 @@ class SkillEngine:
 
         return "\n\n---\n\n".join(parts)
 
-    def get_error_injection(self, error_msg: str) -> str:
+    def get_error_injection(self, error_msg: str, market: str = "CN") -> str:
         """根据错误信息生成修复建议注入
 
         针对常见错误模式，生成具体的修复指导。
+        根据当前市场使用正确的 provider_uri 和 region。
         """
         if not error_msg:
             return ""
+
+        market = market.strip().upper() or "CN"
+        market_cfg = MARKET_QLIB_CONFIG.get(market, MARKET_QLIB_CONFIG["CN"])
+        provider_uri = market_cfg["provider_uri"]
+        region = market_cfg["region"]
 
         error_patterns = {
             "NameError: name 'qlib' is not defined": (
                 "检测到 qlib 未定义错误。修复方案：\n"
                 "1. 在文件顶部添加 `import qlib`\n"
-                "2. 在使用前调用 `qlib.init(provider_uri='/app/db/qlib_data', region='cn')`"
+                f"2. 在使用前调用 `qlib.init(provider_uri='{provider_uri}', region='{region}')`"
             ),
             "ModuleNotFoundError: No module named 'quantmind'": (
                 "检测到 quantmind 模块不存在。修复方案：\n"
@@ -138,7 +160,7 @@ class SkillEngine:
             "FileNotFoundError": (
                 "检测到文件路径错误。修复方案：\n"
                 "1. 禁止使用占位路径如 `path/to/your/data.csv`\n"
-                "2. 使用 qlib 数据：`qlib.init(provider_uri='/app/db/qlib_data', region='cn')` + `D.features(...)`"
+                f"2. 使用 qlib 数据：`qlib.init(provider_uri='{provider_uri}', region='{region}')` + `D.features(...)`"
             ),
         }
 

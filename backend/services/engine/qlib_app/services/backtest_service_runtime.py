@@ -134,7 +134,10 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
         )
 
         try:
-            self.initialize()
+            self.initialize(
+                provider_uri=getattr(request, "qlib_provider_uri", None),
+                region=getattr(request, "qlib_region", None),
+            )
             self._set_deterministic_seed(self._resolve_seed(request.seed))
 
             # --- Storage Resolution [START] ---

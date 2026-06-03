@@ -80,6 +80,7 @@ from ...services.selection.rule_parser import get_trade_rule_parser
 # ---------------------------------------------------------------------------
 from ...steps.step1_stock_selection import (
     LATEST_TABLE,
+    get_latest_table,
     _condition_to_dsl,
 )
 from ...steps.step1_stock_selection import parse_conditions as _step1_parse_conditions
@@ -285,7 +286,7 @@ async def query_pool(body: QueryPoolRequest, request: Request):
     try:
         trace_id = _trace_id(request)
         user_id = _require_user_id(request)
-        result = await _step2_query_pool(body.dsl, user_id)
+        result = await _step2_query_pool(body.dsl, user_id, market=body.market)
 
         logger.info(
             f"query_pool executed for user {user_id}",
@@ -787,7 +788,7 @@ async def parse_text(body: ParseTextRequest, request: Request):
     try:
         logger.info("parse_text started", extra={"trace_id": _trace_id(request)})
         if _is_full_market_query(body.text):
-            sql = _build_full_market_sql()
+            sql = _build_full_market_sql(body.market)
             return ParseResponse(
                 dsl=f"SQL: {sql}",
                 mapping={
@@ -815,19 +816,21 @@ async def parse_text(body: ParseTextRequest, request: Request):
 
         # 检查是否成功生成 SQL
         if sql:
+            market_table = get_latest_table(body.market)
+
             # 修复 LLM 可能生成的错误表名（重复拼接）
             sql = re.sub(r"stock_daily_latest_latest", "stock_daily_latest", sql, flags=re.IGNORECASE)
             sql = re.sub(r"stock_selection_selection", "stock_selection", sql, flags=re.IGNORECASE)
 
-            # 适配表名规范（仅替换未正确使用 LATEST_TABLE 的情况）
+            # 适配表名规范（仅替换未正确使用 market_table 的情况）
             if "from stock_selection" in sql.lower():
-                sql = re.sub(r"from\s+stock_selection", f"from {LATEST_TABLE}", sql, flags=re.IGNORECASE)
+                sql = re.sub(r"from\s+stock_selection", f"from {market_table}", sql, flags=re.IGNORECASE)
             if "from stock_daily" in sql.lower() and "from stock_daily_latest" not in sql.lower():
-                sql = re.sub(r"from\s+stock_daily(?!\s_latest)", f"from {LATEST_TABLE}", sql, flags=re.IGNORECASE)
+                sql = re.sub(r"from\s+stock_daily(?!\s_latest)", f"from {market_table}", sql, flags=re.IGNORECASE)
             
             # 若生成的是全市场 SQL，自动对齐口径
             if _is_full_market_sql(sql):
-                sql = _build_full_market_sql()
+                sql = _build_full_market_sql(body.market)
                 intent["semantic_category"] = "full_market"
 
             dsl = f"SQL: {sql}"

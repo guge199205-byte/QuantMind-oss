@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Row, Col, Card, Typography, Input, Button, Space, Alert, Tabs, Tag, Divider, message } from 'antd';
-import { 
-  BulbOutlined, 
-  EditOutlined, 
-  ThunderboltOutlined, 
-  CheckCircleOutlined, 
+import {
+  BulbOutlined,
+  EditOutlined,
+  ThunderboltOutlined,
+  CheckCircleOutlined,
   StockOutlined,
   SendOutlined
 } from '@ant-design/icons';
@@ -15,16 +15,20 @@ import { fetchWorkingPoolByDsl, syncWorkingPoolToBackend } from '../services/wiz
 import { FACTORS } from '../factors/dictionary';
 import { SimpleLogicBuilder } from './SimpleLogicBuilder';
 import { CustomStockSelector } from './CustomStockSelector';
+import { useAppSelector } from '../../../store';
+import { selectCurrentMarket, type AppMarket } from '../../../store/slices/uiSlice';
+import { getMarketConfig } from '../../../config/marketConfig';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 export const NaturalTextInput: React.FC<{ onNext: () => void }> = ({ onNext }) => {
   const { workingPool, setWorkingPool, conditions, setConditions } = useWizardV2Store();
+  const currentMarket = useAppSelector(selectCurrentMarket);
   // V2 specific: we use setWorkingPool instead of setPool/setConditions etc.
   // For simplicity during migration, we might still need some V1 states if UI depends on them
   // but let's try to stick to SSOT.
-  
+
   const [activeTab, setActiveTab] = useState('nlp');
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -36,71 +40,170 @@ export const NaturalTextInput: React.FC<{ onNext: () => void }> = ({ onNext }) =
     setText(t);
   };
 
-  // 按类别组织的快速模板（覆盖宽基/规模/行业/价值/成长/技术/资金/主题 8 大维度）
-  const templateGroups: Record<string, { label: string; value: string }[]> = {
-    宽基指数: [
-      { label: '全部A股', value: '全市场A股，剔除停牌和退市股票' },
-      { label: '沪深300', value: '沪深300成分股' },
-      { label: '中证500', value: '中证500成分股' },
-      { label: '中证800', value: '中证800成分股' },
-      { label: '中证1000', value: '中证1000成分股' },
-      { label: '中证2000', value: '中证2000成分股' },
-      { label: '上证50', value: '上证50成分股' },
-      { label: '科创50', value: '科创50成分股' },
-      { label: '创业板指', value: '创业板指数成分股' },
-      { label: '北证50', value: '北证50成分股' },
-    ],
-    规模与流动性: [
-      { label: '排除ST', value: '排除ST、*ST和退市风险警示股' },
-      { label: '剔除新股', value: '上市满180天的股票' },
-      { label: '小市值', value: '总市值10亿到100亿之间，剔除ST' },
-      { label: '中市值', value: '总市值100亿到500亿之间' },
-      { label: '大市值', value: '总市值大于500亿的蓝筹股' },
-      { label: '高流动性', value: '日均成交额大于2亿元，换手率大于2%' },
-    ],
-    行业板块: [
-      { label: '金融股', value: '银行、证券、保险板块' },
-      { label: '医药生物', value: '医药生物行业，剔除ST' },
-      { label: '消费白马', value: '食品饮料和家电行业，ROE大于15%' },
-      { label: '新能源车', value: '新能源汽车产业链相关股票' },
-      { label: '半导体', value: '半导体和电子元器件行业' },
-      { label: '人工智能', value: 'AI、算力、大模型概念股' },
-      { label: '军工', value: '国防军工行业' },
-      { label: '光伏储能', value: '光伏、储能、风电相关公司' },
-      { label: '券商', value: '证券行业，剔除ST' },
-      { label: '银行股', value: '银行业，市净率小于1.5' },
-    ],
-    价值与成长: [
-      { label: '低估值', value: '市盈率小于20，市净率小于2，剔除亏损' },
-      { label: '深度价值', value: 'PE小于15，PB小于1.5，股息率大于3%' },
-      { label: '高分红', value: '股息率大于4%，连续3年分红' },
-      { label: '高ROE', value: 'ROE连续3年大于15%，资产负债率小于60%' },
-      { label: '成长股', value: '净利润同比增长大于30%，营收增长大于20%' },
-      { label: 'GARP', value: 'PE小于25且净利润增速大于20%，PEG小于1' },
-      { label: '现金奶牛', value: '经营现金流净额连续3年为正，毛利率大于40%' },
-    ],
-    技术形态: [
-      { label: '突破新高', value: '近20日创60日新高，成交量放大' },
-      { label: '均线多头', value: '5日均线>10日均线>20日均线>60日均线' },
-      { label: 'MACD金叉', value: 'MACD金叉，DIF穿越DEA向上' },
-      { label: '超跌反弹', value: 'RSI小于30且近5日上涨' },
-      { label: '回踩均线', value: '股价回踩20日均线企稳' },
-      { label: '强势股', value: '近20日涨幅前10%，剔除ST' },
-    ],
-    资金趋势: [
-      { label: '北向加仓', value: '近5日北向资金净流入排名前100' },
-      { label: '主力流入', value: '主力资金净流入连续3日为正' },
-      { label: '机构重仓', value: '机构持股比例大于30%' },
-      { label: '融资买入', value: '融资余额近5日持续增加' },
-    ],
-    主题热点: [
-      { label: '高ROE+低估值', value: 'ROE大于15%且PE小于20，市值大于100亿' },
-      { label: '低估蓝筹', value: '沪深300且PE小于15且股息率大于3%' },
-      { label: '困境反转', value: '近1季度净利润同比扭亏，PB小于2' },
-      { label: '小盘成长', value: '市值小于100亿，营收增长大于30%' },
-      { label: 'AI算力', value: '云计算、IDC、服务器相关，市值大于50亿' },
-    ],
+  // 按市场组织的快速模板
+  const MARKET_TEMPLATES: Record<AppMarket, Record<string, { label: string; value: string }[]>> = {
+    CN: {
+      宽基指数: [
+        { label: '全部A股', value: '全市场A股，剔除停牌和退市股票' },
+        { label: '沪深300', value: '沪深300成分股' },
+        { label: '中证500', value: '中证500成分股' },
+        { label: '中证800', value: '中证800成分股' },
+        { label: '中证1000', value: '中证1000成分股' },
+        { label: '中证2000', value: '中证2000成分股' },
+        { label: '上证50', value: '上证50成分股' },
+        { label: '科创50', value: '科创50成分股' },
+        { label: '创业板指', value: '创业板指数成分股' },
+        { label: '北证50', value: '北证50成分股' },
+      ],
+      规模与流动性: [
+        { label: '排除ST', value: '排除ST、*ST和退市风险警示股' },
+        { label: '剔除新股', value: '上市满180天的股票' },
+        { label: '小市值', value: '总市值10亿到100亿之间，剔除ST' },
+        { label: '中市值', value: '总市值100亿到500亿之间' },
+        { label: '大市值', value: '总市值大于500亿的蓝筹股' },
+        { label: '高流动性', value: '日均成交额大于2亿元，换手率大于2%' },
+      ],
+      行业板块: [
+        { label: '金融股', value: '银行、证券、保险板块' },
+        { label: '医药生物', value: '医药生物行业，剔除ST' },
+        { label: '消费白马', value: '食品饮料和家电行业，ROE大于15%' },
+        { label: '新能源车', value: '新能源汽车产业链相关股票' },
+        { label: '半导体', value: '半导体和电子元器件行业' },
+        { label: '人工智能', value: 'AI、算力、大模型概念股' },
+        { label: '军工', value: '国防军工行业' },
+        { label: '光伏储能', value: '光伏、储能、风电相关公司' },
+        { label: '券商', value: '证券行业，剔除ST' },
+        { label: '银行股', value: '银行业，市净率小于1.5' },
+      ],
+      价值与成长: [
+        { label: '低估值', value: '市盈率小于20，市净率小于2，剔除亏损' },
+        { label: '深度价值', value: 'PE小于15，PB小于1.5，股息率大于3%' },
+        { label: '高分红', value: '股息率大于4%，连续3年分红' },
+        { label: '高ROE', value: 'ROE连续3年大于15%，资产负债率小于60%' },
+        { label: '成长股', value: '净利润同比增长大于30%，营收增长大于20%' },
+        { label: 'GARP', value: 'PE小于25且净利润增速大于20%，PEG小于1' },
+        { label: '现金奶牛', value: '经营现金流净额连续3年为正，毛利率大于40%' },
+      ],
+      技术形态: [
+        { label: '突破新高', value: '近20日创60日新高，成交量放大' },
+        { label: '均线多头', value: '5日均线>10日均线>20日均线>60日均线' },
+        { label: 'MACD金叉', value: 'MACD金叉，DIF穿越DEA向上' },
+        { label: '超跌反弹', value: 'RSI小于30且近5日上涨' },
+        { label: '回踩均线', value: '股价回踩20日均线企稳' },
+        { label: '强势股', value: '近20日涨幅前10%，剔除ST' },
+      ],
+      资金趋势: [
+        { label: '北向加仓', value: '近5日北向资金净流入排名前100' },
+        { label: '主力流入', value: '主力资金净流入连续3日为正' },
+        { label: '机构重仓', value: '机构持股比例大于30%' },
+        { label: '融资买入', value: '融资余额近5日持续增加' },
+      ],
+      主题热点: [
+        { label: '高ROE+低估值', value: 'ROE大于15%且PE小于20，市值大于100亿' },
+        { label: '低估蓝筹', value: '沪深300且PE小于15且股息率大于3%' },
+        { label: '困境反转', value: '近1季度净利润同比扭亏，PB小于2' },
+        { label: '小盘成长', value: '市值小于100亿，营收增长大于30%' },
+        { label: 'AI算力', value: '云计算、IDC、服务器相关，市值大于50亿' },
+      ],
+    },
+    HK: {
+      宽基指数: [
+        { label: '全部港股', value: '全市场港股，剔除停牌和退市股票' },
+        { label: '恒生指数', value: '恒生指数成分股' },
+        { label: '恒生科技', value: '恒生科技指数成分股' },
+        { label: '恒生国企', value: '恒生中国企业指数成分股' },
+        { label: '恒生中小盘', value: '恒生中小盘指数成分股' },
+      ],
+      规模与流动性: [
+        { label: '剔除仙股', value: '股价大于1港元的股票' },
+        { label: '大市值', value: '总市值大于500亿港元的蓝筹股' },
+        { label: '中市值', value: '总市值50亿到500亿港元之间' },
+        { label: '高流动性', value: '日均成交额大于5000万港元' },
+      ],
+      行业板块: [
+        { label: '金融股', value: '银行、保险、券商板块' },
+        { label: '科技股', value: '互联网、软件、硬件科技公司' },
+        { label: '消费股', value: '消费品和零售行业' },
+        { label: '地产股', value: '房地产行业' },
+        { label: '医药股', value: '医药和生物科技行业' },
+        { label: '新能源', value: '新能源和清洁能源相关' },
+      ],
+      价值与成长: [
+        { label: '低估值', value: '市盈率小于15，市净率小于1.5' },
+        { label: '高分红', value: '股息率大于4%' },
+        { label: '高ROE', value: 'ROE大于15%' },
+        { label: '成长股', value: '净利润同比增长大于25%' },
+      ],
+      南向资金: [
+        { label: '南向加仓', value: '近5日南向资金净流入排名前50' },
+        { label: 'AH溢价', value: 'A股相对H股溢价大于30%' },
+        { label: '港股通标的', value: '港股通标的股票' },
+      ],
+    },
+    US: {
+      宽基指数: [
+        { label: '全部美股', value: '全市场美股，剔除停牌和退市股票' },
+        { label: 'S&P 500', value: '标普500成分股' },
+        { label: 'Nasdaq 100', value: '纳斯达克100成分股' },
+        { label: 'Dow 30', value: '道琼斯30成分股' },
+        { label: 'Russell 2000', value: '罗素2000成分股' },
+      ],
+      规模与流动性: [
+        { label: '大盘股', value: '市值大于100亿美元的股票' },
+        { label: '中盘股', value: '市值10亿到100亿美元之间' },
+        { label: '小盘股', value: '市值小于10亿美元' },
+        { label: '高流动性', value: '日均成交额大于1亿美元' },
+      ],
+      行业板块: [
+        { label: '科技巨头', value: 'FAANG+微软+英伟达' },
+        { label: '半导体', value: '半导体和芯片行业' },
+        { label: 'AI概念', value: '人工智能和机器学习相关' },
+        { label: '生物医药', value: '生物科技和制药行业' },
+        { label: '金融', value: '银行、保险、投行' },
+        { label: '消费', value: '消费品和零售行业' },
+        { label: '能源', value: '石油、天然气、新能源' },
+      ],
+      价值与成长: [
+        { label: '低估值', value: 'PE小于20，PB小于3' },
+        { label: '高分红', value: '股息率大于3%' },
+        { label: '高增长', value: '营收增长大于30%' },
+        { label: '盈利增长', value: '净利润同比增长大于25%' },
+      ],
+      主题热点: [
+        { label: 'AI算力', value: 'GPU、数据中心、云计算相关' },
+        { label: '减肥药概念', value: 'GLP-1药物相关公司' },
+        { label: '自动驾驶', value: '自动驾驶和电动车相关' },
+      ],
+    },
+    CRYPTO: {
+      主流币: [
+        { label: '全部加密货币', value: '全市场加密货币，剔除退市币种' },
+        { label: 'Top 10', value: '市值排名前10的加密货币' },
+        { label: 'Top 20', value: '市值排名前20的加密货币' },
+        { label: 'Top 50', value: '市值排名前50的加密货币' },
+      ],
+      按类型: [
+        { label: 'Layer 1', value: '底层公链代币（ETH、SOL、AVAX等）' },
+        { label: 'Layer 2', value: '二层扩展方案代币（ARB、OP等）' },
+        { label: 'DeFi蓝筹', value: 'DeFi协议代币（UNI、AAVE、MKR等）' },
+        { label: '稳定币相关', value: '稳定币和RWA相关代币' },
+        { label: 'Meme币', value: 'Meme概念代币（DOGE、SHIB等）' },
+        { label: 'AI概念', value: 'AI和机器学习相关代币' },
+      ],
+      规模与流动性: [
+        { label: '大市值', value: '市值大于100亿美元' },
+        { label: '中市值', value: '市值10亿到100亿美元之间' },
+        { label: '高流动性', value: '24小时交易额大于1亿美元' },
+      ],
+      链上指标: [
+        { label: 'TVL排名', value: 'TVL排名前20的DeFi协议代币' },
+        { label: '活跃地址增长', value: '近30日活跃地址增长大于20%' },
+        { label: '巨鲸持仓', value: '巨鲸地址持仓集中度大于50%' },
+      ],
+    },
   };
+
+  const templateGroups = useMemo(() => MARKET_TEMPLATES[currentMarket] || MARKET_TEMPLATES.CN, [currentMarket]);
 
   const flatTemplates = Object.entries(templateGroups).flatMap(([cat, items]) =>
     items.map((t) => ({ ...t, category: cat })),
@@ -119,7 +222,7 @@ export const NaturalTextInput: React.FC<{ onNext: () => void }> = ({ onNext }) =
     setMatchedCount(null);
     try {
       const { parseText } = await import('../services/wizardService');
-      const parsed = await parseText(text);
+      const parsed = await parseText(text, currentMarket);
       
       // 针对数据库按“元”存储的情况，修复 DSL 中的单位换算（AI 通常输出以“亿”为单位的数字）
       let correctedDsl = parsed.dsl;
@@ -140,7 +243,7 @@ export const NaturalTextInput: React.FC<{ onNext: () => void }> = ({ onNext }) =
 
       if (correctedDsl) {
         try {
-          const items = await fetchWorkingPoolByDsl(correctedDsl);
+          const items = await fetchWorkingPoolByDsl(correctedDsl, currentMarket);
           setMatchedCount(items.length);
           // fetchWorkingPoolByDsl already syncs to backend
           setWorkingPool(items, true); 
@@ -186,7 +289,7 @@ export const NaturalTextInput: React.FC<{ onNext: () => void }> = ({ onNext }) =
     try {
       if (preview.dsl) {
         // If there's a DSL but maybe analyze wasn't called or we want to refresh
-        const items = await fetchWorkingPoolByDsl(preview.dsl);
+        const items = await fetchWorkingPoolByDsl(preview.dsl, currentMarket);
         setWorkingPool(items, true);
         message.success(`已生成股票池，包含 ${items.length} 只股票`);
       } else {

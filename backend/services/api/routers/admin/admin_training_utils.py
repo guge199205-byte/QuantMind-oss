@@ -169,12 +169,23 @@ def _normalize_context(context: dict[str, Any]) -> dict[str, Any]:
     if deal_price not in _ALLOWED_DEAL_PRICE:
         raise HTTPException(status_code=422, detail="context.deal_price must be one of: open, close")
 
+    market = str(context.get("market") or "").strip().upper()
+    if market not in ("CN", "US", "HK", "CRYPTO"):
+        # 从 benchmark 推断 market（前端可能未传 market 字段）
+        _BENCHMARK_MARKET = {
+            "HSI": "HK", "HSCEI": "HK", "HSTECH": "HK",
+            "SPX": "US", "NDX": "US", "DJI": "US", "IXIC": "US",
+            "BTC": "CRYPTO", "ETH": "CRYPTO",
+        }
+        market = _BENCHMARK_MARKET.get(benchmark.upper(), "CN")
+
     return {
         "initial_capital": initial_capital,
         "benchmark": benchmark,
         "commission_rate": commission_rate,
         "slippage": slippage,
         "deal_price": deal_price,
+        "market": market,
     }
 
 

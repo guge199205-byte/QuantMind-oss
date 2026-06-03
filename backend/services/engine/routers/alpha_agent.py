@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.services.engine.alpha_agent.launcher import get_launcher
 from backend.services.engine.qlib_app.services.rd_agent_persistence import (
@@ -45,6 +45,7 @@ async def start_evolution(
     market: str = Query("a_share", description="市场: a_share, crypto, hong_kong, us_stock"),
     loop_n: int = Query(3, ge=1, le=20, description="演化轮数"),
     direction: str = Query("", description="因子挖掘方向/假设"),
+    data_source: str = Query("", description="数据源: qlib_bin, parquet, pg (留空使用默认)"),
 ):
     """启动因子演化任务"""
     # Validate market
@@ -75,6 +76,7 @@ async def start_evolution(
         market=market,
         loop_n=loop_n,
         direction=direction or None,
+        data_source=data_source or None,
     )
     return {
         "code": 200,
@@ -108,6 +110,30 @@ async def cancel_task(task_id: str):
     return {"code": 200, "data": {"task_id": task_id, "status": "cancelled"}}
 
 
+@router.get("/tasks/{task_id}/log")
+async def get_task_log(
+    task_id: str,
+    tail: int = Query(500, ge=1, le=5000, description="返回最后N行"),
+    offset: int = Query(0, ge=0, description="从第N行开始返回"),
+):
+    """获取任务的详细子进程日志（实时监控用）"""
+    launcher = get_launcher()
+    log_content = await launcher.get_task_log(task_id, tail=tail + offset)
+    if log_content is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} log not found")
+    lines = log_content.splitlines()
+    if offset > 0:
+        lines = lines[offset:]
+    return {
+        "code": 200,
+        "data": {
+            "task_id": task_id,
+            "lines": lines,
+            "total": len(lines),
+        },
+    }
+
+
 @router.get("/tasks")
 async def list_tasks(
     user_id: Optional[str] = Query(None, description="按用户过滤"),
@@ -119,19 +145,6 @@ async def list_tasks(
     if market:
         tasks = [t for t in tasks if t.get("market") == market]
     return {"code": 200, "data": {"tasks": tasks, "total": len(tasks)}}
-
-
-@router.get("/tasks/{task_id}/log")
-async def get_task_log(
-    task_id: str,
-    tail: int = Query(200, ge=10, le=2000, description="返回最后 N 行"),
-):
-    """获取任务的实时日志"""
-    launcher = get_launcher()
-    log = await launcher.get_task_log(task_id, tail=tail)
-    if log is None:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found or no log available")
-    return {"code": 200, "data": {"task_id": task_id, "log": log}}
 
 
 @router.get("/factors")
@@ -155,6 +168,76 @@ async def get_factor(factor_id: str):
     if not factor:
         raise HTTPException(status_code=404, detail=f"Factor {factor_id} not found")
     return {"code": 200, "data": factor}
+
+
+@router.post("/factors/{factor_id}/explain")
+async def explain_factor(factor_id: str):
+    """用 LLM 中文解释因子含义"""
+    factor = await persistence.get_factor(factor_id)
+    if not factor:
+        raise HTTPException(status_code=404, detail=f"Factor {factor_id} not found")
+
+    # Check if explanation already exists
+    metadata = factor.get("metadata") or {}
+    if metadata.get("explanation"):
+        return {"code": 200, "data": {"explanation": metadata["explanation"], "cached": True}}
+
+    factor_name = factor.get("factor_name", "unknown")
+    factor_code = factor.get("factor_code", "")
+    factor_formulation = metadata.get("factor_formulation", "")
+
+    # Call LLM for explanation
+    import httpx
+
+    api_key = (
+        os.getenv("AI_IDE_LLM_API_KEY")
+        or os.getenv("AI_IDE_API_KEY")
+        or os.getenv("OPENAI_API_KEY", "")
+    )
+    api_base = (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("OPENAI_API_BASE")
+        or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
+    model = os.getenv("CHAT_MODEL", "deepseek-v3")
+
+    if not api_key:
+        raise HTTPException(status_code=500, detail="API Key 未配置")
+
+    prompt = f"""请用中文简洁地解释以下量化因子。输出格式：
+1. **含义**：一句话概括
+2. **金融直觉**：为什么这个因子可能有效
+3. **适用场景**：在什么市场环境下表现较好
+4. **预期方向**：因子值高/低时预示什么
+
+因子名称：{factor_name}
+因子公式：{factor_formulation or factor_code[:500]}
+
+请直接输出解释，不要重复因子公式。"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 500,
+                    "temperature": 0.3,
+                },
+            )
+            resp.raise_for_status()
+            explanation = resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error("LLM explain failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"LLM 解释失败: {str(e)[:200]}")
+
+    # Store explanation in metadata
+    metadata["explanation"] = explanation
+    await persistence.update_factor_metrics(factor_id, metadata=metadata)
+
+    return {"code": 200, "data": {"explanation": explanation, "cached": False}}
 
 
 @router.post("/factors/{factor_id}/backtest")
@@ -194,6 +277,71 @@ async def backtest_factor(
             "factor_id": factor_id,
             "status": "backtesting",
             "message": f"快速验证已触发: {factor.get('factor_name')}",
+        },
+    }
+
+
+@router.post("/factors/{factor_id}/export")
+async def export_factor_to_ide(
+    factor_id: str,
+    request: Request,
+):
+    """将因子代码导出到 AI-IDE 工作空间"""
+    # 从请求中获取用户 ID
+    user = getattr(request.state, "user", None)
+    user_id = str(user.get("user_id") or user.get("sub") or "") if user else ""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    factor = await persistence.get_factor(factor_id)
+    if not factor:
+        raise HTTPException(status_code=404, detail=f"Factor {factor_id} not found")
+
+    factor_code = factor.get("factor_code") or ""
+    if not factor_code.strip():
+        raise HTTPException(status_code=400, detail="因子代码为空，无法导出")
+
+    factor_name = factor.get("factor_name", "unnamed_factor")
+    meta = factor.get("metadata") or {}
+
+    # 生成带头部注释的完整 Python 文件
+    header_lines = [
+        f'"""',
+        f'Factor: {factor_name}',
+        f'Source: RD-Agent Alpha Research',
+        f'IC: {factor.get("ic_value", "N/A")}',
+        f'RankIC: {meta.get("rank_ic", "N/A")}',
+        f'Sharpe: {factor.get("sharpe_ratio", "N/A")}',
+        f'Market: {meta.get("market", "a_share")}',
+        f'Description: {meta.get("description", "")[:200]}',
+        f'"""',
+        f'',
+    ]
+    full_code = "\n".join(header_lines) + factor_code
+
+    # 保存到策略库
+    from backend.shared.strategy_storage import get_strategy_storage_service
+    svc = get_strategy_storage_service()
+    file_name = f"factor_{factor_name}"
+    res = await svc.save(
+        user_id=user_id,
+        name=file_name,
+        code=full_code,
+        metadata={
+            "status": "DRAFT",
+            "source": "alpha_research",
+            "factor_id": factor_id,
+            "description": f"Alpha Factor: {factor_name}",
+            "tags": ["alpha", meta.get("market", "a_share")],
+        },
+    )
+
+    return {
+        "code": 200,
+        "data": {
+            "strategy_id": res["id"],
+            "name": file_name,
+            "message": f"因子 {factor_name} 已导出到 AI-IDE 工作空间",
         },
     }
 

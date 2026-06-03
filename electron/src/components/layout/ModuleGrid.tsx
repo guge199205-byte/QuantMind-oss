@@ -7,6 +7,8 @@ import { StrategyMonitorCard } from '../modules/StrategyMonitorCard';
 import IntelligenceChartsCard from '../modules/IntelligenceChartsCard';
 import { NotificationQuickCard } from '../modules/NotificationQuickCard';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
 
 // 动态加载模块
 const moduleComponents: { [key: string]: React.ComponentType } = {
@@ -27,6 +29,7 @@ export const ModuleGrid: React.FC<ModuleGridProps> = ({ modules, onLayoutChange 
   const [strategyExpanded, setStrategyExpanded] = useState(false);
   const [notificationExpanded, setNotificationExpanded] = useState(false);
   const hasAnyExpanded = strategyExpanded || notificationExpanded;
+  const currentMarket = useAppSelector(selectCurrentMarket);
 
   useEffect(() => {
     if (!hasAnyExpanded) {
@@ -89,7 +92,7 @@ export const ModuleGrid: React.FC<ModuleGridProps> = ({ modules, onLayoutChange 
       >
         {modules.map((module) => (
           <motion.div
-            key={module.id}
+            key={`${module.id}-${currentMarket}`}
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.4 }}

@@ -195,22 +195,66 @@ async def _resolve_requested_model(current_user: dict[str, Any], model_id: str):
     return requested_model_id, resolved
 
 
+_MARKET_QLIB_DATA_PATH: dict[str, str] = {
+    "CN": "db/qlib_data",
+    "HK": "db/qlib_data/hk_data",
+    "US": "db/qlib_data/us_data",
+    "CRYPTO": "db/qlib_data/crypto_data",
+}
+
+_MARKET_CALENDAR: dict[str, str] = {
+    "CN": "SSE",
+    "HK": "HKEX",
+    "US": "NYSE",
+    "CRYPTO": "24/7",
+}
+
+
+def _get_model_market(model_dir: Path) -> str:
+    """Extract market from model's metadata.json context.market field."""
+    meta_file = model_dir / "metadata.json"
+    if meta_file.is_file():
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            context = meta.get("context")
+            if isinstance(context, dict):
+                market = str(context.get("market", "")).upper()
+                if market in _MARKET_CALENDAR:
+                    return market
+        except Exception:
+            pass
+    return "CN"
+
+
+def _get_model_calendar(model_dir: Path) -> str:
+    """Get trading calendar ID for the model's market."""
+    return _MARKET_CALENDAR.get(_get_model_market(model_dir), "SSE")
+
+
 def _get_model_data_dir(model_dir: Path, metadata: dict | None = None) -> str:
     """
     从模型配置中获取推理数据目录。
 
     优先级：
     1. metadata.json 中的 qlib_data_path 字段（绝对路径）
-    2. metadata.json 中的 data_source 字段判断：
+    2. metadata.json 中的 context.market 字段映射到对应 qlib 数据目录
+    3. metadata.json 中的 data_source 字段判断：
        - "qlib" -> db/qlib_data
        - "parquet" 或其他 -> db/feature_snapshots
-    3. 默认值 -> db/feature_snapshots
+    4. 默认值 -> db/feature_snapshots
     """
     # 优先读取 metadata 中的 qlib_data_path
     if metadata:
         qlib_data_path = metadata.get("qlib_data_path")
         if qlib_data_path:
             return qlib_data_path
+
+        # 根据 context.market 映射到对应 qlib 数据目录
+        context = metadata.get("context")
+        if isinstance(context, dict):
+            market = str(context.get("market", "")).upper()
+            if market in _MARKET_QLIB_DATA_PATH:
+                return _MARKET_QLIB_DATA_PATH[market]
 
         # 根据 data_source 判断
         data_source = str(metadata.get("data_source", "")).lower()
@@ -225,6 +269,12 @@ def _get_model_data_dir(model_dir: Path, metadata: dict | None = None) -> str:
             qlib_data_path = meta.get("qlib_data_path")
             if qlib_data_path:
                 return qlib_data_path
+
+            context = meta.get("context")
+            if isinstance(context, dict):
+                market = str(context.get("market", "")).upper()
+                if market in _MARKET_QLIB_DATA_PATH:
+                    return _MARKET_QLIB_DATA_PATH[market]
 
             data_source = str(meta.get("data_source", "")).lower()
             if data_source == "qlib":
@@ -265,6 +315,7 @@ async def list_system_models(
 
 @router.get("/feature-catalog", summary="获取模型训练特征字典（用户态）")
 async def get_model_feature_catalog(
+    market: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     _ = current_user
@@ -274,11 +325,11 @@ async def get_model_feature_catalog(
         catalog = None
 
     if catalog:
-        return _enrich_feature_catalog_with_data_coverage(catalog)
+        return _enrich_feature_catalog_with_data_coverage(catalog, market=market)
 
     fallback = _load_feature_catalog_from_file()
     if fallback:
-        return _enrich_feature_catalog_with_data_coverage(fallback)
+        return _enrich_feature_catalog_with_data_coverage(fallback, market=market)
 
     raise HTTPException(status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）")
 
@@ -679,10 +730,12 @@ async def precheck_inference(
 ):
     requested_model_id, resolved = await _resolve_requested_model(current_user, model_id)
     model_dir = Path(resolved.storage_path)
+    model_calendar = _get_model_calendar(model_dir)
     requested_inference_date = inference_date or datetime.now(ZoneInfo("Asia/Shanghai")).date()
     resolved_data_trade_date, calendar_adjusted = await _resolve_inference_trade_date_with_calendar(
         current_user=current_user,
         requested_date=requested_inference_date,
+        market=model_calendar,
     )
     data_trade_date = resolved_data_trade_date.isoformat()
     runner = InferenceScriptRunner(
@@ -737,10 +790,12 @@ async def run_model_inference(
     tenant_id, user_id = _owner_scope(current_user)
     requested_model_id, resolved = await _resolve_requested_model(current_user, payload.model_id)
     model_dir = Path(resolved.storage_path)
+    model_calendar = _get_model_calendar(model_dir)
     requested_inference_date = payload.inference_date
     resolved_data_trade_date, calendar_adjusted = await _resolve_inference_trade_date_with_calendar(
         current_user=current_user,
         requested_date=requested_inference_date,
+        market=model_calendar,
     )
     data_trade_date = resolved_data_trade_date.isoformat()
     runner = InferenceScriptRunner(
@@ -1040,20 +1095,30 @@ async def get_model_inference_run_detail(
                         text(
                             """
                             SELECT
-                                symbol,
-                                fusion_score,
-                                light_score,
-                                tft_score,
-                                score_rank,
-                                signal_side,
-                                expected_price,
-                                quality,
-                                created_at
-                            FROM engine_signal_scores
-                            WHERE run_id = :run_id
-                              AND tenant_id = :tenant_id
-                              AND user_id = :user_id
-                            ORDER BY fusion_score DESC NULLS LAST, symbol ASC
+                                ess.symbol,
+                                ess.fusion_score,
+                                ess.light_score,
+                                ess.tft_score,
+                                ess.score_rank,
+                                ess.signal_side,
+                                ess.expected_price,
+                                ess.quality,
+                                ess.created_at,
+                                COALESCE(s.name, '') AS stock_name
+                            FROM engine_signal_scores ess
+                            LEFT JOIN stocks s ON s.symbol = ess.symbol
+                                OR (LENGTH(ess.symbol) BETWEEN 4 AND 5 AND ess.symbol ~ '^[0-9]+$'
+                                    AND s.symbol = LPAD(ess.symbol, 5, '0') || '.HK')
+                                OR (LENGTH(ess.symbol) = 6 AND ess.symbol ~ '^[0-9]+$'
+                                    AND s.symbol = CASE
+                                        WHEN ess.symbol LIKE '6%' THEN ess.symbol || '.SH'
+                                        WHEN ess.symbol LIKE '0%' OR ess.symbol LIKE '3%' THEN ess.symbol || '.SZ'
+                                        WHEN ess.symbol LIKE '4%' OR ess.symbol LIKE '8%' THEN ess.symbol || '.BJ'
+                                    END)
+                            WHERE ess.run_id = :run_id
+                              AND ess.tenant_id = :tenant_id
+                              AND ess.user_id = :user_id
+                            ORDER BY ess.fusion_score DESC NULLS LAST, ess.symbol ASC
                             """
                         ),
                         {"run_id": run_id, "tenant_id": tenant_id, "user_id": user_id},

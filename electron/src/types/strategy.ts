@@ -6,7 +6,7 @@
 
 // 本地枚举定义 - 临时解决方案
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type MarketType = 'CN' | 'US' | 'HK' | 'GLOBAL';
+export type MarketType = 'CN' | 'US' | 'HK' | 'CRYPTO' | 'GLOBAL';
 export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w' | '1M';
 export type StrategyStyle = 'conservative' | 'balanced' | 'aggressive' | 'custom';
 export type StrategyLength = 'short_term' | 'medium_term' | 'long_term' | 'unlimited';
@@ -21,7 +21,7 @@ export type GenerationStatus = 'idle' | 'validating' | 'generating' | 'completed
 
 // 常量定义
 export const RISK_LEVELS = ['low', 'medium', 'high'];
-export const MARKETS = ['CN', 'US', 'HK', 'GLOBAL'];
+export const MARKETS = ['CN', 'US', 'HK', 'CRYPTO', 'GLOBAL'];
 export const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'];
 export const STRATEGY_STYLES = ['conservative', 'balanced', 'aggressive', 'custom'];
 export const STRATEGY_LENGTHS = ['short_term', 'medium_term', 'long_term', 'unlimited'];

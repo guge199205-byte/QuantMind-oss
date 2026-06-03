@@ -42,6 +42,7 @@ export interface TrainingContext {
   commissionRate: number;
   slippage: number;
   dealPrice: DealPrice;
+  market?: 'CN' | 'US' | 'HK' | 'CRYPTO';
 }
 
 export interface TrainingRequestPayload {
@@ -250,6 +251,45 @@ export const TRAINING_BASE_FEATURES = [
   'mom_ret_1d', 'mom_ret_5d', 'mom_ret_20d', 'liq_volume', 'liq_amount', 'liq_turnover_os',
 ];
 
+// Market-specific default feature sets
+export const MARKET_DEFAULT_FEATURES: Record<string, string[]> = {
+  CN: PRESET_DEFAULT_FEATURES,
+  HK: [
+    // 基本面因子
+    'pe_ttm', 'pb', 'roe', 'ep_ttm', 'bp',
+    // 技术面 - Top 15 from LightGBM gain
+    'volume_ma_5', 'flow_vpin_ma_20', 'flow_vpin_ma_5',
+    'vol_atr_20', 'ma_gap_20', 'style_idio_vol_60',
+    'mom_ma_gap_20', 'liq_amihud_20', 'style_beta_60',
+    'mom_ma_gap_5', 'vol_parkinson_10', 'return_20d',
+    'mom_ret_60d', 'liq_volume_ma_10', 'vol_downside_20',
+  ],
+  US: [
+    // 基本面因子
+    'pe_ttm', 'pb', 'roe', 'ep_ttm', 'bp',
+    // 技术面 - 动量+波动+流动性
+    'mom_ret_20d', 'mom_ma_gap_20', 'mom_rsi_14',
+    'vol_std_20', 'vol_atr_20', 'style_idio_vol_60',
+    'style_beta_60', 'liq_amihud_20', 'flow_vpin_ma_20',
+    'volume_ma_5', 'ma_gap_20', 'vol_downside_20',
+    'mom_ret_60d', 'liq_volume_ma_10', 'style_ln_mv_total',
+  ],
+  CRYPTO: [
+    // 加密货币没有基本面，纯技术+资金流
+    'mom_ret_1d', 'mom_ret_5d', 'mom_ret_20d',
+    'mom_ma_gap_5', 'mom_ma_gap_20', 'mom_rsi_14',
+    'vol_std_20', 'vol_atr_20', 'vol_parkinson_20',
+    'flow_vpin', 'flow_vpin_ma_5', 'flow_vpin_ma_20',
+    'liq_volume_ma_5', 'liq_amihud_20', 'ma_gap_20',
+    'volume_ma_5', 'vol_downside_20', 'style_beta_20',
+    'mom_breakout_20d', 'vol_jump_zadj',
+  ],
+};
+
+export const getDefaultFeaturesForMarket = (market: string): string[] => {
+  return MARKET_DEFAULT_FEATURES[market?.toUpperCase()] || PRESET_DEFAULT_FEATURES;
+};
+
 export const EXTRA_FEATURE_LABELS: Record<string, string> = {
   liq_volume: '当日成交量',
   liq_amount: '当日成交额',
@@ -323,6 +363,7 @@ export const DEFAULT_CONTEXT: TrainingContext = {
   commissionRate: 0.00025,
   slippage: 0.0005,
   dealPrice: 'open',
+  market: 'CN',
 };
 
 export const DEFAULT_TARGET: TrainingTarget = {
@@ -392,11 +433,12 @@ export const buildEffectiveTradeDate = (target: TrainingTarget, referenceDate: D
   return referenceDate.add(target.horizonDays, 'day').format('YYYY-MM-DD');
 };
 
-export const buildAutoDisplayName = (referenceDate: Dayjs, target: TrainingTarget, featureCount: number, version = DEFAULT_MODEL_VERSION) => {
+export const buildAutoDisplayName = (referenceDate: Dayjs, target: TrainingTarget, featureCount: number, version = DEFAULT_MODEL_VERSION, market?: string) => {
   const dateToken = referenceDate.format('DD');
   const returnToken = `T${target.horizonDays}`;
   const dimensionToken = `Alpha${Math.max(1, featureCount)}`;
-  return `${dateToken}_${returnToken}_${dimensionToken}_${version}`;
+  const marketSuffix = market ? `_${market.toUpperCase()}` : '';
+  return `${dateToken}_${returnToken}_${dimensionToken}_${version}${marketSuffix}`;
 };
 
 export const summarizeFeatureCategories = (features: string[], categories: FeatureCategory[]) => {
@@ -441,14 +483,16 @@ export const buildTrainingRequest = (
   target: TrainingTarget,
   params: TrainingParams,
   context: TrainingContext,
-  displayName: string
+  displayName: string,
+  market?: string,
 ): TrainingRequestPayload => {
   const finalFeatures = Array.from(new Set(selectedFeatures));
   const labelFormula = buildLabelFormula(target);
   const effectiveTradeDate = buildEffectiveTradeDate(target, timePeriods.test[0]);
   const trainingWindow = `${formatRange(timePeriods.train)} | ${formatRange(timePeriods.val)} | ${formatRange(timePeriods.test)}`;
+  const resolvedContext = market ? { ...context, market: market as TrainingContext['market'] } : context;
   return {
-    displayName: displayName.trim() || buildAutoDisplayName(dayjs(), target, finalFeatures.length),
+    displayName: displayName.trim() || buildAutoDisplayName(dayjs(), target, finalFeatures.length, undefined, market),
     selectedFeatures: finalFeatures,
     featureCategories: summarizeFeatureCategories(finalFeatures, categories),
     target,
@@ -458,7 +502,7 @@ export const buildTrainingRequest = (
       test: toISOStringRange(timePeriods.test),
     },
     params,
-    context,
+    context: resolvedContext,
     generatedAt: new Date().toISOString(),
     labelFormula,
     effectiveTradeDate,
@@ -508,6 +552,7 @@ export const buildBackendTrainingPayload = (
       commission_rate: request.context.commissionRate,
       slippage: request.context.slippage,
       deal_price: request.context.dealPrice,
+      market: request.context.market || 'CN',
     },
     lgb_params: {
       learning_rate: request.params.learning_rate,

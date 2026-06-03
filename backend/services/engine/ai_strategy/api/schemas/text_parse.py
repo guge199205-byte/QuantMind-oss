@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 class ParseTextRequest(BaseModel):
     text: str
+    market: str | None = None  # CN, HK, US, CRYPTO
 
 
 class ParseTradeRulesRequest(BaseModel):

@@ -2,20 +2,26 @@ import React from 'react';
 import { Card } from '../common/Card';
 import { MarketOverviewSkeleton } from '../common/CardSkeletons';
 import { useMarketData } from '../../hooks/useMarketData';
-import { MarketIndex } from '../../services/marketService';
+import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
+import { MARKET_INDICES, type MarketId } from '../../services/marketService';
+import type { MarketIndex } from '../../services/marketService';
+
+const MARKET_LABELS: Record<MarketId, string> = {
+  CN: 'A股',
+  HK: '港股',
+  US: '美股',
+  CRYPTO: '区块链',
+};
 
 export const MarketOverviewCard: React.FC = () => {
-  const { data, loading, error } = useMarketData();
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const { data, loading, error } = useMarketData({ market: currentMarket });
 
-  // 默认数据，以防API调用失败
-  const marketData: Partial<MarketIndex>[] = [
-    { name: '上证指数', price: 3882.78, change: 20.12, changePercent: 0.52 },
-    { name: '深成指数', price: 13526.51, change: 47.23, changePercent: 0.35 },
-    { name: '创业板指', price: 3238.16, change: -15.84, changePercent: -0.49 },
-    { name: '沪深300', price: 4640.69, change: 20.78, changePercent: 0.45 },
-    { name: '中证500', price: 6789.34, change: -12.56, changePercent: -0.18 },
-    { name: '上证50', price: 3456.89, change: 15.23, changePercent: 0.44 }
-  ];
+  // 市场默认数据
+  const fallbackData: Partial<MarketIndex>[] = (MARKET_INDICES[currentMarket] || MARKET_INDICES.CN).map(
+    ({ name, basePrice }) => ({ name, price: basePrice, change: 0, changePercent: 0 })
+  );
 
   if (loading) {
     return <MarketOverviewSkeleton />;
@@ -25,10 +31,10 @@ export const MarketOverviewCard: React.FC = () => {
     console.error('获取市场数据出错:', error);
   }
 
-  const displayData = data?.indices || marketData;
+  const displayData = data?.indices || fallbackData;
 
   return (
-    <Card title="大盘概览" height="100%" background="market">
+    <Card title={`${MARKET_LABELS[currentMarket]}概览`} height="100%" background="market">
       <div className="flex flex-col justify-between h-full py-2">
         {/* 市场数据项 - 优化布局 */}
         {displayData.slice(0, 6).map((item, index) => (

@@ -601,6 +601,17 @@ async def get_sync_status(current_user: dict = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=f"failed: {exc}")
 
 
+@router.get("/sync-progress")
+async def get_sync_progress(current_user: dict = Depends(require_admin)):
+    """获取当前同步执行进度（步骤级）。"""
+    try:
+        from backend.scripts.daily_data_sync import get_sync_progress
+        progress = get_sync_progress()
+        return {"success": True, "data": progress}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
 @router.post("/update-investment-data")
 async def update_investment_data_endpoint(
     version: str = "",
@@ -781,4 +792,211 @@ async def get_online_status(current_user: dict = Depends(require_admin)):
         }
     except Exception as exc:  # noqa: BLE001
         logger.error("get_online_status failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Alpha Agent 市场数据同步（RD-Agent 因子挖掘用）
+# ---------------------------------------------------------------------------
+@router.get("/alpha-agent-markets")
+async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
+    """列出 Alpha Agent 支持的市场及数据就绪状态。"""
+    try:
+        from pathlib import Path
+        from backend.services.engine.rd_agent.market_adapters import list_markets, get_adapter
+
+        # 市场 → H5 数据文件路径
+        h5_map = {
+            "a_share": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5",
+            "crypto": "/app/db/crypto_data/5min_pv.h5",
+            "hong_kong": "/app/db/hk_data/daily_pv.h5",
+            "us_stock": "/app/db/us_data/daily_pv.h5",
+        }
+        # 市场 → Qlib 目录
+        qlib_map = {
+            "a_share": "/app/db/qlib_data/cn_data",
+            "crypto": "/app/db/qlib_data/crypto_data",
+            "hong_kong": "/app/db/qlib_data/hk_data",
+            "us_stock": "/app/db/qlib_data/us_data",
+        }
+
+        markets = list_markets()
+        for m in markets:
+            mid = m["market_id"]
+            try:
+                adapter = get_adapter(mid)
+                m["data_ready"] = adapter.is_data_ready()
+            except Exception:
+                m["data_ready"] = False
+
+            # 读取 H5 文件详情
+            h5_path = h5_map.get(mid)
+            if h5_path and Path(h5_path).exists():
+                try:
+                    import pandas as pd
+                    df = pd.read_hdf(h5_path, key="data")
+                    dates = df.index.get_level_values("datetime")
+                    instruments = df.index.get_level_values("instrument")
+                    m["h5_info"] = {
+                        "rows": len(df),
+                        "symbols": int(instruments.nunique()),
+                        "start_date": str(dates.min().date()),
+                        "end_date": str(dates.max().date()),
+                        "file_size_mb": round(Path(h5_path).stat().st_size / 1024 / 1024, 1),
+                    }
+                except Exception:
+                    m["h5_info"] = None
+            else:
+                m["h5_info"] = None
+
+            # 读取 Qlib 目录详情
+            qlib_dir = qlib_map.get(mid)
+            if qlib_dir and Path(qlib_dir).is_dir():
+                try:
+                    p = Path(qlib_dir)
+                    cal_files = list((p / "calendars").iterdir()) if (p / "calendars").is_dir() else []
+                    feat_count = len(list((p / "features").iterdir())) if (p / "features").is_dir() else 0
+                    m["qlib_info"] = {
+                        "calendar_files": [f.name for f in cal_files],
+                        "feature_dirs": feat_count,
+                    }
+                except Exception:
+                    m["qlib_info"] = None
+            else:
+                m["qlib_info"] = None
+
+        return {"success": True, "data": {"markets": markets, "timestamp": _now_iso()}}
+    except Exception as exc:  # noqa: BLE001
+        logger.error("list_alpha_agent_markets failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# 港美股基本面数据同步 (PE/PB/ROE/EPS)
+# ---------------------------------------------------------------------------
+class FundamentalsSyncRequest(BaseModel):
+    market: str = "ALL"  # HK / US / ALL
+    dry_run: bool = False
+
+
+@router.post("/sync-fundamentals")
+async def sync_fundamentals(
+    payload: FundamentalsSyncRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """同步港美股基本面数据 (PE/PB/ROE/EPS/股息率/市值) 从 yfinance/akshare。"""
+    try:
+        import asyncio
+        from backend.scripts.sync_market_fundamentals import sync_market_fundamentals
+
+        loop = asyncio.get_event_loop()
+        market = payload.market.upper()
+
+        if market == "ALL":
+            results = {}
+            for m in ["HK", "US"]:
+                result = await loop.run_in_executor(
+                    None, lambda _m=m: sync_market_fundamentals(_m, payload.dry_run)
+                )
+                results[m] = result
+            return {"success": True, "data": {"results": results, "dry_run": payload.dry_run}}
+        else:
+            result = await loop.run_in_executor(
+                None, lambda: sync_market_fundamentals(market, payload.dry_run)
+            )
+            return {"success": True, "data": {"result": result, "dry_run": payload.dry_run}}
+    except Exception as exc:  # noqa: BLE001
+        logger.error("sync_fundamentals failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
+@router.post("/sync-alpha-agent-market")
+async def sync_alpha_agent_market(
+    market: str = Query(..., description="市场 ID: a_share, crypto, hong_kong, us_stock"),
+    force: bool = Query(False, description="强制重新下载"),
+    current_user: dict = Depends(require_admin),
+):
+    """同步 Alpha Agent 市场数据（下载 + 转 Qlib 格式）。异步执行。"""
+    try:
+        from backend.services.engine.rd_agent.market_adapters import get_adapter
+
+        adapter = get_adapter(market)
+
+        # A 股数据已通过 investment_data 管理，不走这个接口
+        if market == "a_share":
+            return {
+                "success": True,
+                "data": {
+                    "market": market,
+                    "status": "skipped",
+                    "message": "A 股数据通过 investment_data 管理，请使用「更新投资数据」功能",
+                },
+            }
+
+        # 检查是否已就绪（非强制模式下跳过）
+        if not force and adapter.is_data_ready():
+            return {
+                "success": True,
+                "data": {
+                    "market": market,
+                    "market_name": adapter.market_name,
+                    "status": "already_ready",
+                    "message": f"{adapter.market_name}数据已就绪",
+                },
+            }
+
+        # 异步执行数据准备
+        import asyncio
+
+        def _do_sync():
+            return adapter.prepare_data()
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _do_sync)
+
+        if result:
+            # 数据同步成功后，自动触发特征计算
+            feature_msg = ""
+            try:
+                import subprocess
+                script_path = Path(__file__).resolve().parents[3] / "scripts" / "update_market_features.py"
+                if not script_path.exists():
+                    script_path = Path("/app/backend/scripts/update_market_features.py")
+                if script_path.exists():
+                    proc = subprocess.run(
+                        ["python", str(script_path), "--market", market],
+                        capture_output=True, text=True, timeout=600, check=False,
+                    )
+                    if proc.returncode == 0:
+                        feature_msg = "，特征快照已更新"
+                    else:
+                        feature_msg = "，特征计算失败"
+                        logger.warning("Feature computation failed for %s: %s", market, proc.stderr[-500:])
+            except Exception as e:
+                feature_msg = "，特征计算异常"
+                logger.warning("Feature computation error for %s: %s", market, e)
+
+            return {
+                "success": True,
+                "data": {
+                    "market": market,
+                    "market_name": adapter.market_name,
+                    "status": "completed",
+                    "message": f"{adapter.market_name}数据同步完成{feature_msg}",
+                },
+            }
+        else:
+            return {
+                "success": False,
+                "data": {
+                    "market": market,
+                    "market_name": adapter.market_name,
+                    "status": "failed",
+                    "message": f"{adapter.market_name}数据同步失败，请检查日志",
+                },
+            }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("sync_alpha_agent_market failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"failed: {exc}")

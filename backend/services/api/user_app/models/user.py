@@ -111,6 +111,9 @@ class UserProfile(Base):
     preferences = Column(JSON, default={}, comment="用户偏好设置(JSON)")
     notification_settings = Column(JSON, default={}, comment="通知设置(JSON)")
     api_key = Column(Text, comment="API Key（用户级，全系统通用）")
+    ai_ide_api_key = Column(Text, comment="AI-IDE 专用 API Key")
+    ai_ide_model = Column(String(128), default="", comment="AI-IDE 模型名称")
+    ai_ide_base_url = Column(String(512), default="", comment="AI-IDE API Base URL")
 
     # 审计字段
     created_at = Column(

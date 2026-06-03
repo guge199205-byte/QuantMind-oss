@@ -4,7 +4,10 @@ import { FundOverviewSkeleton } from '../common/CardSkeletons';
 import { motion } from 'framer-motion';
 import { useFundData } from '../../hooks/useFundData';
 import { FundData } from '../../services/userService';
+import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
 
+const MARKET_LABELS: Record<string, string> = { CN: 'A股', HK: '港股', US: '美股', CRYPTO: '区块链' };
 
 const formatMoney = (value: number): string =>
   value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,12 +18,15 @@ const formatSignedMoney = (value: number): string => {
 };
 
 export const FundOverviewCard: React.FC = () => {
+  const currentMarket = useAppSelector(selectCurrentMarket);
   const { data, loading, error, isSimulated, tradingMode } = useFundData({
     autoRefresh: true,
     refreshInterval: 5000 // 实时数据刷新，间隔缩短
   });
 
-  const cardTitle = tradingMode === 'real' ? '资金概览 (实盘账户)' : '资金概览 (模拟账户)';
+  const marketLabel = MARKET_LABELS[currentMarket] || '';
+  const modeLabel = tradingMode === 'real' ? '实盘' : '模拟';
+  const cardTitle = `资金概览 (${marketLabel}/${modeLabel})`;
 
   if (loading && !data) {
     return <FundOverviewSkeleton />;

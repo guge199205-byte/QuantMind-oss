@@ -75,6 +75,28 @@ export const BACKTEST_CONFIG = {
       { code: 'SH000300', name: '沪深300' },
       { code: 'SH000905', name: '中证500' },
       { code: 'SH000852', name: '中证1000' },
-    ]
+    ],
+
+    MARKET_BENCHMARKS: {
+      CN: [
+        { code: 'SH000300', name: '沪深300' },
+        { code: 'SH000905', name: '中证500' },
+        { code: 'SH000852', name: '中证1000' },
+      ],
+      HK: [
+        { code: 'HSI', name: '恒生指数' },
+        { code: 'HSCEI', name: '恒生国企' },
+        { code: 'HSTECH', name: '恒生科技' },
+      ],
+      US: [
+        { code: 'SPX', name: '标普500' },
+        { code: 'NDX', name: '纳斯达克100' },
+        { code: 'DJI', name: '道琼斯30' },
+      ],
+      CRYPTO: [
+        { code: 'BTC', name: '比特币' },
+        { code: 'ETH', name: '以太坊' },
+      ],
+    } as Record<string, { code: string; name: string }[]>
   }
 } as const;

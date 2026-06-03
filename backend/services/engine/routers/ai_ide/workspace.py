@@ -16,11 +16,23 @@ class CreateItemRequest(BaseModel):
 class SaveRequest(BaseModel):
     content: str
 
+class SetRootRequest(BaseModel):
+    path: str
+
 def _get_user_id(request: Request) -> str:
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return str(user.get("user_id") or user.get("sub"))
+    raw = user.get("user_id") or user.get("sub")
+    if raw is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return str(raw)
+
+@router.post("/set-root")
+async def set_root(request: Request, body: SetRootRequest):
+    """Cloud IDE workspace root is virtual — accept and acknowledge."""
+    return {"status": "success", "current_root": body.path}
+
 
 @router.get("/list")
 async def list_files(request: Request, path: str = ""):
@@ -71,11 +83,37 @@ async def create_file(request: Request, item: CreateItemRequest):
             user_id=user_id,
             name=name,
             code="# New Strategy\n",
-            metadata={"status": "DRAFT", "description": "Created via Cloud IDE"}
+            metadata={"status": "DRAFT", "description": "Created via Cloud IDE", "dir": item.dir or ""}
         )
         return {"status": "success", "id": res["id"]}
     except Exception as e:
         logger.error(f"Failed to create cloud file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/create/folder")
+async def create_folder(request: Request, item: CreateItemRequest):
+    """创建文件夹（在策略元数据中标记）"""
+    try:
+        user_id = _get_user_id(request)
+        svc = get_strategy_storage_service()
+
+        name = item.name.strip("/")
+        if not name:
+            raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+
+        # 用一个空策略标记文件夹
+        res = await svc.save(
+            user_id=user_id,
+            name=f"[folder] {name}",
+            code="",
+            metadata={"type": "folder", "dir": item.dir or "", "description": f"Folder: {name}"}
+        )
+        return {"status": "success", "id": res["id"], "name": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{file_id:path}")

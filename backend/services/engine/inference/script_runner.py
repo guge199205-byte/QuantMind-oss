@@ -348,8 +348,32 @@ class InferenceScriptRunner:
             meta.get("data_dir")
             or os.getenv("MODEL_TRAINING_DATA_DIR", "/app/db/feature_snapshots")
         )
-        year = int(trade_date[:4])
-        parquet_path = parquet_dir / f"model_features_{year}.parquet"
+
+        # Market-aware parquet file resolution
+        market = ""
+        ctx = meta.get("context")
+        if isinstance(ctx, dict):
+            market = str(ctx.get("market", "")).upper()
+
+        _MARKET_PARQUET: dict[str, str] = {
+            "HK": "model_features_hk.parquet",
+            "US": "model_features_us.parquet",
+            "CRYPTO": "model_features_crypto.parquet",
+        }
+
+        parquet_path = None
+        if market in _MARKET_PARQUET:
+            p = parquet_dir / _MARKET_PARQUET[market]
+            if p.exists():
+                parquet_path = p
+
+        if parquet_path is None:
+            year = int(trade_date[:4])
+            parquet_path = parquet_dir / f"model_features_{year}.parquet"
+
+        if not parquet_path.exists():
+            # Legacy fallback
+            parquet_path = parquet_dir / "model_features.parquet"
 
         if not parquet_path.exists():
             return {
@@ -419,16 +443,30 @@ class InferenceScriptRunner:
         return min(required, total_rows)
 
     @staticmethod
-    def _resolve_prediction_trade_date(data_trade_date: str) -> str:
+    def _resolve_prediction_trade_date(data_trade_date: str, market: str = "A") -> str:
         """
         统一口径：
         - data_trade_date：用于读取特征的数据交易日 (T)
         - prediction_trade_date：信号生效交易日 (T+1)
         """
+        from datetime import date as _date, timedelta
+
+        market_upper = (market or "A").upper()
+
+        # 加密货币 7×24，T+1 自然日
+        if market_upper == "CRYPTO":
+            try:
+                d = _date.fromisoformat(str(data_trade_date)[:10])
+                return (d + timedelta(days=1)).isoformat()
+            except Exception:
+                return str(data_trade_date)
+
         try:
             import exchange_calendars as xcals
 
-            cal = xcals.get_calendar("XSHG")
+            _MARKET_XCAL = {"A": "XSHG", "HK": "XHKG", "US": "XNYS"}
+            xcal_name = _MARKET_XCAL.get(market_upper, "XSHG")
+            cal = xcals.get_calendar(xcal_name)
             # 将输入日期转换为下一个交易日
             nxt = cal.next_session(data_trade_date)
             return (
@@ -749,8 +787,9 @@ class InferenceScriptRunner:
         redis_client: 可选 Redis 客户端，用于写完成标记
         """
         script_path = self.primary_model_dir / self.primary_script_name
-        prediction_trade_date = self._resolve_prediction_trade_date(date)
         primary_meta = self._read_primary_metadata()
+        model_market = str((primary_meta.get("context") or {}).get("market") or "A").upper()
+        prediction_trade_date = self._resolve_prediction_trade_date(date, market=model_market)
         data_source = str(primary_meta.get("data_source") or "").lower()
         active_data_source = self._resolve_primary_active_data_source(primary_meta)
         if not script_path.is_file():
@@ -856,12 +895,19 @@ class InferenceScriptRunner:
 
         # 注入平台环境变量
         env = self._get_subprocess_env()
+        # Resolve parquet data dir from metadata or default
+        primary_meta = self._read_primary_metadata()
+        parquet_data_dir = str(
+            primary_meta.get("data_dir")
+            or os.getenv("MODEL_TRAINING_DATA_DIR", "/app/db/feature_snapshots")
+        )
         env.update(
             {
                 "MODEL_DIR": str(self.primary_model_dir),
                 "TRADE_DATE": date,
                 "OUTPUT_FORMAT": "json",
                 "QLIB_PROVIDER_URI": self.primary_data_dir,
+                "MODEL_TRAINING_DATA_DIR": parquet_data_dir,
             }
         )
 
@@ -1070,6 +1116,14 @@ class InferenceScriptRunner:
                     if symbol.startswith("BJ") or ".BJ" in symbol:
                         continue
                     if symbol.startswith(("43", "83", "87", "88")):
+                        continue
+
+                    # 3. 排除指数代码: SH000xxx, SZ399xxx 等
+                    if symbol.startswith("SH000") or symbol.startswith("SZ399"):
+                        continue
+                    if symbol.startswith("000") and symbol.endswith(".SH"):
+                        continue
+                    if symbol.startswith("399") and symbol.endswith(".SZ"):
                         continue
 
                     valid.append(

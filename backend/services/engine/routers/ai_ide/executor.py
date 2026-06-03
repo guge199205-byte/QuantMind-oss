@@ -79,15 +79,23 @@ def _build_runner_environment(
     user_id: str, request_meta: dict[str, Any] | None = None
 ) -> dict[str, str]:
     request_meta = request_meta or {}
+    # Normalize provider_uri: frontend sends relative paths like "db/qlib_data/hk_data"
+    # but container expects absolute paths like "/app/db/qlib_data/hk_data"
+    provider_uri = str(request_meta.get("qlib_provider_uri") or "").strip()
+    if provider_uri and not provider_uri.startswith("/"):
+        provider_uri = f"/app/{provider_uri}"
+    if not provider_uri:
+        provider_uri = "/app/db/qlib_data"
+
+    # Compute market-specific default pred path
+    default_pred = os.path.join(provider_uri, "predictions", "pred.pkl")
     env = {
         "PYTHONPATH": "/app",
         "PYTHONUNBUFFERED": "1",
         "USER_ID": user_id,
         "TENANT_ID": os.getenv("TENANT_ID", "default"),
-        "QLIB_DATA_PATH": "/app/db/qlib_data",
-        "QLIB_PRED_PATH": os.getenv(
-            "AI_IDE_PRED_PATH", "/app/db/qlib_data/predictions/pred.pkl"
-        ),
+        "QLIB_DATA_PATH": provider_uri,
+        "QLIB_PRED_PATH": os.getenv("AI_IDE_PRED_PATH", default_pred),
         "AI_IDE_ALLOW_FEATURE_SIGNAL_FALLBACK": os.getenv(
             "AI_IDE_ALLOW_FEATURE_SIGNAL_FALLBACK", "true"
         ),
@@ -96,6 +104,9 @@ def _build_runner_environment(
         "model_id": "AI_IDE_BACKTEST_MODEL_ID",
         "strategy_id": "AI_IDE_BACKTEST_STRATEGY_ID",
         "run_id": "AI_IDE_BACKTEST_RUN_ID",
+        "qlib_provider_uri": "AI_IDE_BACKTEST_PROVIDER_URI",
+        "qlib_region": "AI_IDE_BACKTEST_REGION",
+        "benchmark": "AI_IDE_BACKTEST_BENCHMARK",
     }
     for meta_key, env_key in meta_env_map.items():
         value = str(request_meta.get(meta_key) or "").strip()
@@ -144,6 +155,9 @@ class StartRequest(BaseModel):
     strategy_id: str | None = None
     model_id: str | None = None
     run_id: str | None = None
+    qlib_provider_uri: str | None = None
+    qlib_region: str | None = None
+    benchmark: str | None = None
 
 
 class SmokeImageRequest(BaseModel):
@@ -526,7 +540,7 @@ import sys
 import traceback
 
 STRATEGY_PATH = "/app/strategy.py"
-QLIB_DATA_PATH = "/app/db/qlib_data"
+QLIB_DATA_PATH = os.getenv("AI_IDE_BACKTEST_PROVIDER_URI", "/app/db/qlib_data")
 
 
 def _is_docstring_expr(node):
@@ -625,13 +639,14 @@ def _init_qlib():
     import qlib
     from qlib.data import D
 
-    provider_uri = QLIB_DATA_PATH
+    provider_uri = os.getenv("AI_IDE_BACKTEST_PROVIDER_URI") or QLIB_DATA_PATH
+    region = os.getenv("AI_IDE_BACKTEST_REGION") or "cn"
     if not os.path.exists(provider_uri):
         print(f"[ERROR] Qlib 数据目录不存在: {provider_uri}")
         return False
 
-    print(f"[SYSTEM] 初始化 Qlib: provider_uri={provider_uri}")
-    qlib.init(provider_uri=provider_uri, region="cn")
+    print(f"[SYSTEM] 初始化 Qlib: provider_uri={provider_uri}, region={region}")
+    qlib.init(provider_uri=provider_uri, region=region)
     print("[SYSTEM] Qlib 初始化成功")
     return True
 
@@ -733,6 +748,8 @@ def _run_module_backtest(module):
             allow_feature_signal_fallback=os.getenv(
                 "AI_IDE_ALLOW_FEATURE_SIGNAL_FALLBACK", "true"
             ).strip().lower() in {"1", "true", "yes", "on"},
+            qlib_provider_uri=os.getenv("AI_IDE_BACKTEST_PROVIDER_URI"),
+            qlib_region=os.getenv("AI_IDE_BACKTEST_REGION"),
         )
 
         print("[SYSTEM] 开始执行回测...")
@@ -893,6 +910,9 @@ async def start_execution(request: Request, item: StartRequest):
                 "strategy_id": item.strategy_id,
                 "model_id": item.model_id,
                 "run_id": item.run_id,
+                "qlib_provider_uri": item.qlib_provider_uri,
+                "qlib_region": item.qlib_region,
+                "benchmark": item.benchmark,
             },
         }
 

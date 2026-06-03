@@ -154,8 +154,18 @@ async def list_files(path: str = ""):
 @router.post("/set-root")
 async def set_root(request: SetRootRequest):
     global CURRENT_ROOT
-    normalized = os.path.abspath(request.path)
-    if os.path.exists(normalized) and os.path.isdir(normalized):
+    # Resolve relative paths against current root, not process CWD
+    if os.path.isabs(request.path):
+        normalized = os.path.abspath(request.path)
+    else:
+        normalized = os.path.abspath(os.path.join(CURRENT_ROOT, request.path))
+    # Auto-create directory if it doesn't exist
+    if not os.path.exists(normalized):
+        try:
+            os.makedirs(normalized, exist_ok=True)
+        except OSError as e:
+            raise HTTPException(status_code=400, detail=f"Cannot create directory: {e}")
+    if os.path.isdir(normalized):
         CURRENT_ROOT = normalized
         save_config({"root_path": CURRENT_ROOT})
         return {"status": "success", "current_root": CURRENT_ROOT}

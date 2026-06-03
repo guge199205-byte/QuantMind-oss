@@ -113,9 +113,9 @@ class CryptoAdapter(MarketAdapter):
         return DataConfig(
             provider_uri=self.get_qlib_provider_uri(),
             data_dir="/app/db/crypto_data",
-            calendar="day",
+            calendar="5min",
             market="all",
-            extra={"symbols": "BTCUSDT,ETHUSDT,..."},
+            extra={"symbols": "BTCUSDT,ETHUSDT,...", "freq": "5min"},
         )
 
     def get_qlib_provider_uri(self) -> str:
@@ -162,15 +162,15 @@ class CryptoAdapter(MarketAdapter):
         }
 
     def prepare_data(self) -> bool:
-        """下载并转换加密货币数据"""
+        """下载并转换加密货币 5 分钟数据"""
         from ..data_pipeline.crypto_data import (
             convert_h5_to_qlib_format,
             download_all_crypto,
         )
 
         try:
-            h5_path = download_all_crypto()
-            convert_h5_to_qlib_format(h5_path)
+            h5_path = download_all_crypto(interval="5m", start_date="2026-03-01")
+            convert_h5_to_qlib_format(h5_path, self.get_qlib_provider_uri(), freq="5min")
             return True
         except Exception as e:
             logger = __import__("logging").getLogger(__name__)
@@ -178,5 +178,5 @@ class CryptoAdapter(MarketAdapter):
             return False
 
     def is_data_ready(self) -> bool:
-        provider = self.get_qlib_provider_uri()
-        return os.path.isdir(provider) and os.path.isfile(os.path.join(provider, "calendars", "day.txt"))
+        from ..data_pipeline.crypto_data import is_crypto_data_ready
+        return is_crypto_data_ready(self.get_qlib_provider_uri())

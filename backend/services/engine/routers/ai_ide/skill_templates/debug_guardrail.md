@@ -19,13 +19,13 @@
 2) `ImportError: cannot import name 'backtest' from qlib.contrib.evaluate`
    - 根因：版本不兼容或错误导入
    - 修复：删除该导入，若仅做简易回测，使用 pandas 本地回测逻辑
-3) `/app/db/qlib_data/*.csv` 路径错误
+3) `{{PROVIDER_URI}}/*.csv` 路径错误
    - 根因：把 Qlib 数据目录误当 CSV
    - 修复：统一改为 `qlib.init + D.features`
 
 输出前强制自检（必须逐条满足）：
 - 已包含 `import qlib`
 - 已包含 `main()` 入口
-- 不含 `path/to/your/data.csv` 与 `/app/db/qlib_data/*.csv`
+- 不含 `path/to/your/data.csv` 与 `{{PROVIDER_URI}}/*.csv`
 - 不含 `from qlib.contrib.evaluate import backtest`
 - 收益计算使用 `position = signal.shift(1)`

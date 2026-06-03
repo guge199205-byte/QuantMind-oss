@@ -20,6 +20,7 @@ import type { DashboardTab } from './store/slices/aiStrategySlice';
 import logger from './utils/safeLogger';
 import { refreshOrchestrator } from './services/refreshOrchestrator';
 import { useTradingModeInitialization } from './hooks/useTradingModeInitialization';
+import { useMarketReset } from './hooks/useMarketReset';
 import { authService } from './features/auth/services/authService';
 import { initDynamicServerUrl } from './config/services';
 
@@ -57,8 +58,6 @@ const AlphaResearchPage = lazy(() => import('./features/alpha-research/pages/Alp
 const TradingAgentsPage = lazy(() => import('./features/trading-agents/pages/TradingAgentsPage'));
 const DailyAnalysisPage = lazy(() => import('./features/daily-analysis/pages/DailyAnalysisPage'));
 const GoStockPage = lazy(() => import('./features/go-stock/pages/GoStockPage'));
-const DSAPage = lazy(() => import('./features/dsa/pages/DSAPage'));
-const DashboardPage = lazy(() => import('./features/dashboard/pages/DashboardPage'));
 
 // 主题切换hook
 // 主题管理已移除 - 应用统一使用浅色主题
@@ -97,6 +96,7 @@ export default function App() {
   const { isAuthenticated, isLoading } = useAuth();
   useTheme();
   useTradingModeInitialization();
+  useMarketReset();
   
   dayjs.locale('zh-cn');
 
@@ -131,8 +131,6 @@ export default function App() {
       'trading-agents': '/trading-agents',
       'daily-analysis': '/daily-analysis',
       'go-stock': '/go-stock',
-      'dsa': '/dsa',
-      'data-dashboard': '/dashboard',
       'profile': '/user-center',
       'admin': '/admin',
     };
@@ -174,16 +172,12 @@ export default function App() {
       dispatch(setCurrentTab('daily-analysis' as DashboardTab));
     } else if (location.pathname.startsWith('/go-stock')) {
       dispatch(setCurrentTab('go-stock' as DashboardTab));
-    } else if (location.pathname.startsWith('/dsa')) {
-      dispatch(setCurrentTab('dsa' as DashboardTab));
     } else if (location.pathname.startsWith('/trading')) {
       dispatch(setCurrentTab('trading' as DashboardTab));
     } else if (location.pathname.startsWith('/rss-news')) {
       dispatch(setCurrentTab('rss-news' as DashboardTab));
     } else if (location.pathname.startsWith('/alpha-research')) {
       dispatch(setCurrentTab('alpha-research' as DashboardTab));
-    } else if (location.pathname.startsWith('/dashboard')) {
-      dispatch(setCurrentTab('data-dashboard' as DashboardTab));
     } else if (location.pathname.startsWith('/admin')) {
       dispatch(setCurrentTab('admin' as DashboardTab));
     } else if (location.pathname === '/') {
@@ -554,26 +548,6 @@ export default function App() {
                       <ProtectedRoute>
                         <Suspense fallback={<Spin size="large" />}>
                           <GoStockPage />
-                        </Suspense>
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/dsa"
-                    element={
-                      <ProtectedRoute>
-                        <Suspense fallback={<Spin size="large" />}>
-                          <DSAPage />
-                        </Suspense>
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <ProtectedRoute>
-                        <Suspense fallback={<Spin size="large" />}>
-                          <DashboardPage />
                         </Suspense>
                       </ProtectedRoute>
                     }

@@ -34,19 +34,22 @@ import { useWizardV2Store } from '../store/wizardV2Store';
 import { loadFeaturesBySymbolsInBatches } from '../utils/featureEnrichment';
 import { getWizardUserId } from '../utils/userId';
 import { SERVICE_ENDPOINTS } from '../../../config/services';
+import { useAppSelector } from '../../../store';
+import { selectCurrentMarket } from '../../../store/slices/uiSlice';
 import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
 
 export const StockPoolLibrary: React.FC = () => {
-  const { 
-    savedPools: userStockPools, 
+  const {
+    savedPools: userStockPools,
     fetchSavedPools,
     setWorkingPool,
     setCurrentPoolName,
     activateVersion,
     deleteSavedPool
   } = useWizardV2Store();
+  const currentMarket = useAppSelector(selectCurrentMarket);
 
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -93,20 +96,26 @@ export const StockPoolLibrary: React.FC = () => {
     refreshPools(true);
   }, [isManageModalOpen]);
 
+  // Market display names
+  const MARKET_NAMES: Record<string, string> = {
+    CN: 'A股', HK: '港股', US: '美股', CRYPTO: '加密货币',
+  };
+
   const handleSelectAllMarket = async () => {
     if (loadingId) return;
     setLoadingId('all-market');
+    const marketLabel = MARKET_NAMES[currentMarket] || currentMarket;
     try {
-      message.loading({ content: '正在加载全市场 A 股标的（含核心字段）...', key: 'allMarket', duration: 0 });
-      // 后端 /api/v1/stocks/all 直接读 stock_daily_latest，10 分钟缓存
+      message.loading({ content: `正在加载全市场 ${marketLabel} 标的（含核心字段）...`, key: 'allMarket', duration: 0 });
+      // 后端 /api/v1/stocks/all 按市场读取对应的 stock_daily_latest_* 表
       // enrich=true 一次性带回 close/pe/pb/marketCap/pctChange 等核心字段，无需再次批量补充
-      const url = `${SERVICE_ENDPOINTS.USER_SERVICE}/stocks/all?market=A&enrich=true`;
+      const url = `${SERVICE_ENDPOINTS.USER_SERVICE}/stocks/all?market=${currentMarket}&enrich=true`;
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       const items: any[] = data.items || [];
       if (items.length === 0) {
-        throw new Error('后端返回空列表，检查 stock_daily_latest 表');
+        throw new Error(`后端返回空列表，检查 ${data.table || 'stock_daily_latest'} 表`);
       }
 
       const fullStocks = items.map((it: any) => ({
@@ -116,18 +125,18 @@ export const StockPoolLibrary: React.FC = () => {
         floatMarketCap: it.floatMarketCap ?? null,
         pe: it.pe ?? null,
         pb: it.pb ?? null,
-        roe: null, // ROE 需走研究服务，可后续按需补
+        roe: it.roe ?? null,
         price: it.close ?? null,
         pctChange: it.pctChange ?? null,
         turnoverRate: it.turnoverRate ?? null,
         isSt: !!it.isSt,
       }));
 
-      setCurrentPoolName('全市场 (A股)');
+      setCurrentPoolName(`全部市场 (${marketLabel})`);
       setWorkingPool(fullStocks as any);
       const validPE = fullStocks.filter((s) => s.pe != null && s.pe > 0).length;
       message.success({
-        content: `已载入全市场 ${fullStocks.length} 只标的（${validPE} 个含PE/PB/市值字段）`,
+        content: `已载入全市场 ${fullStocks.length} 只${marketLabel}标的（${validPE} 个含PE/PB/市值字段）`,
         key: 'allMarket',
       });
     } catch (err: any) {
@@ -231,8 +240,8 @@ export const StockPoolLibrary: React.FC = () => {
                 <Space>
                   <AppstoreOutlined style={{ color: loadingId === 'all-market' ? '#3b82f6' : '#64748b' }} />
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>全部市场 (A股)</div>
-                    <Text type="secondary" style={{ fontSize: 10 }}>5205 只标的</Text>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>全部市场 ({MARKET_NAMES[currentMarket] || currentMarket})</div>
+                    <Text type="secondary" style={{ fontSize: 10 }}>系统内置股票池</Text>
                   </div>
                 </Space>
                 {loadingId === 'all-market' ? <Spin size="small" /> : <RightOutlined style={{ fontSize: 10, color: '#bfbfbf' }} />}

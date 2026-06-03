@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useMarketData } from '../../hooks/useMarketData';
+import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
 
 type WeatherType = 'sunny' | 'cloudy' | 'gloomy';
 
 export const MarketWeatherBackground: React.FC = () => {
-  const { data } = useMarketData({ refreshInterval: 15000 });
+  const currentMarket = useAppSelector(selectCurrentMarket);
+  const { data } = useMarketData({ refreshInterval: 15000, market: currentMarket });
 
   const weatherType = useMemo<WeatherType>(() => {
     if (!data || !data.indices || data.indices.length === 0) return 'cloudy';

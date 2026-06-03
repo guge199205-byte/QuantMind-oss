@@ -49,6 +49,7 @@ export interface ResearchOverviewData {
 export interface ResearchOverviewQuery {
   modelId?: string;
   runId?: string;
+  market?: string;
   keyword?: string;
   minScore?: number;
   minConsecutiveLimitUpDays?: number;
@@ -151,6 +152,7 @@ class ResearchService {
 
     append('model_id', query.modelId);
     append('run_id', query.runId);
+    append('market', query.market);
     append('keyword', query.keyword?.trim());
     append('min_score', query.minScore);
     append('min_consecutive_limit_up_days', query.minConsecutiveLimitUpDays);
@@ -243,10 +245,12 @@ class ResearchService {
 
   // ============ 兼容方法（对接模型中心） ============
 
-  async getAvailableModels(): Promise<ResearchModelOption[]> {
+  async getAvailableModels(market?: string): Promise<ResearchModelOption[]> {
     // 使用轻量接口避免 overview 重查询导致首屏模型加载超时
     try {
-      const resp = await this.client.get<ResearchModelsResponse>('/research/models');
+      const params: Record<string, string> = {};
+      if (market) params.market = market;
+      const resp = await this.client.get<ResearchModelsResponse>('/research/models', { params });
       return resp.data?.data?.models || [];
     } catch (error) {
       console.error('[ResearchService] getAvailableModels failed:', error);

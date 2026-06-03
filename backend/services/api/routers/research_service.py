@@ -24,6 +24,23 @@ _SDL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _SDL_REDIS_YEAR = int(os.getenv("RESEARCH_SDL_REDIS_YEAR", "2026"))
 _SDL_REDIS_TTL_SECONDS = int(os.getenv("RESEARCH_SDL_REDIS_TTL_SECONDS", str(36 * 3600)))
 
+# Market-specific stock table mapping
+_MARKET_SDL_TABLE: dict[str, str] = {
+    "CN": "stock_daily_latest",
+    "HK": "stock_daily_latest_hk",
+    "US": "stock_daily_latest_us",
+    "CRYPTO": "stock_daily_latest_crypto",
+}
+
+
+def _get_sdl_table(market: str | None = None) -> str:
+    """Return the stock_daily_latest table name for the given market."""
+    if market:
+        key = market.upper()
+        if key in _MARKET_SDL_TABLE:
+            return _MARKET_SDL_TABLE[key]
+    return "stock_daily_latest"
+
 
 def _redis_get_json(key: str) -> dict[str, Any] | None:
     try:
@@ -52,20 +69,24 @@ def _sdl_redis_key(trade_date: date) -> str:
     return f"qm:research:sdl:{trade_date.isoformat()}:v2"
 
 
-async def _load_sdl_day_map(session, trade_date: date) -> dict[str, dict[str, Any]]:
+async def _load_sdl_day_map(session, trade_date: date, market: str | None = None) -> dict[str, dict[str, Any]]:
     if trade_date.year != _SDL_REDIS_YEAR:
         return {}
 
-    cache_key = _sdl_redis_key(trade_date)
+    sdl_table = _get_sdl_table(market)
+    cache_key = _sdl_redis_key(trade_date) + f":{market or 'CN'}"
     cached = _redis_get_json(cache_key)
     if cached and "symbols" in cached and isinstance(cached["symbols"], dict):
         symbols = cached["symbols"]
         return symbols if isinstance(symbols, dict) else {}
 
-    sql = """
+    # Use 'name' column for non-CN markets, 'stock_name' for CN
+    is_cn = not market or market.upper() == "CN"
+    name_col = "stock_name" if is_cn else "name"
+    sql = f"""
         SELECT
             symbol,
-            COALESCE(stock_name, '') AS stock_name,
+            COALESCE({name_col}, '') AS stock_name,
             COALESCE(industry, '') AS industry,
             COALESCE(close, 0) AS close_price,
             COALESCE(pe_ttm, 0) AS pe,
@@ -137,7 +158,7 @@ async def _load_sdl_day_map(session, trade_date: date) -> dict[str, dict[str, An
               '[]'::jsonb
             ) AS index_tags,
             COALESCE(consecutive_limit_up_days, 0) AS consecutive_limit_up_days_sdl
-        FROM stock_daily_latest
+        FROM {sdl_table}
         WHERE trade_date = :trade_date
           AND volume > 0
     """
@@ -402,11 +423,17 @@ def _to_nominal_price(numeric_price: Any, adj_factor: Any) -> float:
 
 
 def _resolve_stock_name(row, symbol):
-    # Try all possible name fields
+    # Try all possible name fields from DB
     for field in ["stock_name", "name"]:
         val = row.get(field)
         if val and val != symbol:
             return val
+    # For crypto symbols like BTCUSDT, extract base asset
+    sym = str(symbol or "").upper()
+    if sym.endswith("USDT"):
+        return sym[:-4]
+    if sym.endswith("BUSD") or sym.endswith("USD"):
+        return sym[:-4]
     return symbol
 
 
@@ -440,6 +467,41 @@ def _format_candidate_record(row: dict[str, Any]) -> dict[str, Any]:
     live_turnover_rate = _serialize_float(row.get("turnover_rate") or 0.0) or 0.0
     resolved_turnover_rate = snapshot_turnover_rate if snapshot_turnover_rate is not None else live_turnover_rate
 
+    def _safe(v, default=0.0):
+        """Return None for NULL DB values so frontend can display '-' instead of 0."""
+        sv = _serialize_float(v)
+        return sv if sv is not None else None
+
+    def _safe_int(v, default=0):
+        sv = _serialize_int(v)
+        return sv if sv is not None else None
+
+    close_price_raw = _serialize_float(row.get("close_price"))
+    adj_factor_raw = _serialize_float(row.get("adj_factor")) or 1.0
+    total_mv_raw = _serialize_float(row.get("total_mv"))
+    float_mv_raw = _serialize_float(row.get("float_mv"))
+    amount_raw = _serialize_float(row.get("amount"))
+    turnover_raw = _serialize_float(row.get("turnover_rate"))
+    pe_raw = _serialize_float(row.get("pe"))
+    roe_raw = _serialize_float(row.get("roe"))
+    rsi_raw = _serialize_float(row.get("rsi"))
+    rsi14_raw = _serialize_float(row.get("rsi_14"))
+    atr_raw = _serialize_float(row.get("atr"))
+    macd_raw = _serialize_float(row.get("macd_hist"))
+    ma_gap_5_raw = _serialize_float(row.get("ma_gap_5"))
+    ma_gap_10_raw = _serialize_float(row.get("ma_gap_10"))
+    ma_gap_20_raw = _serialize_float(row.get("ma_gap_20"))
+    vol_ratio_5_raw = _serialize_float(row.get("volume_ratio_5"))
+    vol_ratio_20_raw = _serialize_float(row.get("volume_ratio_20"))
+    main_flow_raw = _serialize_float(row.get("main_flow"))
+    flow_net_raw = _serialize_float(row.get("flow_net_amount"))
+    inst_own_raw = _serialize_float(row.get("inst_ownership"))
+    profit_growth_raw = _serialize_float(row.get("profit_growth"))
+    ma5_raw = _serialize_float(row.get("ma5"))
+    ma10_raw = _serialize_float(row.get("ma10"))
+    listed_days_raw = _serialize_int(row.get("listed_days"))
+    consecutive_lu_raw = _serialize_int(row.get("consecutive_limit_up_days")) or _serialize_int(row.get("consecutive_limit_up_days_sdl"))
+
     return {
         "key": f"{run_id}:{symbol}",
         "modelId": row.get("model_id"),
@@ -449,47 +511,45 @@ def _format_candidate_record(row: dict[str, Any]) -> dict[str, Any]:
         "name": stock_name,
         "score": _serialize_float(row.get("fusion_score")) or 0.0,
         "latestChange": latest_change_pct,
-        "consecutiveLimitUpDays": _serialize_int(row.get("consecutive_limit_up_days"))
-        or _serialize_int(row.get("consecutive_limit_up_days_sdl"))
-        or 0,
-        "turnoverRate": resolved_turnover_rate,
-        "amount": round(to_yi(row.get("amount")), 4),
-        "marketCap": round(to_yi(row.get("total_mv")), 2),
-        "totalMv": round(to_yi(row.get("total_mv")), 2),
-        "floatMv": round(to_yi(row.get("float_mv")), 2),
-        "listedDays": _serialize_int(row.get("listed_days")) or 0,
+        "consecutiveLimitUpDays": consecutive_lu_raw if consecutive_lu_raw is not None else 0,
+        "turnoverRate": round(turnover_raw, 2) if turnover_raw is not None else None,
+        "amount": round(to_yi(amount_raw), 4) if amount_raw is not None else None,
+        "marketCap": round(to_yi(total_mv_raw), 2) if total_mv_raw is not None else None,
+        "totalMv": round(to_yi(total_mv_raw), 2) if total_mv_raw is not None else None,
+        "floatMv": round(to_yi(float_mv_raw), 2) if float_mv_raw is not None else None,
+        "listedDays": listed_days_raw,
         "sector": row.get("industry") or "",
         "concept": " / ".join(concept_tags[:3]) if isinstance(concept_tags, list) and concept_tags else "",
         "conceptTags": concept_tags if isinstance(concept_tags, list) else [],
         "indexTags": index_tags if isinstance(index_tags, list) else [],
         "riskFlags": risk_flags if isinstance(risk_flags, list) else [],
-        "closePrice": _to_nominal_price(row.get("close_price"), row.get("adj_factor")),
-        "pe": _serialize_float(row.get("pe")) or 0.0,
-        "pb": _serialize_float(row.get("pb")) or 0.0,
-        "roe": round((_serialize_float(row.get("roe")) or 0.0), 4),
-        "ma5": (_serialize_float(row.get("ma5")) or 0.0) / (_serialize_float(row.get("adj_factor")) or 1.0),
-        "ma10": (_serialize_float(row.get("ma10")) or 0.0) / (_serialize_float(row.get("adj_factor")) or 1.0),
-        "maGap5": _serialize_float(row.get("ma_gap_5")) or 0.0,
-        "maGap10": _serialize_float(row.get("ma_gap_10")) or 0.0,
-        "maGap20": _serialize_float(row.get("ma_gap_20")) or 0.0,
-        "rsi": _serialize_float(row.get("rsi")) or 0.0,
-        "rsi14": _serialize_float(row.get("rsi_14")) or 0.0,
-        "atr": _serialize_float(row.get("atr")) or 0.0,
-        "macdHist": _serialize_float(row.get("macd_hist")) or 0.0,
-        "volRatio5": _serialize_float(row.get("volume_ratio_5")) or 0.0,
-        "volRatio20": _serialize_float(row.get("volume_ratio_20")) or 0.0,
+        "closePrice": _to_nominal_price(close_price_raw, adj_factor_raw),
+        "pe": round(pe_raw, 2) if pe_raw is not None else None,
+        "pb": round(_serialize_float(row.get("pb")) or 0.0, 2),
+        "roe": round(roe_raw, 2) if roe_raw is not None else None,
+        "ma5": round(ma5_raw / adj_factor_raw, 2) if ma5_raw is not None else None,
+        "ma10": round(ma10_raw / adj_factor_raw, 2) if ma10_raw is not None else None,
+        "maGap5": round(ma_gap_5_raw, 2) if ma_gap_5_raw is not None else None,
+        "maGap10": round(ma_gap_10_raw, 2) if ma_gap_10_raw is not None else None,
+        "maGap20": round(ma_gap_20_raw, 2) if ma_gap_20_raw is not None else None,
+        "rsi": round(rsi_raw, 1) if rsi_raw is not None else None,
+        "rsi14": round(rsi14_raw, 1) if rsi14_raw is not None else None,
+        "atr": round(atr_raw, 3) if atr_raw is not None else None,
+        "macdHist": round(macd_raw, 3) if macd_raw is not None else None,
+        "volRatio5": round(vol_ratio_5_raw, 2) if vol_ratio_5_raw is not None else None,
+        "volRatio20": round(vol_ratio_20_raw, 2) if vol_ratio_20_raw is not None else None,
         "volumeTrend3d": _serialize_float(row.get("volume_trend_3d")),
         "volumeTrend5d": False,
         "return1d": return_1d,
         "return3d": return_3d,
         "nextDayReturn": return_1d,
         "day3Return": return_3d,
-        "mainFlow": (_serialize_float(row.get("main_flow")) or 0.0) / 1000000.0,
-        "flowNetAmount": (_serialize_float(row.get("flow_net_amount")) or 0.0) / 1000000.0,
-        "instOwnership": (_serialize_float(row.get("inst_ownership")) or 0.0) / 1000000.0,
-        "profitGrowth": _serialize_float(row.get("profit_growth")) or 0.0,
+        "mainFlow": round(main_flow_raw / 1000000.0, 2) if main_flow_raw is not None else None,
+        "flowNetAmount": round(flow_net_raw / 1000000.0, 2) if flow_net_raw is not None else None,
+        "instOwnership": round(inst_own_raw / 1000000.0, 2) if inst_own_raw is not None else None,
+        "profitGrowth": round(profit_growth_raw, 2) if profit_growth_raw is not None else None,
         "isSt": bool(row.get("is_st")),
-        "isTradable": (_serialize_float(row.get("close_price")) or 0.0) > 0,
+        "isTradable": close_price_raw is not None and close_price_raw > 0,
         "thesis": row.get("thesis_summary") or "",
         "updatedAt": _serialize_date(row.get("updated_at")),
         "isHs300": bool(row.get("is_hs300")),
@@ -499,9 +559,10 @@ def _format_candidate_record(row: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _fetch_summary(
-    session, where: str, params: dict[str, Any], include_market_stats: bool = True
+    session, where: str, params: dict[str, Any], include_market_stats: bool = True, market: str | None = None
 ) -> dict[str, Any]:
     if include_market_stats:
+        sdl_tbl = _get_sdl_table(market)
         summary_sql = f"""
             SELECT
                 COUNT(*) AS total_count,
@@ -515,7 +576,7 @@ async def _fetch_summary(
                 COUNT(*) FILTER (WHERE COALESCE(snap.fusion_score, 0) >= 0.05) AS strong_count,
                 MAX(snap.updated_at) AS last_updated_at
             FROM qm_research_candidate_snapshot snap
-            LEFT JOIN stock_daily_latest sdl ON (
+            LEFT JOIN {sdl_tbl} sdl ON (
                 sdl.symbol = {_norm_symbol_sql("snap.symbol")}
                 AND sdl.trade_date = snap.data_trade_date
             )
@@ -576,6 +637,7 @@ async def _do_get_overview(
     limit: int,
     offset: int,
     include_market_stats: bool = True,
+    market: str | None = None,
 ) -> dict[str, Any]:
     where = "snap.tenant_id = :tid AND snap.user_id = :uid"
     params = {"tid": tid, "uid": uid, "limit": limit, "offset": offset}
@@ -586,7 +648,48 @@ async def _do_get_overview(
         where += " AND snap.run_id = :rid"
         params["rid"] = run_id
 
+    sdl_table = _get_sdl_table(market)
+    is_cn = not market or market.upper() == "CN"
+
     async with get_session(read_only=True) as session:
+        # Non-CN tables have simpler schema — use lightweight SDL columns
+        if is_cn:
+            sdl_columns = """
+                sdl.stock_name, sdl.industry, sdl.close, sdl.pct_change,
+                sdl.pe_ttm, sdl.pb, sdl.roe, sdl.adj_factor,
+                sdl.turnover_rate, sdl.amount, sdl.total_mv, sdl.float_mv,
+                sdl.listed_days, sdl.is_st,
+                sdl.idx_hs300, 0 AS idx_zz500, sdl.idx_zz1000,
+                sdl.idx_chinext, sdl.idx_margin, sdl.idx_all,
+                sdl.ma5, sdl.ma10, sdl.ma_gap_5, sdl.ma_gap_10, sdl.ma_gap_20,
+                sdl.rsi_14, sdl.rsi_6, sdl.vol_atr_14, sdl.macd_hist,
+                sdl.volume_ratio_5, sdl.volume_ratio_20, sdl.volume_trend_3d,
+                sdl.main_flow, sdl.flow_net_amount, sdl.inst_ownership,
+                sdl.profit_growth,
+                sdl.concept_ai, sdl.concept_chip, sdl.concept_new_energy,
+                sdl.concept_pv, sdl.concept_lithium, sdl.concept_military,
+                sdl.concept_medical, sdl.concept_fintech, sdl.concept_consumption,
+                sdl.concept_state_owned, sdl.consecutive_limit_up_days,
+            """
+        else:
+            sdl_columns = """
+                sdl.name AS stock_name, sdl.industry, sdl.close, COALESCE(sdl.pct_change, 0) AS pct_change,
+                sdl.pe_ttm, sdl.pb, sdl.roe, sdl.adj_factor,
+                sdl.turnover_rate, sdl.amount, sdl.total_mv, sdl.float_mv,
+                0 AS listed_days, 0 AS is_st,
+                0 AS idx_hs300, 0 AS idx_zz500, 0 AS idx_zz1000,
+                0 AS idx_chinext, 0 AS idx_margin, 0 AS idx_all,
+                sdl.ma5, sdl.ma10, sdl.ma_gap_5, sdl.ma_gap_10, sdl.ma_gap_20,
+                sdl.rsi_14, sdl.rsi_6, sdl.vol_atr_14, sdl.macd_hist,
+                sdl.volume_ratio_5, sdl.volume_ratio_20, 0 AS volume_trend_3d,
+                0 AS main_flow, sdl.flow_net_amount, 0 AS inst_ownership,
+                0 AS profit_growth,
+                0 AS concept_ai, 0 AS concept_chip, 0 AS concept_new_energy,
+                0 AS concept_pv, 0 AS concept_lithium, 0 AS concept_military,
+                0 AS concept_medical, 0 AS concept_fintech, 0 AS concept_consumption,
+                0 AS concept_state_owned, 0 AS consecutive_limit_up_days,
+            """
+
         sql = f"""
         WITH snap_page AS (
             SELECT snap.*
@@ -609,62 +712,16 @@ async def _do_get_overview(
             SELECT
                 sdl.symbol,
                 sdl.trade_date,
-                sdl.stock_name,
-                sdl.industry,
-                sdl.close,
-                sdl.pct_change,
-                sdl.pe_ttm,
-                sdl.pb,
-                sdl.roe,
-                sdl.adj_factor,
-                sdl.turnover_rate,
-                sdl.amount,
-                sdl.total_mv,
-                sdl.float_mv,
-                sdl.listed_days,
-                sdl.is_st,
-                sdl.idx_hs300,
-                0 AS idx_zz500,
-                sdl.idx_zz1000,
-                sdl.idx_chinext,
-                sdl.idx_margin,
-                sdl.idx_all,
-                sdl.ma5,
-                sdl.ma10,
-                sdl.ma_gap_5,
-                sdl.ma_gap_10,
-                sdl.ma_gap_20,
-                sdl.rsi_14,
-                sdl.rsi_6,
-                sdl.vol_atr_14,
-                sdl.macd_hist,
-                sdl.volume_ratio_5,
-                sdl.volume_ratio_20,
-                sdl.volume_trend_3d,
+                {sdl_columns}
                 CASE
                     WHEN LAG(sdl.volume, 3) OVER (PARTITION BY sdl.symbol ORDER BY sdl.trade_date) > 0
                     THEN (sdl.volume::double precision - LAG(sdl.volume, 3) OVER (PARTITION BY sdl.symbol ORDER BY sdl.trade_date)::double precision)
                          / LAG(sdl.volume, 3) OVER (PARTITION BY sdl.symbol ORDER BY sdl.trade_date)::double precision
                     ELSE NULL
                 END AS volume_trend_3d_calc,
-                sdl.main_flow,
-                sdl.flow_net_amount,
-                sdl.inst_ownership,
-                sdl.profit_growth,
-                sdl.concept_ai,
-                sdl.concept_chip,
-                sdl.concept_new_energy,
-                sdl.concept_pv,
-                sdl.concept_lithium,
-                sdl.concept_military,
-                sdl.concept_medical,
-                sdl.concept_fintech,
-                sdl.concept_consumption,
-                sdl.concept_state_owned,
-                sdl.consecutive_limit_up_days,
                 LEAD(sdl.close, 1) OVER (PARTITION BY sdl.symbol ORDER BY sdl.trade_date) AS close_next_1d,
                 LEAD(sdl.close, 3) OVER (PARTITION BY sdl.symbol ORDER BY sdl.trade_date) AS close_next_3d
-            FROM stock_daily_latest sdl
+            FROM {sdl_table} sdl
             INNER JOIN snap_symbols ss ON ss.symbol = sdl.symbol
             CROSS JOIN snap_date_bounds b
             WHERE sdl.volume > 0
@@ -680,7 +737,7 @@ async def _do_get_overview(
         """
         result = await session.execute(text(sql), params)
         items = [_format_candidate_record(dict(r)) for r in result.mappings()]
-        summary = await _fetch_summary(session, where, params, include_market_stats=include_market_stats)
+        summary = await _fetch_summary(session, where, params, include_market_stats=include_market_stats and is_cn, market=market)
     return {"items": items, "summary": summary}
 
 
@@ -704,27 +761,51 @@ def _humanize_model_name(model_id: str) -> str:
     return model_id.replace("_", " ").title()
 
 
-async def get_available_models(tid: str, uid: str) -> dict[str, Any]:
+async def get_available_models(tid: str, uid: str, market: str | None = None) -> dict[str, Any]:
     async with get_session(read_only=True) as session:
-        sql = """
-            SELECT DISTINCT ir.model_id,
-                   COALESCE(
-                     um.metadata_json->>'display_name',
-                     um.metadata_json->>'model_name'
-                   ) AS display_name
-            FROM qm_model_inference_runs ir
-            INNER JOIN qm_research_candidate_snapshot snap ON snap.tenant_id = ir.tenant_id
-                                                            AND snap.user_id = ir.user_id
-                                                            AND snap.model_id = ir.model_id
-            LEFT JOIN qm_user_models um ON um.tenant_id = ir.tenant_id
-                                        AND um.user_id = ir.user_id
-                                        AND um.model_id = ir.model_id
-            WHERE ir.tenant_id = :tid AND ir.user_id = :uid AND ir.status = 'completed'
-        """
-        res = await session.execute(text(sql), {"tid": tid, "uid": uid})
+        # Build market filter condition for metadata_json
+        market_filter = ""
+        params: dict[str, Any] = {"tid": tid, "uid": uid}
+        if market:
+            # metadata_json->'context'->>'market' stores the training market
+            market_upper = market.upper()
+            market_filter = "AND COALESCE(um.metadata_json->'context'->>'market', 'CN') = :market"
+            params["market"] = market_upper
+
+        sql = (
+            "SELECT model_id, display_name FROM ("
+            # Models with completed inference runs + research snapshots
+            "  SELECT DISTINCT ir.model_id,"
+            "         COALESCE(um.metadata_json->>'display_name', um.metadata_json->>'model_name') AS display_name,"
+            "         1 AS priority"
+            "  FROM qm_model_inference_runs ir"
+            "  INNER JOIN qm_research_candidate_snapshot snap ON snap.tenant_id = ir.tenant_id"
+            "                                                  AND snap.user_id = ir.user_id"
+            "                                                  AND snap.model_id = ir.model_id"
+            "  LEFT JOIN qm_user_models um ON um.tenant_id = ir.tenant_id"
+            "                              AND um.user_id = ir.user_id"
+            "                              AND um.model_id = ir.model_id"
+            "  WHERE ir.tenant_id = :tid AND ir.user_id = :uid AND ir.status = 'completed'"
+            f"  {market_filter}"
+            "  UNION"
+            # All trained models (even without inference runs)
+            "  SELECT um.model_id,"
+            "         COALESCE(um.metadata_json->>'display_name', um.metadata_json->>'model_name') AS display_name,"
+            "         2 AS priority"
+            "  FROM qm_user_models um"
+            "  WHERE um.tenant_id = :tid AND um.user_id = :uid AND um.status != 'archived'"
+            f"  {market_filter}"
+            ") combined"
+            " ORDER BY priority, display_name"
+        )
+        res = await session.execute(text(sql), params)
+        seen = set()
         models = []
         for r in res.mappings():
             mid = r["model_id"]
+            if mid in seen:
+                continue
+            seen.add(mid)
             name = r["display_name"] or _humanize_model_name(mid)
             models.append({"modelId": mid, "name": name})
         return {"code": 200, "data": {"models": models}}
@@ -763,14 +844,14 @@ async def get_inference_runs(tid: str, uid: str, model_id: str) -> dict[str, Any
 
 
 async def get_research_overview(
-    tid: str, uid: str, model_id: str | None, run_id: str | None, limit: int, offset: int
+    tid: str, uid: str, model_id: str | None, run_id: str | None, limit: int, offset: int, market: str | None = None
 ) -> dict[str, Any]:
-    data = await _do_get_overview(tid, uid, model_id, run_id, limit, offset)
+    data = await _do_get_overview(tid, uid, model_id, run_id, limit, offset, market=market)
     return {"code": 200, "data": {"items": data["items"], "summary": data["summary"]}}
 
 
 async def _do_get_universe_with_sdl_redis(
-    tid: str, uid: str, run_id: str, limit: int, offset: int
+    tid: str, uid: str, run_id: str, limit: int, offset: int, market: str | None = None
 ) -> dict[str, Any] | None:
     params = {"tid": tid, "uid": uid, "rid": run_id, "limit": limit, "offset": offset}
     where = "snap.tenant_id = :tid AND snap.user_id = :uid AND snap.run_id = :rid"
@@ -794,7 +875,7 @@ async def _do_get_universe_with_sdl_redis(
         if not isinstance(trade_date, date) or trade_date.year != _SDL_REDIS_YEAR:
             return None
 
-        sdl_map = await _load_sdl_day_map(session, trade_date)
+        sdl_map = await _load_sdl_day_map(session, trade_date, market=market)
         if not sdl_map:
             return None
 
@@ -813,15 +894,54 @@ async def _do_get_universe_with_sdl_redis(
         return {"items": items, "summary": summary}
 
 
+async def _infer_market_from_run(tid: str, uid: str, run_id: str) -> str | None:
+    """Infer market from an inference run's model metadata."""
+    try:
+        async with get_session(read_only=True) as session:
+            res = await session.execute(
+                text(
+                    "SELECT ir.model_id FROM qm_model_inference_runs ir "
+                    "WHERE ir.tenant_id = :tid AND ir.user_id = :uid AND ir.run_id = :rid"
+                ),
+                {"tid": tid, "uid": uid, "rid": run_id},
+            )
+            row = res.first()
+            if not row:
+                return None
+            model_id = row[0]
+            # Look up model metadata
+            res2 = await session.execute(
+                text(
+                    "SELECT metadata_json FROM qm_user_models "
+                    "WHERE tenant_id = :tid AND user_id = :uid AND model_id = :mid"
+                ),
+                {"tid": tid, "uid": uid, "mid": model_id},
+            )
+            row2 = res2.first()
+            if row2 and row2[0]:
+                meta = row2[0] if isinstance(row2[0], dict) else json.loads(row2[0])
+                context = meta.get("context")
+                if isinstance(context, dict):
+                    market = str(context.get("market", "")).upper()
+                    if market in ("CN", "HK", "US", "CRYPTO"):
+                        return market
+    except Exception:
+        pass
+    return None
+
+
 async def get_research_universe(tid: str, uid: str, run_id: str, limit: int, offset: int = 0) -> dict[str, Any]:
     cache_key = f"{tid}:{uid}:{run_id}:{limit}:{offset}"
     cached = _get_local_cache(_UNIVERSE_CACHE, cache_key, _UNIVERSE_CACHE_TTL_SECONDS)
     if cached is not None:
         return cached
 
-    data = await _do_get_universe_with_sdl_redis(tid, uid, run_id, limit, offset)
+    # Determine market from the inference run's model
+    market = await _infer_market_from_run(tid, uid, run_id)
+
+    data = await _do_get_universe_with_sdl_redis(tid, uid, run_id, limit, offset, market=market)
     if data is None:
-        data = await _do_get_overview(tid, uid, None, run_id, limit, offset, include_market_stats=False)
+        data = await _do_get_overview(tid, uid, None, run_id, limit, offset, include_market_stats=False, market=market)
     payload = {"code": 200, "data": {"items": data["items"], "summary": data["summary"]}}
     _set_local_cache(_UNIVERSE_CACHE, cache_key, payload, _UNIVERSE_CACHE_MAX_ENTRIES)
     return payload
@@ -956,7 +1076,7 @@ async def get_symbols_features(tid: str, uid: str, symbols: list[str], lite: boo
             SELECT symbol, features_snapshot, ({norm}) AS prefix_symbol
             FROM qm_user_watchlist WHERE tenant_id = :tid AND user_id = :uid
         )
-        SELECT 
+        SELECT
             sym_list.raw_symbol AS symbol,
             COALESCE(ps.features_snapshot, ws.features_snapshot) as snapshot
         FROM sym_list
@@ -966,18 +1086,77 @@ async def get_symbols_features(tid: str, uid: str, symbols: list[str], lite: boo
     async with get_session(read_only=True) as session:
         result = await session.execute(text(sql), {"tid": tid, "uid": uid})
         items = []
+        missing_symbols = []
         for r in result.mappings():
             snap = r["snapshot"]
             if not snap:
+                missing_symbols.append(r["symbol"])
                 continue
             if isinstance(snap, str):
                 try:
                     snap = json.loads(snap)
                 except Exception:
+                    missing_symbols.append(r["symbol"])
                     continue
             # 确保 symbol 一致
             snap["code"] = r["symbol"]
             items.append(snap)
+
+        # 对于没有 features_snapshot 的股票，从 stock_daily_latest 补充基础数据
+        if missing_symbols:
+            sdl_vals = ", ".join(f"('{s}')" for s in missing_symbols)
+            sdl_norm = _norm_symbol_sql("sdl.symbol")
+            sdl_sql = f"""
+                WITH miss(raw_symbol) AS (VALUES {sdl_vals}),
+                ranked AS (
+                    SELECT
+                        miss.raw_symbol AS raw_symbol,
+                        sdl.stock_name,
+                        sdl.industry,
+                        sdl.close,
+                        sdl.pe_ttm,
+                        sdl.pb,
+                        sdl.roe,
+                        sdl.total_mv,
+                        sdl.float_mv,
+                        sdl.pct_change,
+                        sdl.turnover_rate,
+                        sdl.amount,
+                        ROW_NUMBER() OVER (PARTITION BY miss.raw_symbol ORDER BY sdl.trade_date DESC) AS rn
+                    FROM miss
+                    LEFT JOIN stock_daily_latest sdl ON ({sdl_norm}) = miss.raw_symbol
+                )
+                SELECT raw_symbol, stock_name, industry, close, pe_ttm, pb, roe,
+                       total_mv, float_mv, pct_change, turnover_rate, amount
+                FROM ranked WHERE rn = 1
+            """
+            sdl_result = await session.execute(text(sdl_sql))
+            for r in sdl_result.mappings():
+                raw_sym = r["raw_symbol"]
+                stock_name = r.get("stock_name") or raw_sym
+                close_price = float(r.get("close") or 0)
+                total_mv = float(r.get("total_mv") or 0)
+                pe_val = float(r.get("pe_ttm") or 0)
+                snap = {
+                    "code": raw_sym,
+                    "name": stock_name,
+                    "marketCap": round(total_mv / 1e8, 2) if total_mv else 0,
+                    "totalMv": round(total_mv / 1e8, 2) if total_mv else 0,
+                    "pe": pe_val,
+                    "pe_ttm": pe_val,
+                    "pb": float(r.get("pb") or 0),
+                    "roe": float(r.get("roe") or 0),
+                    "closePrice": close_price,
+                    "price": close_price,
+                    "sector": r.get("industry") or "",
+                    "industry": r.get("industry") or "",
+                    "latestChange": float(r.get("pct_change") or 0),
+                    "turnoverRate": float(r.get("turnover_rate") or 0) * 100,
+                    "amount": float(r.get("amount") or 0),
+                    "floatMv": round(float(r.get("float_mv") or 0) / 1e8, 2) if r.get("float_mv") else 0,
+                }
+                items.append(snap)
+
         return {"code": 200, "data": {"items": items}}
 
 

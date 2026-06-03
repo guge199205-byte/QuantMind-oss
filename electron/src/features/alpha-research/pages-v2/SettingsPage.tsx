@@ -4,7 +4,7 @@ import { Button } from '../components-v2/ui/Button';
 import { Badge } from '../components-v2/ui/Badge';
 import { Settings, Save, RotateCcw, Eye, EyeOff, Check, X, AlertCircle, Loader2, Database, Sliders, Box, Cpu, Compass, Shuffle } from 'lucide-react';
 import { getSystemConfig, updateSystemConfig, healthCheck } from '../services-v2/api';
-import { REFERENCE_MINING_DIRECTIONS, getDirectionLabel, type MiningDirectionItem } from '../utils-v2/miningDirections';
+import { REFERENCE_MINING_DIRECTIONS, getDirectionLabel, type MiningDirectionItem, importFeatureCatalogDirections } from '../utils-v2/miningDirections';
 
 interface SystemConfig {
   // LLM
@@ -58,6 +58,8 @@ export const SettingsPage: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [factorLibraries, setFactorLibraries] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [catalogDirections, setCatalogDirections] = useState<MiningDirectionItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
   // Load config from backend on mount
   useEffect(() => {
@@ -171,6 +173,44 @@ export const SettingsPage: React.FC = () => {
     if (confirm('确定要重置为默认配置吗？')) {
       setConfig(DEFAULT_CONFIG);
       setIsDirty(true);
+    }
+  };
+
+  const handleImportFeatureCatalog = async () => {
+    setCatalogLoading(true);
+    try {
+      // Try to fetch from admin API
+      const token = localStorage.getItem('access_token');
+      const baseUrl = import.meta.env?.VITE_USER_API_URL || '';
+      const resp = await fetch(`${baseUrl}/api/v1/admin/models/feature-catalog`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      const catalog = data?.data || data;
+      const directions = importFeatureCatalogDirections(catalog);
+      if (directions.length > 0) {
+        setCatalogDirections(directions);
+      } else {
+        setError('特征字典为空或格式不正确');
+      }
+    } catch {
+      setError('无法加载特征字典，请检查后端连接');
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const addCatalogDirection = (item: MiningDirectionItem) => {
+    const existing = config.selectedMiningDirectionIndices;
+    // Find if this direction already exists in the reference list
+    let refIdx = REFERENCE_MINING_DIRECTIONS.findIndex(d => d.label === item.label);
+    // If not found, add it to the reference list
+    if (refIdx < 0) {
+      REFERENCE_MINING_DIRECTIONS.push(item);
+      refIdx = REFERENCE_MINING_DIRECTIONS.length - 1;
+    }
+    if (!existing.includes(refIdx)) {
+      updateConfigField('selectedMiningDirectionIndices', [...existing, refIdx].sort((a, b) => a - b));
     }
   };
 
@@ -689,6 +729,55 @@ export const SettingsPage: React.FC = () => {
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   已选 {config.selectedMiningDirectionIndices.length} / {REFERENCE_MINING_DIRECTIONS.length} 项。
+                </p>
+              </div>
+
+              {/* Import from Feature Catalog */}
+              <div className="pt-4 border-t border-border/50">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium">从模型训练特征字典导入</label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleImportFeatureCatalog}
+                    disabled={catalogLoading}
+                  >
+                    {catalogLoading ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Database className="h-4 w-4 mr-1" />
+                    )}
+                    加载特征字典
+                  </Button>
+                </div>
+                {catalogDirections.length > 0 && (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto rounded-lg border border-border/50 bg-secondary/10 p-3">
+                    {catalogDirections.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary/20"
+                      >
+                        <div className="flex-1">
+                          <div className="text-sm font-medium">{item.label}</div>
+                          {item.factors && item.factors.length > 0 && (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              示例: {item.factors.map(f => f.shortName).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => addCatalogDirection(item)}
+                        >
+                          添加
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  从模型训练的 175 维特征字典中按类别导入挖掘方向
                 </p>
               </div>
             </CardContent>

@@ -64,6 +64,8 @@ export interface QlibParams {
   // TopkWeight 专用参数
   min_score?: number;
   max_weight?: number;
+  // 市场标识
+  market?: 'CN' | 'US' | 'HK' | 'CRYPTO';
 }
 
 // 仓位管理配置（保留兼容，不再在向导中使用）

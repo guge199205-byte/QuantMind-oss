@@ -251,8 +251,10 @@ class ModelTrainingService {
     );
   }
 
-  async getFeatureCatalog(): Promise<AdminModelFeatureCatalog> {
-    const resp = await this.client.get<AdminModelFeatureCatalog>('/models/feature-catalog');
+  async getFeatureCatalog(market?: string): Promise<AdminModelFeatureCatalog> {
+    const params: Record<string, string> = {};
+    if (market) params.market = market;
+    const resp = await this.client.get<AdminModelFeatureCatalog>('/models/feature-catalog', { params });
     return resp.data;
   }
 
@@ -434,7 +436,7 @@ class ModelTrainingService {
     const resp = await this.client.post<InferenceExecutionResult>('/models/inference/run', {
       model_id: modelId,
       inference_date: inferenceDate,
-    });
+    }, { timeout: 300000 }); // 推理可能需要较长时间，5分钟超时
     const data = resp.data as any;
     const normalized = this.normalizeInferenceRun(data);
     return {
@@ -489,6 +491,7 @@ class ModelTrainingService {
         expected_price: number | null;
         quality: string | null;
         created_at: string | null;
+        stock_name?: string | null;
       }>;
     }>(`/models/inference/runs/${runId}`);
 
@@ -503,7 +506,7 @@ class ModelTrainingService {
       rankings: data.items.map((item, index) => ({
         rank: item.score_rank ?? index + 1,
         code: item.symbol,
-        name: item.symbol,
+        name: item.stock_name || item.symbol,
         score: Number(item.fusion_score ?? 0),
         signal: item.signal_side === 'buy' ? 'buy' : item.signal_side === 'sell' ? 'sell' : 'hold',
       })),

@@ -2,7 +2,7 @@
 
 强制约束：
 1) 数据读取必须使用 qlib：
-   - qlib.init(provider_uri=”/app/db/qlib_data”, region=”cn”)
+   - qlib.init(provider_uri=”{{PROVIDER_URI}}”, region=”{{MARKET_REGION}}”)
    - D.features(...)
 2) 禁止 CSV 占位路径和 AAPL 默认代码。
 3) 必须包含 main() 入口。
@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 import qlib
 from qlib.data import D
-from qlib.constant import REG_CN
+from qlib.constant import REG_{{MARKET_REGION_UPPER}}
 ```
 
 禁止导入（常见误导）：

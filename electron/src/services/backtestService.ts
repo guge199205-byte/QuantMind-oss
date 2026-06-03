@@ -755,6 +755,9 @@ class BacktestService {
       market_state_symbol:
         config.market_state_symbol ?? strategyParams.market_state_symbol,
       style: config.style ?? strategyParams.style,
+      // 市场特定参数
+      qlib_provider_uri: config.qlib_provider_uri,
+      qlib_region: config.qlib_region,
     };
 
     if (config.signal_lag_days != null) {

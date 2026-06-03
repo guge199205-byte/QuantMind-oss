@@ -15,7 +15,10 @@ import {
     SafetyCertificateOutlined,
     UserOutlined,
     SyncOutlined,
-    CloudDownloadOutlined
+    CloudDownloadOutlined,
+    GlobalOutlined,
+    StockOutlined,
+    FundOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { adminService } from '../services/adminService';
@@ -25,6 +28,14 @@ import {
     AdminDataStatusResult,
     AdminOfficialDataUpdateSyncResult,
 } from '../types';
+
+// Alpha Agent 市场配置
+const MARKET_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; gradient: string }> = {
+    a_share: { label: 'A股', icon: <StockOutlined />, color: '#ef4444', gradient: 'from-red-500 to-orange-500' },
+    crypto: { label: '加密货币', icon: <FundOutlined />, color: '#f59e0b', gradient: 'from-amber-500 to-yellow-500' },
+    hong_kong: { label: '港股', icon: <GlobalOutlined />, color: '#3b82f6', gradient: 'from-blue-500 to-cyan-500' },
+    us_stock: { label: '美股', icon: <LineChartOutlined />, color: '#10b981', gradient: 'from-emerald-500 to-teal-500' },
+};
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -37,10 +48,16 @@ export const AdminDataManagement: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<any>(null);
     const [syncStatusLoading, setSyncStatusLoading] = useState(false);
 
-    const loadDataStatus = async (refresh = false) => {
+    // Alpha Agent 市场数据状态（提前声明，供 loadDataStatus 引用）
+    const [marketsData, setMarketsData] = useState<any[]>([]);
+    const [marketsLoading, setMarketsLoading] = useState(false);
+    const [selectedMarket, setSelectedMarket] = useState<string>('a_share');
+    const [marketSyncing, setMarketSyncing] = useState<string | null>(null);
+
+    const loadDataStatus = async (refresh = false, market?: string) => {
         setLoading(true);
         try {
-            const resp = await adminService.getDataStatus(refresh);
+            const resp = await adminService.getDataStatus(refresh, market || 'a_share');
             setData(resp);
             if (refresh) {
                 message.success(resp.message || '后台扫描任务已启动，请稍后刷新查看最新状态');
@@ -74,6 +91,13 @@ export const AdminDataManagement: React.FC = () => {
             initialRefreshRef.current = true;
         }
     }, []);
+
+    // 切换市场时重新加载数据状态
+    useEffect(() => {
+        if (initialRefreshRef.current) {
+            loadDataStatus(false, selectedMarket);
+        }
+    }, [selectedMarket]);
 
     const qlib = data?.qlib_data;
     const snapshots = data?.feature_snapshots;
@@ -162,6 +186,45 @@ export const AdminDataManagement: React.FC = () => {
         }
     };
 
+    const handleUpdateMarketFeatures = async (market: string, rebuild = false) => {
+        setParquetLoading(true);
+        setParquetResult(null);
+        try {
+            const resp = await adminService.updateMarketFeatures(market, rebuild);
+            setParquetResult(resp);
+            if (resp.success) {
+                message.success(rebuild ? `${market} 特征已全量重建` : `${market} 特征已更新`);
+                await loadDataStatus(false, market);
+            } else {
+                message.error('特征更新失败，请查看执行日志');
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '未知错误';
+            message.error(`更新失败: ${msg}`);
+        } finally {
+            setParquetLoading(false);
+        }
+    };
+
+    const handleSyncFundamentals = async (market = 'ALL') => {
+        setFundamentalsLoading(true);
+        setFundamentalsResult(null);
+        try {
+            const resp = await adminService.syncFundamentals(market);
+            setFundamentalsResult(resp);
+            if (resp?.success) {
+                message.success(`基本面数据同步完成 (${market})`);
+            } else {
+                message.error('基本面数据同步失败');
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '未知错误';
+            message.error(`同步失败: ${msg}`);
+        } finally {
+            setFundamentalsLoading(false);
+        }
+    };
+
     const handleSyncOfficialData = async () => {
         setSyncLoading(true);
         try {
@@ -187,12 +250,62 @@ export const AdminDataManagement: React.FC = () => {
 
     const [syncTaskId, setSyncTaskId] = useState<string | null>(null);
     const [syncTaskProgress, setSyncTaskProgress] = useState<string>('');
+    const [syncStepProgress, setSyncStepProgress] = useState<{ step: string; detail: string; pct: number; current: number; total: number } | null>(null);
     const [parquetLoading, setParquetLoading] = useState(false);
     const [parquetResult, setParquetResult] = useState<any>(null);
+    const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+    const [fundamentalsResult, setFundamentalsResult] = useState<any>(null);
+
+    // 当前选中的市场数据
+    const currentMarket = marketsData.find(x => x.market_id === selectedMarket);
+    const currentMarketCfg = MARKET_CONFIG[selectedMarket] || { label: 'A股', icon: <StockOutlined />, color: '#ef4444', gradient: 'from-red-500 to-orange-500' };
+
+    const loadMarketsData = useCallback(async () => {
+        setMarketsLoading(true);
+        try {
+            const resp = await adminService.getAlphaAgentMarkets();
+            if (resp?.success && resp.data?.markets) {
+                setMarketsData(resp.data.markets);
+            }
+        } catch {
+            // silent
+        } finally {
+            setMarketsLoading(false);
+        }
+    }, []);
+
+    const handleSyncMarket = async (marketId: string, force = false) => {
+        setMarketSyncing(marketId);
+        try {
+            const resp = await adminService.syncAlphaAgentMarket(marketId);
+            if (resp?.success) {
+                const d = resp.data;
+                if (d.status === 'already_ready') {
+                    message.info(d.message || `${marketId} 数据已就绪`);
+                } else if (d.status === 'completed') {
+                    message.success(d.message || `${marketId} 数据同步完成`);
+                } else if (d.status === 'skipped') {
+                    message.warning(d.message || `${marketId} 已跳过`);
+                }
+                await loadMarketsData();
+            } else {
+                message.error('同步失败');
+            }
+        } catch (err: any) {
+            message.error(`同步失败: ${err?.message || '未知错误'}`);
+        } finally {
+            setMarketSyncing(null);
+        }
+    };
+
+    useEffect(() => {
+        loadMarketsData();
+    }, [loadMarketsData]);
 
     const handleDailySync = async (incremental = true) => {
         setDailySyncLoading(true);
         setSyncTaskProgress('提交任务...');
+        setSyncStepProgress(null);
         try {
             const resp = await adminService.triggerDailySync({ incremental, calibrate: true });
             if (resp?.success && resp.data?.task_id) {
@@ -201,10 +314,21 @@ export const AdminDataManagement: React.FC = () => {
                 setSyncTaskProgress('任务已提交，等待执行...');
                 message.info(`同步任务已提交 (${taskId.slice(0, 8)}...)，后台执行中`);
 
-                // 轮询任务状态
+                // 轮询任务状态 + 步骤进度
                 const pollInterval = setInterval(async () => {
                     try {
-                        const statusResp = await adminService.getDailySyncTaskStatus(taskId);
+                        // 同时查 Celery 任务状态和步骤进度
+                        const [statusResp, progressResp] = await Promise.all([
+                            adminService.getDailySyncTaskStatus(taskId),
+                            adminService.getSyncProgress(),
+                        ]);
+
+                        // 更新步骤进度
+                        const prog = progressResp?.data;
+                        if (prog && prog.step !== 'idle') {
+                            setSyncStepProgress(prog);
+                        }
+
                         const d = statusResp?.data;
                         if (!d) return;
 
@@ -221,6 +345,7 @@ export const AdminDataManagement: React.FC = () => {
                             setDailySyncLoading(false);
                             setSyncTaskId(null);
                             setSyncTaskProgress('');
+                            setSyncStepProgress(null);
                             await loadSyncStatus();
                             await loadDataStatus(false);
                         } else if (d.status === 'FAILURE') {
@@ -232,6 +357,7 @@ export const AdminDataManagement: React.FC = () => {
                             setDailySyncLoading(false);
                             setSyncTaskId(null);
                             setSyncTaskProgress('');
+                            setSyncStepProgress(null);
                         } else {
                             // PENDING / STARTED
                             setSyncTaskProgress(d.status === 'STARTED' ? '同步执行中...' : '等待队列...');
@@ -239,7 +365,7 @@ export const AdminDataManagement: React.FC = () => {
                     } catch {
                         // polling error, continue
                     }
-                }, 5000);
+                }, 3000);
 
                 // 超时保护: 30 分钟后停止轮询
                 setTimeout(() => {
@@ -249,6 +375,7 @@ export const AdminDataManagement: React.FC = () => {
                         setDailySyncLoading(false);
                         setSyncTaskId(null);
                         setSyncTaskProgress('');
+                        setSyncStepProgress(null);
                     }
                 }, 30 * 60 * 1000);
             } else {
@@ -260,6 +387,7 @@ export const AdminDataManagement: React.FC = () => {
             message.error(`提交失败: ${msg}`);
             setDailySyncLoading(false);
             setSyncTaskProgress('');
+            setSyncStepProgress(null);
         }
     };
 
@@ -302,107 +430,343 @@ export const AdminDataManagement: React.FC = () => {
                 </Space>
             </div>
 
-            {/* Quick Stats Grid */}
-            <Row gutter={[24, 24]}>
-                <Col xs={24} sm={12} lg={6}>
-                    <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 opacity-[0.03] rounded-bl-[4rem]" />
-                        <Statistic 
-                            title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Qlib 日历最后日期</span>} 
-                            value={qlib?.calendar_last_date || '—'} 
-                            valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
-                            prefix={<CompassOutlined className="text-blue-500 mr-2" />}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} sm={12} lg={6}>
-                    <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500 opacity-[0.03] rounded-bl-[4rem]" />
-                        <Statistic 
-                            title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">快照最新日期</span>} 
-                            value={snapshots?.max_date || '—'} 
-                            valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
-                            prefix={<LineChartOutlined className="text-indigo-500 mr-2" />}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} sm={12} lg={6}>
-                    <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500 opacity-[0.03] rounded-bl-[4rem]" />
-                        <Statistic 
-                            title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Parquet 文件总数</span>} 
-                            value={snapshots?.file_count ?? 0} 
-                            suffix="个"
-                            valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
-                            prefix={<DatabaseOutlined className="text-emerald-500 mr-2" />}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} sm={12} lg={6}>
-                    <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
-                        <div className="flex flex-col">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">覆盖率</span>
-                            <div className="flex items-center space-x-4">
-                                <Progress 
-                                    type="circle" 
-                                    percent={coverageRate} 
-                                    size={48} 
-                                    strokeWidth={12}
-                                    strokeColor={{ '0%': '#6366f1', '100%': '#10b981' }}
-                                    format={() => <span className="text-[10px] font-black text-slate-700">{Math.round(coverageRate)}%</span>}
-                                />
-                                <div>
-                                    <div className="text-2xl font-black text-slate-800 tracking-tight">{coverageRate}%</div>
-                                    <div className="text-[10px] font-bold text-emerald-500">良好</div>
-                                </div>
-                            </div>
+            {/* Alpha Agent 市场数据管理 */}
+            <Card
+                className="rounded-[2.5rem] border-none shadow-2xl shadow-slate-200/30"
+                styles={{ body: { padding: '32px' } }}
+            >
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                            <GlobalOutlined className="text-white text-xl" />
                         </div>
-                    </Card>
-                </Col>
+                        <div>
+                            <span className="text-slate-800 font-black text-xl uppercase tracking-tight block">多市场数据</span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Alpha Agent 因子挖掘数据源</span>
+                        </div>
+                    </div>
+                    <Button
+                        type="text"
+                        size="small"
+                        icon={<ReloadOutlined spin={marketsLoading} />}
+                        onClick={loadMarketsData}
+                        className="text-slate-400"
+                    />
+                </div>
+
+                {/* 市场标签选择器 */}
+                <div className="flex flex-wrap gap-3 mb-6">
+                    {marketsData.map((m) => {
+                        const cfg = MARKET_CONFIG[m.market_id] || { label: m.market_name, icon: <DatabaseOutlined />, color: '#6366f1', gradient: 'from-indigo-500 to-purple-500' };
+                        const isActive = selectedMarket === m.market_id;
+                        return (
+                            <button
+                                key={m.market_id}
+                                onClick={() => setSelectedMarket(m.market_id)}
+                                className={`
+                                    relative flex items-center gap-2.5 px-5 py-3 rounded-2xl font-bold text-sm transition-all duration-300 cursor-pointer border-none outline-none
+                                    ${isActive
+                                        ? `bg-gradient-to-r ${cfg.gradient} text-white shadow-lg scale-[1.02]`
+                                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:scale-[1.01]'
+                                    }
+                                `}
+                            >
+                                <span className="text-base">{cfg.icon}</span>
+                                <span className="tracking-tight">{cfg.label}</span>
+                                {m.data_ready ? (
+                                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/80' : 'bg-emerald-400'} animate-pulse`} />
+                                ) : (
+                                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/40' : 'bg-slate-300'}`} />
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* 选中市场的详情 */}
+                {(() => {
+                    const m = marketsData.find(x => x.market_id === selectedMarket);
+                    if (!m) return <Empty description="暂无市场数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+                    const cfg = MARKET_CONFIG[m.market_id] || { label: m.market_name, color: '#6366f1', gradient: 'from-indigo-500 to-purple-500' };
+                    const h5 = m.h5_info;
+                    const qlib = m.qlib_info;
+
+                    return (
+                        <div className="space-y-5">
+                            {/* 状态行 */}
+                            <div className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${cfg.gradient} flex items-center justify-center text-white text-xl shadow-lg`}>
+                                        {MARKET_CONFIG[m.market_id]?.icon || <DatabaseOutlined />}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-black text-lg text-slate-800">{m.market_name}</span>
+                                            {m.data_ready ? (
+                                                <Tag className="m-0 border-none bg-emerald-50 text-emerald-600 font-bold rounded-lg text-[10px]">
+                                                    <CheckCircleFilled className="mr-1" /> 已就绪
+                                                </Tag>
+                                            ) : (
+                                                <Tag className="m-0 border-none bg-amber-50 text-amber-600 font-bold rounded-lg text-[10px]">
+                                                    <WarningFilled className="mr-1" /> 未就绪
+                                                </Tag>
+                                            )}
+                                        </div>
+                                        <span className="text-xs text-slate-400">{m.description}</span>
+                                    </div>
+                                </div>
+                                <Space>
+                                    <Button
+                                        type="primary"
+                                        icon={<SyncOutlined />}
+                                        loading={marketSyncing === m.market_id}
+                                        onClick={() => handleSyncMarket(m.market_id, m.data_ready)}
+                                        className={`rounded-xl h-10 px-6 font-bold border-none shadow-md ${m.data_ready ? 'bg-slate-600 hover:bg-slate-700' : `bg-gradient-to-r ${cfg.gradient} hover:opacity-90`}`}
+                                    >
+                                        {m.data_ready ? '重新同步' : '开始同步'}
+                                    </Button>
+                                </Space>
+                            </div>
+
+                            {/* 数据详情网格 */}
+                            {h5 ? (
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                    {[
+                                        { label: '标的数量', value: `${h5.symbols} 只`, color: 'text-indigo-600' },
+                                        { label: '数据行数', value: h5.rows.toLocaleString(), color: 'text-slate-800' },
+                                        { label: '起始日期', value: h5.start_date, color: 'text-slate-600' },
+                                        { label: '截止日期', value: h5.end_date, color: 'text-emerald-600' },
+                                        { label: '文件大小', value: `${h5.file_size_mb} MB`, color: 'text-amber-600' },
+                                    ].map((item, i) => (
+                                        <div key={i} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm">
+                                            <Text className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">{item.label}</Text>
+                                            <Text className={`font-black text-base tracking-tight ${item.color}`}>{item.value}</Text>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="p-6 rounded-2xl bg-amber-50 border border-amber-100 text-center">
+                                    <WarningFilled className="text-amber-500 text-lg mr-2" />
+                                    <Text className="text-amber-700 font-bold text-sm">数据文件不存在，请点击「开始同步」下载数据</Text>
+                                </div>
+                            )}
+
+                            {/* Qlib 信息 */}
+                            {qlib && (
+                                <div className="flex items-center gap-6 px-5 py-3 rounded-xl bg-indigo-50/50 border border-indigo-100">
+                                    <div className="flex items-center gap-2">
+                                        <DatabaseOutlined className="text-indigo-400 text-xs" />
+                                        <Text className="text-[10px] font-bold text-indigo-500 uppercase">Qlib</Text>
+                                    </div>
+                                    <Text className="text-xs text-slate-600">
+                                        日历: <span className="font-bold">{qlib.calendar_files?.join(', ') || '—'}</span>
+                                    </Text>
+                                    <Text className="text-xs text-slate-600">
+                                        特征目录: <span className="font-bold text-indigo-600">{qlib.feature_dirs}</span> 个
+                                    </Text>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })()}
+            </Card>
+
+            {/* Quick Stats Grid — 根据选中市场切换 */}
+            <Row gutter={[24, 24]}>
+                {selectedMarket === 'a_share' ? (
+                    <>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Qlib 日历最后日期</span>}
+                                    value={qlib?.calendar_last_date || '—'}
+                                    valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
+                                    prefix={<CompassOutlined className="text-blue-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">快照最新日期</span>}
+                                    value={snapshots?.max_date || '—'}
+                                    valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
+                                    prefix={<LineChartOutlined className="text-indigo-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Parquet 文件总数</span>}
+                                    value={snapshots?.file_count ?? 0}
+                                    suffix="个"
+                                    valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
+                                    prefix={<DatabaseOutlined className="text-emerald-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">覆盖率</span>
+                                    <div className="flex items-center space-x-4">
+                                        <Progress
+                                            type="circle"
+                                            percent={coverageRate}
+                                            size={48}
+                                            strokeWidth={12}
+                                            strokeColor={{ '0%': '#6366f1', '100%': '#10b981' }}
+                                            format={() => <span className="text-[10px] font-black text-slate-700">{Math.round(coverageRate)}%</span>}
+                                        />
+                                        <div>
+                                            <div className="text-2xl font-black text-slate-800 tracking-tight">{coverageRate}%</div>
+                                            <div className="text-[10px] font-bold text-emerald-500">良好</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+                        </Col>
+                    </>
+                ) : (
+                    <>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">标的数量</span>}
+                                    value={currentMarket?.h5_info?.symbols ?? '—'}
+                                    suffix="只"
+                                    valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
+                                    prefix={<StockOutlined className="text-blue-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">数据行数</span>}
+                                    value={currentMarket?.h5_info?.rows?.toLocaleString() || '—'}
+                                    valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: '#1e293b' }}
+                                    prefix={<DatabaseOutlined className="text-indigo-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">时间范围</span>}
+                                    value={currentMarket?.h5_info ? `${currentMarket.h5_info.start_date} ~ ${currentMarket.h5_info.end_date}` : '—'}
+                                    valueStyle={{ fontWeight: 900, fontSize: 14, letterSpacing: '-0.02em', color: '#1e293b' }}
+                                    prefix={<CompassOutlined className="text-emerald-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={6}>
+                            <Card className="rounded-[2rem] border-none shadow-xl shadow-slate-200/40 bg-white group overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500 opacity-[0.03] rounded-bl-[4rem]" />
+                                <Statistic
+                                    title={<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">数据状态</span>}
+                                    value={currentMarket?.data_ready ? '已就绪' : '未就绪'}
+                                    valueStyle={{ fontWeight: 900, letterSpacing: '-0.02em', color: currentMarket?.data_ready ? '#10b981' : '#f59e0b' }}
+                                    prefix={currentMarket?.data_ready ? <CheckCircleFilled className="text-emerald-500 mr-2" /> : <WarningFilled className="text-amber-500 mr-2" />}
+                                />
+                            </Card>
+                        </Col>
+                    </>
+                )}
             </Row>
 
             {/* Main Content Area */}
             <Row gutter={[32, 32]}>
                 <Col span={24} lg={15} className="space-y-8">
-                    {/* Qlib Section */}
+                    {/* Qlib Section — 根据选中市场切换 */}
                     <Card
                         title={
                             <div className="flex items-center space-x-3 py-1">
                                 <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
                                     <DatabaseOutlined />
                                 </div>
-                                <span className="font-black text-slate-800 tracking-tight text-lg uppercase">Qlib 基础设施详情</span>
+                                <span className="font-black text-slate-800 tracking-tight text-lg uppercase">
+                                    Qlib 基础设施详情 <span className="text-indigo-400 text-sm ml-2">{currentMarketCfg.label}</span>
+                                </span>
                             </div>
                         }
                         className="rounded-[2.5rem] border-none shadow-2xl shadow-slate-200/30"
                         styles={{ body: { padding: '32px' } }}
                     >
-                        {!qlib?.exists ? (
-                            <Alert
-                                type="error"
-                                showIcon
-                                message={<span className="font-bold">Qlib 目录不存在</span>}
-                                description={<span className="text-xs italic opacity-70">{qlib?.qlib_dir || '路径未定义'}</span>}
-                                className="rounded-2xl"
-                            />
+                        {selectedMarket === 'a_share' ? (
+                            !qlib?.exists ? (
+                                <Alert
+                                    type="error"
+                                    showIcon
+                                    message={<span className="font-bold">Qlib 目录不存在</span>}
+                                    description={<span className="text-xs italic opacity-70">{qlib?.qlib_dir || '路径未定义'}</span>}
+                                    className="rounded-2xl"
+                                />
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-12">
+                                    {[
+                                        { label: 'Qlib 路径', value: qlib.qlib_dir, span: 3, full: true },
+                                        { label: '日历总天数', value: qlib.calendar_total_days },
+                                        { label: '日历区间', value: `${qlib.calendar_start_date} → ${qlib.calendar_last_date}`, span: 2 },
+                                        { label: '标的总数', value: qlib.instruments?.total, highlight: true },
+                                        { label: '特征目录数', value: qlib.feature_dirs_total },
+                                        { label: '交易所分布', value: `SH: ${qlib.instruments?.sh} | SZ: ${qlib.instruments?.sz} | BJ: ${qlib.instruments?.bj}`, span: 3, italic: true }
+                                    ].map((item, i) => (
+                                        <div key={i} className={`flex flex-col space-y-1 ${item.span === 3 ? 'col-span-full' : item.span === 2 ? 'col-span-2' : ''}`}>
+                                            <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</Text>
+                                            <Text className={`text-slate-800 ${item.full ? 'font-mono text-xs break-all' : 'font-black text-lg'} ${item.highlight ? 'text-indigo-600' : ''} ${item.italic ? 'italic text-slate-500' : ''}`}>
+                                                {item.value ?? '—'}
+                                            </Text>
+                                        </div>
+                                    ))}
+                                </div>
+                            )
                         ) : (
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-12">
-                                {[
-                                    { label: 'Qlib 路径', value: qlib.qlib_dir, span: 3, full: true },
-                                    { label: '日历总天数', value: qlib.calendar_total_days },
-                                    { label: '日历区间', value: `${qlib.calendar_start_date} → ${qlib.calendar_last_date}`, span: 2 },
-                                    { label: '标的总数', value: qlib.instruments?.total, highlight: true },
-                                    { label: '特征目录数', value: qlib.feature_dirs_total },
-                                    { label: '交易所分布', value: `SH: ${qlib.instruments?.sh} | SZ: ${qlib.instruments?.sz} | BJ: ${qlib.instruments?.bj}`, span: 3, italic: true }
-                                ].map((item, i) => (
-                                    <div key={i} className={`flex flex-col space-y-1 ${item.span === 3 ? 'col-span-full' : item.span === 2 ? 'col-span-2' : ''}`}>
-                                        <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</Text>
-                                        <Text className={`text-slate-800 ${item.full ? 'font-mono text-xs break-all' : 'font-black text-lg'} ${item.highlight ? 'text-indigo-600' : ''} ${item.italic ? 'italic text-slate-500' : ''}`}>
-                                            {item.value ?? '—'}
-                                        </Text>
+                            /* 其他市场: 显示该市场的 Qlib 详情 */
+                            (() => {
+                                const h5 = currentMarket?.h5_info;
+                                const qlibInfo = currentMarket?.qlib_info;
+                                const qlibPaths: Record<string, string> = {
+                                    crypto: '/app/db/qlib_data/crypto_data',
+                                    hong_kong: '/app/db/qlib_data/hk_data',
+                                    us_stock: '/app/db/qlib_data/us_data',
+                                };
+                                if (!h5 && !currentMarket?.data_ready) {
+                                    return (
+                                        <div className="text-center py-8">
+                                            <WarningFilled className="text-amber-400 text-3xl mb-3" />
+                                            <div className="text-slate-500 font-bold">数据未下载</div>
+                                            <div className="text-xs text-slate-400 mt-1">请先点击上方「开始同步」下载数据</div>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-12">
+                                        {[
+                                            { label: 'Qlib 路径', value: qlibPaths[selectedMarket] || '—', span: 3, full: true },
+                                            { label: '日历文件', value: qlibInfo?.calendar_files?.join(', ') || '—' },
+                                            { label: '数据区间', value: h5 ? `${h5.start_date} → ${h5.end_date}` : '—', span: 2 },
+                                            { label: '标的总数', value: h5?.symbols, highlight: true },
+                                            { label: '特征目录数', value: qlibInfo?.feature_dirs ?? '—' },
+                                            { label: '数据行数', value: h5?.rows?.toLocaleString() || '—', span: 3, italic: true }
+                                        ].map((item, i) => (
+                                            <div key={i} className={`flex flex-col space-y-1 ${item.span === 3 ? 'col-span-full' : item.span === 2 ? 'col-span-2' : ''}`}>
+                                                <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</Text>
+                                                <Text className={`text-slate-800 ${item.full ? 'font-mono text-xs break-all' : 'font-black text-lg'} ${item.highlight ? 'text-indigo-600' : ''} ${item.italic ? 'italic text-slate-500' : ''}`}>
+                                                    {item.value ?? '—'}
+                                                </Text>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                );
+                            })()
                         )}
                     </Card>
 
@@ -492,7 +856,7 @@ export const AdminDataManagement: React.FC = () => {
                 </Col>
 
                 <Col span={24} lg={9} className="space-y-8">
-                    {/* Maintenance Panel */}
+                    {/* Maintenance Panel — 根据选中市场切换 */}
                     <Card
                         className="rounded-[2.5rem] border-none shadow-xl shadow-slate-200/40 bg-white"
                         styles={{ body: { padding: '32px' } }}
@@ -504,82 +868,228 @@ export const AdminDataManagement: React.FC = () => {
                                 </div>
                                 <span className="text-slate-800 font-black text-xl uppercase tracking-tight">自动化维护</span>
                             </div>
-                            <Tag className="m-0 bg-indigo-50 text-indigo-600 border-none rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest">一体化</Tag>
+                            <Tag className={`m-0 border-none rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest ${selectedMarket === 'a_share' ? 'bg-indigo-50 text-indigo-600' : `bg-gradient-to-r ${currentMarketCfg.gradient} text-white`}`}>
+                                {currentMarketCfg.label}
+                            </Tag>
                         </div>
 
                         <div className="space-y-6">
-                            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
-                                <Title level={5} className="!text-slate-800 !font-black !mb-3 uppercase tracking-tight text-sm">日常同步任务包含：</Title>
-                                <ul className="space-y-2 m-0 p-0 list-none">
-                                    {[
-                                        '增量拉取远程 PG 行情数据',
-                                        '更新本地 Parquet 核心资产',
-                                        '校准指标 (MA/换手率/收益率)',
-                                        '增量更新 Qlib 二进制引擎数据',
-                                        '计算 51 维模型特征（动量/波动率/流动性/资金流/风格因子）'
-                                    ].map((text, i) => (
-                                        <li key={i} className="flex items-start text-xs text-slate-500 font-medium">
-                                            <CheckCircleFilled className="text-emerald-500 mt-0.5 mr-2" />
-                                            {text}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
+                            {selectedMarket === 'a_share' ? (
+                                /* A股: 原有的同步任务说明 */
+                                <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                                    <Title level={5} className="!text-slate-800 !font-black !mb-3 uppercase tracking-tight text-sm">日常同步任务包含：</Title>
+                                    <ul className="space-y-2 m-0 p-0 list-none">
+                                        {[
+                                            '增量拉取远程 PG 行情数据',
+                                            '更新本地 Parquet 核心资产',
+                                            '校准指标 (MA/换手率/收益率)',
+                                            '增量更新 Qlib 二进制引擎数据',
+                                            '计算 51 维模型特征（动量/波动率/流动性/资金流/风格因子）'
+                                        ].map((text, i) => (
+                                            <li key={i} className="flex items-start text-xs text-slate-500 font-medium">
+                                                <CheckCircleFilled className="text-emerald-500 mt-0.5 mr-2" />
+                                                {text}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : (
+                                /* 其他市场: 市场数据同步说明 */
+                                <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                                    <Title level={5} className="!text-slate-800 !font-black !mb-3 uppercase tracking-tight text-sm">{currentMarketCfg.label}数据同步：</Title>
+                                    <ul className="space-y-2 m-0 p-0 list-none">
+                                        {selectedMarket === 'crypto' ? [
+                                            '从 Binance API 下载 5 分钟 K 线数据',
+                                            '转换为 Qlib bin 格式 (5min)',
+                                            '生成日历、标的列表、特征文件',
+                                            '支持 33 个主流加密货币交易对',
+                                        ] : selectedMarket === 'hong_kong' ? [
+                                            '从 yfinance 下载恒生指数+恒生科技成分股',
+                                            '覆盖 137 只港股（2010 年至今）',
+                                            '转换为 Qlib bin 格式 (day)',
+                                            '支持增量更新和全量重下',
+                                        ] : [
+                                            '从 yfinance 下载 S&P 500 + NASDAQ 成分股',
+                                            '覆盖 491 只美股（2010 年至今）',
+                                            '转换为 Qlib bin 格式 (day)',
+                                            '支持增量更新和全量重下',
+                                        ].map((text, i) => (
+                                            <li key={i} className="flex items-start text-xs text-slate-500 font-medium">
+                                                <CheckCircleFilled className="text-emerald-500 mt-0.5 mr-2" />
+                                                {text}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                             
                             <Space direction="vertical" className="w-full" size="middle">
-                                <Button
-                                    type="primary"
-                                    block
-                                    className="h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-700 border-none font-black text-sm shadow-lg shadow-indigo-100 transition-all flex items-center justify-center"
-                                    loading={dailySyncLoading}
-                                    onClick={() => handleDailySync(true)}
-                                    icon={<SyncOutlined />}
-                                    disabled={!!syncTaskId}
-                                >
-                                    增量同步（多源聚合）
-                                </Button>
-                                <Button
-                                    block
-                                    className="h-12 rounded-2xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                                    loading={dailySyncLoading}
-                                    onClick={() => handleDailySync(false)}
-                                    icon={<CloudDownloadOutlined />}
-                                    disabled={!!syncTaskId}
-                                >
-                                    全量同步
-                                </Button>
-                                <Button
-                                    block
-                                    className="h-12 rounded-2xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                                    loading={syncLoading}
-                                    onClick={handleSyncOfficialData}
-                                    icon={<ThunderboltOutlined />}
-                                >
-                                    旧版全量同步
-                                </Button>
-                                <Divider className="!my-2" />
-                                <Button
-                                    block
-                                    className="h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 border-none text-white font-black text-sm shadow-lg shadow-emerald-100 transition-all"
-                                    loading={parquetLoading}
-                                    onClick={() => handleUpdateFeatureParquet(false)}
-                                    icon={<LineChartOutlined />}
-                                >
-                                    更新特征快照（补充缺失日期）
-                                </Button>
-                                <Button
-                                    block
-                                    className="h-12 rounded-2xl border-amber-200 text-amber-700 font-bold hover:bg-amber-50 transition-all"
-                                    loading={parquetLoading}
-                                    onClick={() => handleUpdateFeatureParquet(true)}
-                                    icon={<SyncOutlined />}
-                                >
-                                    全量重建特征（覆盖全部日期）
-                                </Button>
+                                {selectedMarket === 'a_share' ? (
+                                    <>
+                                        <Button
+                                            type="primary"
+                                            block
+                                            className="h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-700 border-none font-black text-sm shadow-lg shadow-indigo-100 transition-all flex items-center justify-center"
+                                            loading={dailySyncLoading}
+                                            onClick={() => handleDailySync(true)}
+                                            icon={<SyncOutlined />}
+                                            disabled={!!syncTaskId}
+                                        >
+                                            增量同步（多源聚合）
+                                        </Button>
+                                        <Button
+                                            block
+                                            className="h-12 rounded-2xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                                            loading={dailySyncLoading}
+                                            onClick={() => handleDailySync(false)}
+                                            icon={<CloudDownloadOutlined />}
+                                            disabled={!!syncTaskId}
+                                        >
+                                            全量同步
+                                        </Button>
+                                        <Button
+                                            block
+                                            className="h-12 rounded-2xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                                            loading={syncLoading}
+                                            onClick={handleSyncOfficialData}
+                                            icon={<ThunderboltOutlined />}
+                                        >
+                                            旧版全量同步
+                                        </Button>
+                                        <Divider className="!my-2" />
+                                        <Button
+                                            block
+                                            className="h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 border-none text-white font-black text-sm shadow-lg shadow-emerald-100 transition-all"
+                                            loading={parquetLoading}
+                                            onClick={() => handleUpdateFeatureParquet(false)}
+                                            icon={<LineChartOutlined />}
+                                        >
+                                            更新特征快照（补充缺失日期）
+                                        </Button>
+                                        <Button
+                                            block
+                                            className="h-12 rounded-2xl border-amber-200 text-amber-700 font-bold hover:bg-amber-50 transition-all"
+                                            loading={parquetLoading}
+                                            onClick={() => handleUpdateFeatureParquet(true)}
+                                            icon={<SyncOutlined />}
+                                        >
+                                            全量重建特征（覆盖全部日期）
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Button
+                                            type="primary"
+                                            block
+                                            className={`h-14 rounded-2xl border-none font-black text-sm shadow-lg transition-all flex items-center justify-center bg-gradient-to-r ${currentMarketCfg.gradient} hover:opacity-90`}
+                                            loading={marketSyncing === selectedMarket}
+                                            onClick={() => handleSyncMarket(selectedMarket, currentMarket?.data_ready)}
+                                            icon={<SyncOutlined />}
+                                        >
+                                            {currentMarket?.data_ready ? `重新同步${currentMarketCfg.label}数据` : `开始同步${currentMarketCfg.label}数据`}
+                                        </Button>
+                                        {currentMarket?.data_ready && (
+                                            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+                                                <div className="flex items-center gap-2">
+                                                    <CheckCircleFilled className="text-emerald-500" />
+                                                    <Text className="text-xs text-emerald-700 font-bold">
+                                                        数据已就绪: {currentMarket.h5_info?.symbols}只, {currentMarket.h5_info?.rows?.toLocaleString()}行
+                                                    </Text>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {!currentMarket?.data_ready && (
+                                            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-100">
+                                                <div className="flex items-center gap-2">
+                                                    <WarningFilled className="text-amber-500" />
+                                                    <Text className="text-xs text-amber-700 font-bold">数据未下载，请点击上方按钮同步</Text>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {currentMarket?.data_ready && (
+                                            <>
+                                                <Divider className="!my-2" />
+                                                <Button
+                                                    block
+                                                    className="h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 border-none text-white font-black text-sm shadow-lg shadow-emerald-100 transition-all"
+                                                    loading={parquetLoading}
+                                                    onClick={() => handleUpdateMarketFeatures(selectedMarket, false)}
+                                                    icon={<LineChartOutlined />}
+                                                >
+                                                    计算{currentMarketCfg.label}特征快照
+                                                </Button>
+                                                <Button
+                                                    block
+                                                    className="h-12 rounded-2xl border-amber-200 text-amber-700 font-bold hover:bg-amber-50 transition-all"
+                                                    loading={parquetLoading}
+                                                    onClick={() => handleUpdateMarketFeatures(selectedMarket, true)}
+                                                    icon={<SyncOutlined />}
+                                                >
+                                                    全量重建{currentMarketCfg.label}特征
+                                                </Button>
+                                                {(selectedMarket === 'hong_kong' || selectedMarket === 'us_stock') && (
+                                                    <>
+                                                        <Divider className="!my-2" />
+                                                        <Button
+                                                            block
+                                                            className="h-12 rounded-2xl bg-purple-600 hover:bg-purple-700 border-none text-white font-black text-sm shadow-lg shadow-purple-100 transition-all"
+                                                            loading={fundamentalsLoading}
+                                                            onClick={() => handleSyncFundamentals(selectedMarket === 'hong_kong' ? 'HK' : 'US')}
+                                                            icon={<StockOutlined />}
+                                                        >
+                                                            同步{currentMarketCfg.label}基本面 (PE/PB/ROE)
+                                                        </Button>
+                                                    </>
+                                                )}
+                                            </>
+                                        )}
+                                    </>
+                                )}
                                 {syncTaskProgress && (
-                                    <div className="flex items-center gap-2 p-3 rounded-xl bg-blue-50 border border-blue-100">
-                                        <Spin size="small" />
-                                        <Text className="text-xs text-blue-600 font-medium">{syncTaskProgress}</Text>
+                                    <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Spin size="small" />
+                                            <Text className="text-xs text-blue-600 font-bold">{syncStepProgress?.detail || syncTaskProgress}</Text>
+                                        </div>
+                                        {syncStepProgress && syncStepProgress.pct > 0 && (
+                                            <div>
+                                                <Progress
+                                                    percent={syncStepProgress.pct}
+                                                    size="small"
+                                                    strokeColor={{ from: '#6366f1', to: '#10b981' }}
+                                                    format={(pct) => <span className="text-[10px] font-bold text-slate-500">{pct}%</span>}
+                                                />
+                                                {syncStepProgress.total > 0 && (
+                                                    <Text className="text-[10px] text-slate-400 mt-1 block">
+                                                        {syncStepProgress.current}/{syncStepProgress.total} 只股票
+                                                    </Text>
+                                                )}
+                                            </div>
+                                        )}
+                                        <div className="flex gap-1">
+                                            {['init', 'pg_query', 'data_sync', 'qlib_bin', 'calibrate', 'parquet', 'done'].map((s, i) => {
+                                                const stepOrder = ['init', 'pg_query', 'data_sync', 'qlib_bin', 'calibrate', 'parquet', 'done'];
+                                                const currentIdx = stepOrder.indexOf(syncStepProgress?.step || '');
+                                                const isActive = i === currentIdx;
+                                                const isDone = i < currentIdx;
+                                                return (
+                                                    <div key={s} className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                                                        isDone ? 'bg-emerald-400' :
+                                                        isActive ? 'bg-indigo-500 animate-pulse' :
+                                                        'bg-slate-200'
+                                                    }`} />
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="flex justify-between text-[8px] text-slate-400 font-medium">
+                                            <span>初始化</span>
+                                            <span>PG</span>
+                                            <span>同步</span>
+                                            <span>Qlib</span>
+                                            <span>指标</span>
+                                            <span>Parquet</span>
+                                            <span>完成</span>
+                                        </div>
                                     </div>
                                 )}
                                 {parquetResult && (
@@ -599,14 +1109,37 @@ export const AdminDataManagement: React.FC = () => {
                                         )}
                                     </div>
                                 )}
+                                {fundamentalsResult && (
+                                    <div className={`p-4 rounded-2xl border ${fundamentalsResult.success ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                                        <Text className={`text-xs font-bold ${fundamentalsResult.success ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {fundamentalsResult.success ? '基本面同步成功' : '基本面同步失败'}
+                                        </Text>
+                                        {fundamentalsResult.data?.result && (
+                                            <pre className="mt-2 text-[10px] text-slate-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
+                                                {JSON.stringify(fundamentalsResult.data.result, null, 2)}
+                                            </pre>
+                                        )}
+                                        {fundamentalsResult.data?.results && (
+                                            <pre className="mt-2 text-[10px] text-slate-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
+                                                {JSON.stringify(fundamentalsResult.data.results, null, 2)}
+                                            </pre>
+                                        )}
+                                    </div>
+                                )}
                             </Space>
 
                             <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl">
                                 <div className="flex items-start">
                                     <InfoCircleOutlined className="text-amber-500 mt-0.5 mr-2" />
                                     <Text className="text-[11px] text-amber-700 font-medium leading-relaxed">
-                                        增量同步：investment_data → baostock → akshare → eltdx 多源聚合，自动校准技术指标并更新 Qlib。
-                                        Celery Beat 已配置每日 18:00 自动执行。
+                                        {selectedMarket === 'a_share'
+                                            ? '增量同步：investment_data → baostock → akshare → eltdx 多源聚合，自动校准技术指标并更新 Qlib。Celery Beat 已配置每日 18:00 自动执行。'
+                                            : selectedMarket === 'crypto'
+                                                ? '加密货币数据从 Binance 公开 API 下载 5 分钟 K 线，转换为 Qlib bin 格式。数据量较大，首次同步需要 20-30 分钟。'
+                                                : selectedMarket === 'hong_kong'
+                                                    ? '港股数据从 yfinance 下载恒生指数 + 恒生科技指数 + H 股成分股日线数据。首次同步约 2-3 分钟。'
+                                                    : '美股数据从 yfinance 下载 S&P 500 + NASDAQ 成分股日线数据。首次同步约 3-5 分钟。'
+                                        }
                                     </Text>
                                 </div>
                             </div>

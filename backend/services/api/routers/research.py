@@ -45,9 +45,12 @@ async def _do_get_overview(  # noqa: SLF001
 
 
 @router.get("/models")
-async def get_available_models(current_user: dict = Depends(get_current_user)):
+async def get_available_models(
+    market: str | None = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     tid, uid = str(current_user["tenant_id"]), str(current_user["user_id"])
-    return await get_available_models_service(tid, uid)
+    return await get_available_models_service(tid, uid, market=market)
 
 
 @router.get("/runs")
@@ -62,10 +65,11 @@ async def get_research_overview(
     run_id: str | None = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
+    market: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     tid, uid = str(current_user["tenant_id"]), str(current_user["user_id"])
-    return await get_research_overview_service(tid, uid, model_id, run_id, limit, offset)
+    return await get_research_overview_service(tid, uid, model_id, run_id, limit, offset, market=market)
 
 
 @router.get("/universe")

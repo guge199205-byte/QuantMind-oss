@@ -14,6 +14,9 @@ import type { ValidationCheck, ValidationResult } from '../types';
 import { useAuth } from '../../auth/hooks';
 // 按需导入 wizardService 的方法，避免静态/动态导入混用导致的打包警告
 import { QLIB_REBALANCE_DAY_LABEL, resolveRebalanceDays } from '../../../shared/qlib/rebalance';
+import { useAppSelector } from '../../../store';
+import { selectCurrentMarket } from '../../../store/slices/uiSlice';
+import { getMarketConfig } from '../../../config/marketConfig';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -37,6 +40,8 @@ const QlibValidatorAndSave: React.FC<Props> = ({ onBack }) => {
         markAsDownloaded
     } = useWizardV2Store();
     const { user } = useAuth();
+    const currentMarket = useAppSelector(selectCurrentMarket);
+    const marketConfig = getMarketConfig(currentMarket);
 
     const [validating, setValidating] = useState(false);
     const [repairing, setRepairing] = useState(false);
@@ -219,6 +224,7 @@ const QlibValidatorAndSave: React.FC<Props> = ({ onBack }) => {
                     qlib_params: qlibParams,
                     qlib_validated: Boolean(validationResult?.valid),
                     pool_file_key: activePoolVersionId,
+                    market: currentMarket,
                     notes: 'V2 重构版生成',
                 }
             };
@@ -327,8 +333,11 @@ STRATEGY_CONFIG = {
 
             {/* 右侧：策略参数（表单输入）- 无滚动条 */}
             <div className="w-80 flex flex-col overflow-hidden">
-                <div className="mb-1">
+                <div className="mb-1 flex items-center gap-2">
                     <Text strong style={{ fontSize: '13px' }}>策略参数</Text>
+                    <Tag color="blue" style={{ fontSize: 11, padding: '0 6px', borderRadius: 6, lineHeight: '18px' }}>
+                        {marketConfig.label}
+                    </Tag>
                 </div>
                 <Card
                     size="small"

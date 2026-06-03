@@ -48,6 +48,10 @@ class RDLoopWrapper:
             "LOG_TRACE_PATH": task_log_dir,
             "PYTHONPATH": os.getenv("PYTHONPATH") or "/app",
         }
+        # 设置数据文件路径环境变量
+        data_file = "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5"
+        if os.path.exists(data_file):
+            env["FACTOR_DATA_PATH"] = data_file
         # Ensure critical LLM settings are present
         if not env.get("OPENAI_BASE_URL"):
             env["OPENAI_BASE_URL"] = os.getenv("OPENAI_BASE_URL", "")
@@ -61,13 +65,58 @@ class RDLoopWrapper:
             env["CHAT_MODEL"] = f"openai/{model}"
         env["REASONING_MODEL"] = env.get("CHAT_MODEL", "")
         env["CHAT_STREAM"] = "false"
+        # 回测数据从 2016 年开始 (默认 2008 太慢)
+        env.setdefault("QLIB_FACTOR_TRAIN_START", os.getenv("QLIB_FACTOR_TRAIN_START", "2016-01-01"))
+        env.setdefault("QLIB_FACTOR_VALID_START", os.getenv("QLIB_FACTOR_VALID_START", "2021-01-01"))
+        env.setdefault("QLIB_FACTOR_VALID_END", os.getenv("QLIB_FACTOR_VALID_END", "2022-12-31"))
+        env.setdefault("QLIB_FACTOR_TEST_START", os.getenv("QLIB_FACTOR_TEST_START", "2023-01-01"))
+        env.setdefault("QLIB_FACTOR_TEST_END", os.getenv("QLIB_FACTOR_TEST_END", "2025-12-31"))
+        # 因子处理并行数
+        env.setdefault("MULTI_PROC_N", os.getenv("MULTI_PROC_N", "4"))
         return env
+
+    def _patch_prompts_for_chinese(self):
+        """注入中文指令到 RD-Agent 提示词模板，使因子描述使用中文"""
+        try:
+            from jinja2 import Template
+            from rdagent.scenarios.qlib.experiment import prompts as qlib_prompts
+            from rdagent.components.coder.factor_coder import prompts as coder_prompts
+
+            # 1. 因子背景提示 — 要求中文描述
+            zh_suffix = (
+                "\n\n====== 语言要求 / Language Requirement ======\n"
+                "所有因子的 description 字段必须使用中文撰写。"
+                "hypothesis 和 reason 也请用中文。\n"
+                "All factor descriptions MUST be written in Chinese (中文). "
+                "Hypothesis and reason should also be in Chinese.\n"
+            )
+            if hasattr(qlib_prompts, 'qlib_factor_background'):
+                original = qlib_prompts.qlib_factor_background
+                if '中文' not in original:
+                    qlib_prompts.qlib_factor_background = original + zh_suffix
+                    logger.info("Patched qlib_factor_background with Chinese instruction")
+
+            # 2. 因子输出格式 — 要求中文 description
+            if hasattr(qlib_prompts, 'factor_hypothesis_output_format'):
+                original = qlib_prompts.factor_hypothesis_output_format
+                if '中文' not in original:
+                    qlib_prompts.factor_hypothesis_output_format = original.replace(
+                        '"reason": "The reason',
+                        '"reason": "用中文撰写。The reason'
+                    )
+                    logger.info("Patched factor_hypothesis_output_format with Chinese instruction")
+
+        except Exception as e:
+            logger.warning("Failed to patch prompts for Chinese: %s", e)
 
     def _create_loop(self):
         """创建 FactorRDLoop 实例"""
         from rdagent.app.qlib_rd_loop.conf import FactorBasePropSetting
         from rdagent.app.qlib_rd_loop.factor import FactorRDLoop
         from rdagent.core.utils import import_class
+
+        # 注入中文指令
+        self._patch_prompts_for_chinese()
 
         prop_setting_path = self.adapter.get_prop_setting_class()
         prop_cls = import_class(prop_setting_path)
@@ -100,6 +149,9 @@ class RDLoopWrapper:
             env = self._configure_env(task_log_dir)
             for k, v in env.items():
                 os.environ[k] = v
+
+            # 确保 daily_pv.h5 数据文件可用
+            self._ensure_data_file(task_log_dir)
 
             logger.info("[%s] RDLoop starting: market=%s, loops=%d, log_dir=%s",
                         self.market, self.adapter.market_name, loop_n, task_log_dir)
@@ -149,6 +201,84 @@ class RDLoopWrapper:
         """请求取消运行"""
         self._cancelled = True
         logger.info("[%s] Cancellation requested", self.market)
+
+    def _ensure_data_file(self, task_log_dir: str = ""):
+        """确保 daily_pv.h5 数据文件和 Qlib 数据目录在 RD-Agent 期望的位置可用
+
+        RD-Agent 的 subprocess 以 task_log_dir 为 cwd 运行，
+        FACTOR_COSTEER_SETTINGS.data_folder (git_ignore_folder/factor_implementation_source_data)
+        相对于 cwd 解析。需要在 task_log_dir 下创建该目录并复制数据文件。
+
+        同时确保对应的 Qlib provider_uri 目录可用。
+        """
+        import shutil
+
+        # 根据市场选择数据源
+        market_data_map = {
+            "crypto": {
+                "source_all": "/app/db/crypto_data/5min_pv.h5",
+                "source_debug": "/app/db/crypto_data/5min_pv.h5",
+                "qlib_source": "/app/db/qlib_data/crypto_data",
+                "qlib_target_name": "crypto_data",
+            },
+            "hong_kong": {
+                "source_all": "/app/db/hk_data/daily_pv.h5",
+                "source_debug": "/app/db/hk_data/daily_pv.h5",
+                "qlib_source": "/app/db/qlib_data/hk_data",
+                "qlib_target_name": "hk_data",
+            },
+            "us_stock": {
+                "source_all": "/app/db/us_data/daily_pv.h5",
+                "source_debug": "/app/db/us_data/daily_pv.h5",
+                "qlib_source": "/app/db/qlib_data/us_data",
+                "qlib_target_name": "us_data",
+            },
+        }
+
+        # 默认 A 股
+        market_cfg = market_data_map.get(self.market, {
+            "source_all": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5",
+            "source_debug": "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_debug.h5",
+            "qlib_source": "/app/db/qlib_data/cn_data",
+            "qlib_target_name": "cn_data",
+        })
+
+        source_all = market_cfg["source_all"]
+        source_debug = market_cfg["source_debug"]
+
+        # base_dir: RD-Agent subprocess cwd (task log dir)
+        base_dir = task_log_dir if task_log_dir else os.getcwd()
+
+        # RD-Agent data folders (relative to subprocess cwd)
+        targets = [
+            (os.path.join(base_dir, "git_ignore_folder/factor_implementation_source_data/daily_pv.h5"), source_all),
+            (os.path.join(base_dir, "git_ignore_folder/factor_implementation_source_data_debug/daily_pv.h5"), source_debug),
+        ]
+
+        for target, source in targets:
+            if not os.path.exists(source):
+                logger.warning("[%s] Source data file not found: %s", self.market, source)
+                continue
+            target_dir = os.path.dirname(target)
+            os.makedirs(target_dir, exist_ok=True)
+            if not os.path.exists(target) or os.path.getmtime(source) > os.path.getmtime(target):
+                try:
+                    shutil.copy2(source, target)
+                    logger.info("[%s] Copied data file: %s -> %s", self.market, source, target)
+                except Exception as e:
+                    logger.warning("[%s] Failed to copy data file to %s: %s", self.market, target, e)
+
+        # Ensure Qlib provider_uri data is available at ~/.qlib/qlib_data/<market>
+        qlib_source = market_cfg["qlib_source"]
+        qlib_target_name = market_cfg["qlib_target_name"]
+        qlib_target = os.path.expanduser(f"~/.qlib/qlib_data/{qlib_target_name}")
+        if os.path.isdir(qlib_source) and not os.path.exists(qlib_target):
+            try:
+                os.makedirs(os.path.dirname(qlib_target), exist_ok=True)
+                os.symlink(qlib_source, qlib_target)
+                logger.info("[%s] Created symlink: %s -> %s", self.market, qlib_target, qlib_source)
+            except Exception as e:
+                logger.warning("[%s] Failed to create Qlib symlink: %s", self.market, e)
 
     @property
     def is_running(self) -> bool:

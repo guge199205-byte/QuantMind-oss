@@ -3,10 +3,14 @@ import { Card } from '../common/Card';
 import { TradeRecordsSkeleton } from '../common/CardSkeletons';
 import { useTradeRecords } from '../../hooks/useTradeRecords';
 import { useAppSelector } from '../../store';
+import { selectCurrentMarket } from '../../store/slices/uiSlice';
 import { formatBackendTime } from '../../utils/format';
+
+const MARKET_LABELS: Record<string, string> = { CN: 'A股', HK: '港股', US: '美股', CRYPTO: '区块链' };
 
 export const TradeRecordsCard: React.FC = () => {
   const tradingMode = useAppSelector((state) => state.ui.tradingMode);
+  const currentMarket = useAppSelector(selectCurrentMarket);
   const { records, loading, isOffline, isFallbackToOrders, isStale, lastUpdatedAt, refresh } = useTradeRecords({
     limit: 8,
     tradingMode,
@@ -122,7 +126,7 @@ export const TradeRecordsCard: React.FC = () => {
   };
 
   return (
-    <Card title="实时交易记录" height="100%" background="trade">
+    <Card title={`实时交易记录 (${MARKET_LABELS[currentMarket] || ''})`} height="100%" background="trade">
       <div className="trade-records-table">
         <div className="trade-records-header">
           <div className="trade-cell time-cell">时间</div>

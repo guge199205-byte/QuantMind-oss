@@ -14,7 +14,8 @@ import type { RealTradingStatus, AccountInfo, PreflightCheckResponse, PreflightC
 import { authService } from '../../features/auth/services/authService';
 import type { StrategyFile } from '../../types/backtest/strategy';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setTradingMode } from '../../store/slices/uiSlice';
+import { setTradingMode, selectCurrentMarket } from '../../store/slices/uiSlice';
+import { getMarketConfig } from '../../config/marketConfig';
 import { useTradeWebSocket } from '../../hooks/useTradeWebSocket';
 import { buildTradingTopBarAccountInfo, resolveTradingAccountMode } from './utils/accountAdapter';
 import LiveTradeConfigWizard from './components/LiveTradeConfigWizard';
@@ -72,6 +73,8 @@ const getErrorHttpStatus = (err: unknown): number | undefined => {
 };
 
 const RealTradingPage: React.FC = () => {
+    const currentMarket = useAppSelector(selectCurrentMarket);
+    const marketConfig = getMarketConfig(currentMarket);
     const [activeTab, setActiveTab] = useState<ActiveTab>('manage');
     const [tenantId] = useState<string>(getEnvTenantId);
     const [userId] = useState(() => {
@@ -481,9 +484,9 @@ const RealTradingPage: React.FC = () => {
     ];
 
     return (
-        <div className="flex flex-col h-full bg-[#f8fafc] p-6 gap-6 font-sans">
-            {/* Top Section - Account Overview (38% 黄金分割) */}
-            <div className="h-[38%] bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
+        <div className="flex flex-col h-full bg-[#f8fafc] p-4 gap-3 font-sans">
+            {/* Top Section - Account Overview (collapsible) */}
+            <div className="shrink-0 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <TopBar
                     isConnected={!!status}
                     strategyStatus={strategyStatus}
@@ -496,8 +499,8 @@ const RealTradingPage: React.FC = () => {
                 />
             </div>
 
-            {/* Bottom Section - Sidebar & Content (62% 黄金分割) */}
-            <div className="h-[62%] flex bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
+            {/* Bottom Section - Sidebar & Content */}
+            <div className="flex-1 min-h-0 flex bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 {/* Left Sidebar - Navigation */}
                 <div className="w-[240px] flex flex-col border-r border-gray-100 bg-gray-50/30">
                     <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">

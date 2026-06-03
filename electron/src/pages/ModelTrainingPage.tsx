@@ -12,7 +12,10 @@ import dayjs, { Dayjs } from 'dayjs';
 import { clsx } from 'clsx';
 import { PAGE_LAYOUT } from '../config/pageLayout';
 import { modelTrainingService } from '../services/modelTrainingService';
-import { TrainingTarget, TrainingParams, TrainingContext, TrainingStatus, TrainingDraft, SplitKey, TimePeriodMap, FeatureCategory, STORAGE_KEY, DEFAULT_FEATURE_CATEGORIES, PRESET_DEFAULT_FEATURES, DEFAULT_TIME_PERIODS, DEFAULT_TARGET, DEFAULT_PARAMS, DEFAULT_CONTEXT, buildAutoDisplayName, buildLabelFormula, buildEffectiveTradeDate, daysBetween, toISOStringRange, restoreRange, shouldMigrateLegacyDraftPeriods, buildTrainingRequest, formatRange, toDynamicCategories, TrainingResult, buildBackendTrainingPayload, parseTrainingResult, parseSuggestedTimePeriods } from './training/trainingUtils';
+import { useAppSelector } from '../store';
+import { selectCurrentMarket } from '../store/slices/uiSlice';
+import { getMarketConfig } from '../config/marketConfig';
+import { TrainingTarget, TrainingParams, TrainingContext, TrainingStatus, TrainingDraft, SplitKey, TimePeriodMap, FeatureCategory, STORAGE_KEY, DEFAULT_FEATURE_CATEGORIES, PRESET_DEFAULT_FEATURES, MARKET_DEFAULT_FEATURES, getDefaultFeaturesForMarket, DEFAULT_TIME_PERIODS, DEFAULT_TARGET, DEFAULT_PARAMS, DEFAULT_CONTEXT, buildAutoDisplayName, buildLabelFormula, buildEffectiveTradeDate, daysBetween, toISOStringRange, restoreRange, shouldMigrateLegacyDraftPeriods, buildTrainingRequest, formatRange, toDynamicCategories, TrainingResult, buildBackendTrainingPayload, parseTrainingResult, parseSuggestedTimePeriods } from './training/trainingUtils';
 import { AdminModelFeatureDataCoverage } from '../features/admin/types';
 import { FeatureSelector } from './training/FeatureSelector';
 import { TrainingTargetConfig } from './training/TrainingTargetConfig';
@@ -48,11 +51,12 @@ const MetricCard: React.FC<{
 
 export const ModelTrainingPage: React.FC = () => {
   const navigate = useNavigate();
+  const currentMarket = useAppSelector(selectCurrentMarket);
   const [currentStep, setCurrentStep] = useState(0);
   const [featureCategories, setFeatureCategories] = useState<FeatureCategory[]>(DEFAULT_FEATURE_CATEGORIES);
   const [featureCatalogLoading, setFeatureCatalogLoading] = useState(false);
   const [dataCoverage, setDataCoverage] = useState<AdminModelFeatureDataCoverage | null>(null);
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(PRESET_DEFAULT_FEATURES);
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(() => getDefaultFeaturesForMarket(currentMarket));
   const [timePeriods, setTimePeriods] = useState<TimePeriodMap>(DEFAULT_TIME_PERIODS);
   const [target, setTarget] = useState<TrainingTarget>(DEFAULT_TARGET);
   const [params, setParams] = useState<TrainingParams>(DEFAULT_PARAMS);
@@ -77,18 +81,30 @@ export const ModelTrainingPage: React.FC = () => {
 
   const labelFormula = useMemo(() => buildLabelFormula(target), [target]);
   const effectiveTradeDate = useMemo(() => buildEffectiveTradeDate(target, timePeriods.test[0]), [target, timePeriods.test]);
+
+  // 市场切换时更新训练上下文和默认特征
+  useEffect(() => {
+    const mc = getMarketConfig(currentMarket);
+    setContext(prev => ({
+      ...prev,
+      market: currentMarket,
+      benchmark: mc.benchmark,
+    }));
+    // 切换市场时重置为该市场的默认特征
+    setSelectedFeatures(getDefaultFeaturesForMarket(currentMarket));
+  }, [currentMarket]);
   const featureCount = selectedFeatures.length;
   const autoDisplayName = useMemo(
-    () => buildAutoDisplayName(dayjs(), target, featureCount),
-    [target, featureCount]
+    () => buildAutoDisplayName(dayjs(), target, featureCount, undefined, currentMarket),
+    [target, featureCount, currentMarket]
   );
   const trainDays = useMemo(() => daysBetween(timePeriods.train), [timePeriods.train]);
   const valDays = useMemo(() => daysBetween(timePeriods.val), [timePeriods.val]);
   const testDays = useMemo(() => daysBetween(timePeriods.test), [timePeriods.test]);
   const totalDays = trainDays + valDays + testDays;
   const requestPreview = useMemo(
-    () => buildTrainingRequest(selectedFeatures, featureCategories, timePeriods, target, params, context, displayName),
-    [selectedFeatures, featureCategories, timePeriods, target, params, context, displayName]
+    () => buildTrainingRequest(selectedFeatures, featureCategories, timePeriods, target, params, context, displayName, currentMarket),
+    [selectedFeatures, featureCategories, timePeriods, target, params, context, displayName, currentMarket]
   );
   const isReadyToTrain = selectedFeatures.length > 0 && target.horizonDays >= 1 && totalDays > 0;
   const isTrainingInProgress =
@@ -108,15 +124,21 @@ export const ModelTrainingPage: React.FC = () => {
     const loadCatalog = async () => {
       setFeatureCatalogLoading(true);
       try {
-        const catalog = await modelTrainingService.getFeatureCatalog();
+        const catalog = await modelTrainingService.getFeatureCatalog(currentMarket);
         if (!active) return;
         const dynamicCats = toDynamicCategories(catalog);
         setFeatureCategories(dynamicCats);
-        
+
+        // Reset selected features to market-specific defaults that exist in catalog
+        const availableKeys = new Set(dynamicCats.flatMap(c => c.features.map(f => f.key)));
+        const marketDefaults = getDefaultFeaturesForMarket(currentMarket);
+        const validDefaults = marketDefaults.filter(f => availableKeys.has(f));
+        setSelectedFeatures(validDefaults.length > 0 ? validDefaults : marketDefaults);
+
         if (catalog.data_coverage) {
           setDataCoverage(catalog.data_coverage);
         }
-        
+
         if (catalog.data_coverage?.suggested_periods && !catalogSuggestionAppliedRef.current) {
           const suggested = parseSuggestedTimePeriods(catalog.data_coverage.suggested_periods);
           if (suggested) {
@@ -132,7 +154,7 @@ export const ModelTrainingPage: React.FC = () => {
     };
     loadCatalog();
     return () => { active = false; };
-  }, []);
+  }, [currentMarket]);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -264,7 +286,9 @@ export const ModelTrainingPage: React.FC = () => {
 
   const handleResetAll = () => {
     clearTimers();
-    setSelectedFeatures(PRESET_DEFAULT_FEATURES);
+    // Use market-specific default features
+    const marketDefaults = getDefaultFeaturesForMarket(currentMarket);
+    setSelectedFeatures(marketDefaults);
     setTimePeriods(DEFAULT_TIME_PERIODS);
     setTarget(DEFAULT_TARGET);
     setParams(DEFAULT_PARAMS);
@@ -371,7 +395,8 @@ export const ModelTrainingPage: React.FC = () => {
                   </div>
                 </Card>
 
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <MetricCard label="市场" value={getMarketConfig(currentMarket).label} centered />
                     <MetricCard label="特征数" value={`${featureCount}`} centered />
                     <MetricCard label="预测周期" value={`T+${target.horizonDays}`} hint={target.mode} centered />
                     <MetricCard label="数据集天数" value={`${totalDays}`} hint={`${trainDays}/${valDays}/${testDays}`} centered />
@@ -382,7 +407,7 @@ export const ModelTrainingPage: React.FC = () => {
                   <motion.div key={currentStep} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
                     {currentStep === 0 && <FeatureSelector categories={featureCategories} selectedFeatures={selectedFeatures} onChange={setSelectedFeatures} loading={featureCatalogLoading} />}
                     {currentStep === 1 && <TrainingTargetConfig target={target} timePeriods={timePeriods} onTargetChange={setTarget} onTimeChange={(k, v) => setTimePeriods({...timePeriods, [k]: v})} dataCoverage={dataCoverage} />}
-                    {currentStep === 2 && <ParameterConfig params={params} context={context} onParamsChange={setParams} onContextChange={setContext} displayName={displayName} onDisplayNameChange={(n, m) => { setDisplayName(n); setDisplayNameMode(m); }} autoDisplayName={autoDisplayName} />}
+                    {currentStep === 2 && <ParameterConfig params={params} context={context} onParamsChange={setParams} onContextChange={setContext} displayName={displayName} onDisplayNameChange={(n, m) => { setDisplayName(n); setDisplayNameMode(m); }} autoDisplayName={autoDisplayName} market={currentMarket} />}
                     {currentStep === 3 && <TrainingConsole trainingStatus={trainingStatus} executionStage={executionStage} progress={progress} logs={logs} backendRunStatus={backendRunStatus} result={result} requestPreview={requestPreview} totalDays={totalDays} trainDays={trainDays} valDays={valDays} testDays={testDays} target={target} />}
                     {currentStep === 4 && <TrainingResultView result={result} resultError={resultError} settingDefaultModel={settingDefaultModel} onSetDefaultModel={handleSetDefaultModel} trainingStatus={trainingStatus} />}
                   </motion.div>

@@ -121,11 +121,15 @@ def _parse_bridge_report_ts(report: dict[str, Any]) -> float | None:
     return None
 
 
-def _previous_trading_day(today: date) -> date:
+def _previous_trading_day(today: date, market: str = "A") -> date:
+    market_upper = (market or "A").upper()
+    if market_upper == "CRYPTO":
+        return today - timedelta(days=1)
     try:
         import exchange_calendars as xcals
 
-        calendar = xcals.get_calendar("XSHG")
+        _MARKET_XCAL = {"A": "XSHG", "HK": "XHKG", "US": "XNYS"}
+        calendar = xcals.get_calendar(_MARKET_XCAL.get(market_upper, "XSHG"))
         session = calendar.date_to_session(today, direction="previous")
         prev_session = calendar.previous_session(session)
         return prev_session.date()

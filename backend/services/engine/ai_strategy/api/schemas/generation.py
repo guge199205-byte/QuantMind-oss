@@ -26,6 +26,7 @@ class GenerateQlibRequest(BaseModel):
     conditions: dict[str, Any]
     pool_content: str | None = None  # 股票池内容（直接传入股票代码，每行一个）
     pool_file_key: str | None = None  # 兼容旧字段：COS key
+    market: str | None = None  # 市场代码：CN/HK/US/CRYPTO
     qlib_params: dict[str, Any] | None = None  # {strategy_type, topk, n_drop, rebalance_period}
     # 以下字段已废弃，保留向后兼容
     position_config: dict[str, Any] | None = None

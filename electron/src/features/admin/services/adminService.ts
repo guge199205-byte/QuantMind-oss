@@ -164,9 +164,9 @@ class AdminService {
         return resp.data;
     }
 
-    async getDataStatus(refresh = false): Promise<AdminDataStatusResult> {
+    async getDataStatus(refresh = false, market = 'a_share'): Promise<AdminDataStatusResult> {
         const resp = await this.axiosInstance.get<AdminDataStatusResult>('/admin/models/data-status', {
-            params: { refresh },
+            params: { refresh, market },
             timeout: 120000, // 增加超时到 2 分钟，确保扫描大目录不超时
         });
         return resp.data;
@@ -222,6 +222,28 @@ class AdminService {
         return resp.data;
     }
 
+    async getSyncProgress(): Promise<any> {
+        const resp = await this.axiosInstance.get('/admin/data-platform/sync-progress', {
+            timeout: 5000,
+        });
+        return resp.data;
+    }
+
+    async getAlphaAgentMarkets(): Promise<any> {
+        const resp = await this.axiosInstance.get('/admin/data-platform/alpha-agent-markets', {
+            timeout: 30000,
+        });
+        return resp.data;
+    }
+
+    async syncAlphaAgentMarket(market: string): Promise<any> {
+        const resp = await this.axiosInstance.post(`/admin/data-platform/sync-alpha-agent-market`, null, {
+            params: { market },
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
     async updateInvestmentData(version?: string): Promise<any> {
         const resp = await this.axiosInstance.post('/admin/data-platform/update-investment-data', null, {
             params: { version: version || '' },
@@ -233,6 +255,24 @@ class AdminService {
     async updateFeatureParquet(rebuild = false): Promise<any> {
         const resp = await this.axiosInstance.post('/admin/models/update-feature-parquet', null, {
             params: { rebuild },
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
+    async updateMarketFeatures(market: string, rebuild = false): Promise<any> {
+        const resp = await this.axiosInstance.post('/admin/models/update-market-features', null, {
+            params: { market, rebuild },
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
+    async syncFundamentals(market = 'ALL', dryRun = false): Promise<any> {
+        const resp = await this.axiosInstance.post('/admin/data-platform/sync-fundamentals', {
+            market,
+            dry_run: dryRun,
+        }, {
             timeout: 600000,
         });
         return resp.data;

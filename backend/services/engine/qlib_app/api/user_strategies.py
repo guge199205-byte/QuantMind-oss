@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -80,7 +80,7 @@ def _is_valid_bearer_jwt(auth_header: str) -> bool:
     return len(parts) == 3 and all(part.strip() for part in parts)
 
 
-async def _trigger_inference_after_activate(*, strategy_id: str, tenant_id: str, user_id: str) -> None:
+async def _trigger_inference_after_activate(*, strategy_id: str, tenant_id: str, user_id: str, market: str = "A") -> None:
     """
     策略激活后异步触发一次推理发布（按 tenant_id + user_id 定向产信号）。
     """
@@ -90,11 +90,27 @@ async def _trigger_inference_after_activate(*, strategy_id: str, tenant_id: str,
         StructuredTaskLogger(logger, "user-strategies").warning("inference_import_failed", "导入 InferenceRouterService 失败", error=e)
         return
 
-    now_local = datetime.now(ZoneInfo("Asia/Shanghai"))
-    cal = xcals.get_calendar("XSHG")
-    data_trade_date_obj = cal.previous_session(now_local.date()).date() if now_local.time() < datetime.strptime("09:30", "%H:%M").time() else now_local.date()
+    from backend.services.engine.data_platform.calendars.calendar import get_calendar
+
+    market_upper = (market or "A").upper()
+    _MARKET_XCAL = {"A": "XSHG", "HK": "XHKG", "US": "XNYS"}
+    _MARKET_TZ = {"A": "Asia/Shanghai", "HK": "Asia/Hong_Kong", "US": "America/New_York", "CRYPTO": "UTC"}
+
+    tz_name = _MARKET_TZ.get(market_upper, "Asia/Shanghai")
+    now_local = datetime.now(ZoneInfo(tz_name))
+
+    if market_upper == "CRYPTO":
+        # 加密货币 7×24，每天都交易
+        data_trade_date_obj = now_local.date()
+    else:
+        xcal_name = _MARKET_XCAL.get(market_upper, "XSHG")
+        cal = xcals.get_calendar(xcal_name)
+        data_trade_date_obj = cal.previous_session(now_local.date()).date() if now_local.time() < datetime.strptime("09:30", "%H:%M").time() else now_local.date()
     data_trade_date = data_trade_date_obj.isoformat()
-    prediction_trade_date = cal.next_session(data_trade_date_obj).date().isoformat()
+    if market_upper == "CRYPTO":
+        prediction_trade_date = (data_trade_date_obj + timedelta(days=1)).isoformat()
+    else:
+        prediction_trade_date = cal.next_session(data_trade_date_obj).date().isoformat()
     redis = None
     lock_key = f"{_ACTIVATE_INFERENCE_LOCK_PREFIX}:{prediction_trade_date}:{tenant_id}:{user_id}"
     try:
@@ -613,6 +629,7 @@ async def activate_strategy(strategy_id: str, request: Request):
 
         normalized_user_id = normalize_user_id(user_id)
         tenant_id = _get_tenant_id(request)
+        strategy_market = str(strategy.get("parameters", {}).get("market") or strategy.get("market") or "A").upper()
         config_to_cache = {
             "strategy_id": strategy_id,
             "user_id": normalized_user_id,
@@ -643,6 +660,7 @@ async def activate_strategy(strategy_id: str, request: Request):
                 strategy_id=str(strategy_id),
                 tenant_id=tenant_id,
                 user_id=normalized_user_id,
+                market=strategy_market,
             )
         )
 

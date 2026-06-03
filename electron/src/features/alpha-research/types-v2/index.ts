@@ -31,6 +31,9 @@ export interface TaskConfig {
   // Mining market (multi-market support)
   miningMarket?: 'a_share' | 'crypto' | 'hong_kong' | 'us_stock';
 
+  // Data source selection
+  dataSource?: 'qlib_bin' | 'parquet' | 'pg';
+
   // Backtest configuration
   market?: 'csi300' | 'csi500' | 'sp500';
   startDate?: string;
@@ -90,6 +93,34 @@ export interface ExecutionProgress {
   timestamp: string;
 }
 
+// Timeline phase (from backend)
+export interface TimelinePhase {
+  key: string;
+  label: string;
+  status: 'pending' | 'running' | 'completed';
+  start_time: string | null;
+  end_time: string | null;
+  duration_s: number | null;
+  tokens?: { prompt: number; completion: number; calls: number };
+  factors?: string[];
+}
+
+// Timeline loop entry
+export interface TimelineLoop {
+  loop: number;
+  label: string;
+  status: 'running' | 'backtesting' | 'completed';
+  phases: TimelinePhase[];
+}
+
+// Token usage summary
+export interface TokenUsage {
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_calls: number;
+  models: string[];
+}
+
 // Log entry
 export interface LogEntry {
   id: string;
@@ -112,6 +143,9 @@ export interface Factor {
   icir: number;
   rankIc: number;
   rankIcir: number;
+  sharpeRatio: number;
+  annualReturn: number;
+  maxDrawdown: number;
 
   // Metadata
   round: number;
@@ -157,6 +191,8 @@ export interface Task {
   logs: LogEntry[];
   createdAt: string;
   updatedAt: string;
+  timeline?: TimelineLoop[];
+  tokenUsage?: TokenUsage;
 }
 
 // API Response

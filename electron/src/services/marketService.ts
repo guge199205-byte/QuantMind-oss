@@ -51,6 +51,44 @@ const SUPPORTED_INDICES = {
   'sz399102': '创业板综'
 };
 
+// 多市场指数配置
+export type MarketId = 'CN' | 'HK' | 'US' | 'CRYPTO';
+
+export const MARKET_INDICES: Record<MarketId, { symbol: string; name: string; basePrice: number }[]> = {
+  CN: [
+    { symbol: 'sh000001', name: '上证指数', basePrice: 3200 },
+    { symbol: 'sz399001', name: '深成指数', basePrice: 12000 },
+    { symbol: 'sz399006', name: '创业板指', basePrice: 2500 },
+    { symbol: 'sh000300', name: '沪深300', basePrice: 4200 },
+    { symbol: 'sh000905', name: '中证500', basePrice: 6800 },
+    { symbol: 'sh000016', name: '上证50', basePrice: 2800 },
+  ],
+  HK: [
+    { symbol: 'hsi', name: '恒生指数', basePrice: 18000 },
+    { symbol: 'hscei', name: '恒生国企', basePrice: 6500 },
+    { symbol: 'hstech', name: '恒生科技', basePrice: 4000 },
+    { symbol: 'hscas', name: '恒生综合', basePrice: 2800 },
+    { symbol: 'hangseng_bank', name: '恒生金融', basePrice: 15000 },
+    { symbol: 'hangseng_prop', name: '恒生地产', basePrice: 12000 },
+  ],
+  US: [
+    { symbol: 'dji', name: '道琼斯', basePrice: 39000 },
+    { symbol: 'ixic', name: '纳斯达克', basePrice: 16500 },
+    { symbol: 'inx', name: '标普500', basePrice: 5200 },
+    { symbol: 'rut', name: '罗素2000', basePrice: 2100 },
+    { symbol: 'vix', name: 'VIX恐慌指数', basePrice: 15 },
+    { symbol: 'ndx', name: '纳斯达克100', basePrice: 18000 },
+  ],
+  CRYPTO: [
+    { symbol: 'btc', name: '比特币', basePrice: 73000 },
+    { symbol: 'eth', name: '以太坊', basePrice: 2500 },
+    { symbol: 'bnb', name: '币安币', basePrice: 650 },
+    { symbol: 'sol', name: 'Solana', basePrice: 150 },
+    { symbol: 'xrp', name: '瑞波币', basePrice: 2.2 },
+    { symbol: 'ada', name: '艾达币', basePrice: 0.65 },
+  ],
+};
+
 // 腾讯财经API字段映射（11个字段）
 const TENCENT_FIELD_MAP = {
   0: 'unknown1',     // 未知字段1
@@ -263,35 +301,93 @@ class MarketService {
     return isNaN(parsed) ? 0 : parsed;
   }
 
-  // 获取市场概览数据（简化版：仅使用腾讯财经API）
-  async getMarketOverview(): Promise<ApiResponse<MarketOverviewResponse>> {
+  // CoinGecko symbol → coin id 映射
+  private static readonly COINGECKO_MAP: Record<string, string> = {
+    btc: 'bitcoin',
+    eth: 'ethereum',
+    bnb: 'binancecoin',
+    sol: 'solana',
+    xrp: 'ripple',
+    ada: 'cardano',
+  };
+
+  // 从 CoinGecko 获取加密货币实时行情
+  private async getCryptoMarketData(): Promise<MarketIndex[] | null> {
     try {
-      console.log('开始获取市场概览数据...');
+      const ids = Object.values(MarketService.COINGECKO_MAP).join(',');
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!resp.ok) return null;
+      const data = await resp.json();
 
-      // 直接使用腾讯财经API获取实时数据
-      const tencentResponse = await this.getTencentMarketData();
+      const indices: MarketIndex[] = [];
+      for (const [symbol, coinId] of Object.entries(MarketService.COINGECKO_MAP)) {
+        const coin = data[coinId];
+        if (!coin?.usd) continue;
+        const meta = (MARKET_INDICES.CRYPTO || []).find(m => m.symbol === symbol);
+        const price = coin.usd;
+        const changePct = coin.usd_24h_change ?? 0;
+        const change = price * changePct / 100;
+        indices.push({
+          symbol: symbol.toUpperCase(),
+          name: meta?.name || symbol.toUpperCase(),
+          price: parseFloat(price.toFixed(price >= 1 ? 2 : 4)),
+          change: parseFloat(change.toFixed(price >= 1 ? 2 : 4)),
+          changePercent: parseFloat(changePct.toFixed(2)),
+          volume: coin.usd_24h_vol ? Math.round(coin.usd_24h_vol) : undefined,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return indices.length > 0 ? indices : null;
+    } catch {
+      return null;
+    }
+  }
 
-      if (tencentResponse.success && tencentResponse.data && tencentResponse.data.indices.length > 0) {
-        console.log(`成功获取腾讯财经API数据，共${tencentResponse.data.indices.length}个指数`);
-        return tencentResponse;
+  // 获取市场概览数据（简化版：仅使用腾讯财经API）
+  async getMarketOverview(market: MarketId = 'CN'): Promise<ApiResponse<MarketOverviewResponse>> {
+    try {
+      console.log(`开始获取${market}市场概览数据...`);
+
+      // A股市场使用腾讯财经API
+      if (market === 'CN') {
+        const tencentResponse = await this.getTencentMarketData();
+        if (tencentResponse.success && tencentResponse.data && tencentResponse.data.indices.length > 0) {
+          console.log(`成功获取腾讯财经API数据，共${tencentResponse.data.indices.length}个指数`);
+          return tencentResponse;
+        }
       }
 
-      console.warn('腾讯财经API获取失败，使用模拟数据作为降级');
+      // 加密货币使用 CoinGecko 实时行情
+      if (market === 'CRYPTO') {
+        const cryptoIndices = await this.getCryptoMarketData();
+        if (cryptoIndices && cryptoIndices.length > 0) {
+          console.log(`成功获取 CoinGecko 数据，共${cryptoIndices.length}个币种`);
+          return {
+            success: true,
+            data: { indices: cryptoIndices, lastUpdate: new Date().toISOString(), count: cryptoIndices.length },
+            timestamp: new Date().toISOString(),
+          };
+        }
+        console.warn('CoinGecko API 失败，使用模拟数据');
+      }
 
-      // 腾讯财经API失败时，直接使用模拟数据
+      // 非A股或API失败时，使用模拟数据
+      console.warn(`${market}市场使用模拟数据`);
       return {
         success: true,
-        data: this.generateMockData(),
+        data: this.generateMarketMockData(market),
         timestamp: new Date().toISOString()
       };
 
     } catch (error) {
       console.error('获取市场概览数据异常:', error);
-
-      // 发生异常时使用模拟数据
       return {
         success: true,
-        data: this.generateMockData(),
+        data: this.generateMarketMockData(market),
         timestamp: new Date().toISOString()
       };
     }
@@ -332,6 +428,36 @@ class MarketService {
         volume: Math.floor(Math.random() * 1000000000),
         amount: Math.floor(Math.random() * 500000000000), // 成交额
         marketCap: Math.floor(Math.random() * 50000000000000), // 市值
+        timestamp: new Date().toISOString()
+      };
+    });
+
+    return {
+      indices: mockIndices,
+      lastUpdate: new Date().toISOString(),
+      count: mockIndices.length
+    };
+  }
+
+  // 生成指定市场的模拟数据
+  generateMarketMockData(market: MarketId): MarketOverviewResponse {
+    const indices = MARKET_INDICES[market] || MARKET_INDICES.CN;
+    const volatility = market === 'CRYPTO' ? 0.06 : 0.03; // 加密货币波动更大
+
+    const mockIndices: MarketIndex[] = indices.map(({ symbol, name, basePrice }) => {
+      const change = (Math.random() - 0.5) * (basePrice * volatility);
+      const price = basePrice + change;
+      const prevClose = price - change;
+      const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+      return {
+        symbol: symbol.toUpperCase(),
+        name,
+        price: parseFloat(price.toFixed(2)),
+        change: parseFloat(change.toFixed(2)),
+        changePercent: parseFloat(changePercent.toFixed(2)),
+        volume: Math.floor(Math.random() * 1000000000),
+        amount: Math.floor(Math.random() * 500000000000),
         timestamp: new Date().toISOString()
       };
     });

@@ -83,6 +83,7 @@ async def scan_model_directories(
 
 @router.get("/feature-catalog", summary="获取模型训练特征字典（动态）")
 async def get_model_feature_catalog(
+    market: str | None = None,
     current_user: dict = Depends(require_admin),
 ):
     """
@@ -97,11 +98,11 @@ async def get_model_feature_catalog(
         catalog = None
 
     if catalog:
-        return _enrich_feature_catalog_with_data_coverage(catalog)
+        return _enrich_feature_catalog_with_data_coverage(catalog, market=market)
 
     fallback = _load_feature_catalog_from_file()
     if fallback:
-        return _enrich_feature_catalog_with_data_coverage(fallback)
+        return _enrich_feature_catalog_with_data_coverage(fallback, market=market)
 
     raise HTTPException(
         status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）"
@@ -111,6 +112,7 @@ async def get_model_feature_catalog(
 @router.get("/data-status", summary="查看当前数据状态（Qlib + 特征快照）")
 async def get_data_status(
     refresh: bool = Query(False, description="是否强制刷新（后台异步）"),
+    market: str = Query("a_share", description="市场: a_share, crypto, hong_kong, us_stock"),
     current_user: dict = Depends(require_admin),
 ):
     """
@@ -118,6 +120,7 @@ async def get_data_status(
     - 优先从 Redis 获取缓存结果
     - Qlib 文件数据（calendar/instruments/features）状态
     - feature_snapshots 目录下的 parquet 文件状态
+    - 支持按市场筛选
     """
     _ = current_user
     redis = None
@@ -126,10 +129,13 @@ async def get_data_status(
     except Exception:
         pass
 
+    # 非 A 股市场使用市场专属缓存 key
+    cache_key = f"qm:admin:data_status:{market}"
+
     # 1. 如果不是强制刷新，尝试读取缓存
     if not refresh and redis:
         try:
-            cached = redis.get("qm:admin:data_status")
+            cached = redis.get(cache_key)
             if cached:
                 result = json.loads(cached)
                 result["from_cache"] = True
@@ -150,18 +156,34 @@ async def get_data_status(
         tenant_id = str(current_user.get("tenant_id") or "default")
         user_id = str(current_user.get("user_id") or current_user.get("sub") or "admin")
 
+        # 市场 → Qlib 子目录映射
+        market_qlib_dirs = {
+            "a_share": Path(os.getcwd()) / "db" / "qlib_data",
+            "crypto": Path(os.getcwd()) / "db" / "qlib_data" / "crypto_data",
+            "hong_kong": Path(os.getcwd()) / "db" / "qlib_data" / "hk_data",
+            "us_stock": Path(os.getcwd()) / "db" / "qlib_data" / "us_data",
+        }
+
+        # 市场 → 交易日历服务 market 代码
+        calendar_market_map = {
+            "a_share": "SSE",
+            "crypto": "SSE",  # 7x24，用 A 股日历近似
+            "hong_kong": "HKEX",
+            "us_stock": "NYSE",
+        }
+
+        cal_market = calendar_market_map.get(market, "SSE")
+
         if now_local.time() < datetime.strptime("09:30", "%H:%M").time():
-            # 未到开盘时间，取上一交易日
             trade_date_obj = await calendar_service.prev_trading_day(
-                market="SSE",
+                market=cal_market,
                 trade_date=now_local.date(),
                 tenant_id=tenant_id,
                 user_id=user_id
             )
         else:
-            # 已过开盘时间，取今天（若是交易日）或更早的最后一个交易日
             is_td = await calendar_service.is_trading_day(
-                market="SSE",
+                market=cal_market,
                 trade_date=now_local.date(),
                 tenant_id=tenant_id,
                 user_id=user_id
@@ -170,16 +192,26 @@ async def get_data_status(
                 trade_date_obj = now_local.date()
             else:
                 trade_date_obj = await calendar_service.prev_trading_day(
-                    market="SSE",
+                    market=cal_market,
                     trade_date=now_local.date(),
                     tenant_id=tenant_id,
                     user_id=user_id
                 )
         trade_date = trade_date_obj.isoformat()
 
-        # ========== Qlib 数据状态扫描 ==========
-        qlib_data_dir = Path(os.getcwd()) / "db" / "qlib_data"
-        calendars_path = qlib_data_dir / "calendars" / "day.txt"
+        # ========== Qlib 数据状态扫描（市场感知） ==========
+        qlib_data_dir = market_qlib_dirs.get(market, market_qlib_dirs["a_share"])
+
+        # 日历文件名：crypto 用 5min.txt，其他用 day.txt
+        calendar_files = []
+        cal_dir = qlib_data_dir / "calendars"
+        if cal_dir.exists():
+            for f in cal_dir.iterdir():
+                if f.suffix == ".txt":
+                    calendar_files.append(f.name)
+
+        cal_file = "5min.txt" if market == "crypto" and (cal_dir / "5min.txt").exists() else "day.txt"
+        calendars_path = qlib_data_dir / "calendars" / cal_file
         instruments_all_path = qlib_data_dir / "instruments" / "all.txt"
         features_root = qlib_data_dir / "features"
 
@@ -189,6 +221,7 @@ async def get_data_status(
             "calendar_total_days": 0,
             "calendar_start_date": None,
             "calendar_last_date": None,
+            "calendar_files": calendar_files,
             "instruments": {"total": 0, "sh": 0, "sz": 0, "bj": 0, "other": 0},
             "feature_dirs_total": 0,
             "feature_dirs_sh_sz_bj": 0,
@@ -237,17 +270,19 @@ async def get_data_status(
         if features_root.exists() and features_root.is_dir():
             feature_dirs = [p for p in features_root.iterdir() if p.is_dir()]
             qlib_info["feature_dirs_total"] = len(feature_dirs)
-            qlib_info["sync_partial"] = True  # 标记为部分同步结果
+            qlib_info["sync_partial"] = True
 
         # ========== Feature Snapshots 状态扫描 ==========
         feature_snapshots_info = _scan_feature_snapshots_status(
             target_date=trade_date,
             topn=20,
+            market=market,
         )
 
         return {
             "checked_at": now_local.isoformat(),
             "trade_date": trade_date,
+            "market": market,
             "qlib_data": qlib_info,
             "feature_snapshots": feature_snapshots_info,
             "async_trigger": bool(celery_app),
@@ -263,6 +298,7 @@ async def get_data_status(
         return {
             "error": error_msg,
             "checked_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+            "market": market,
             "qlib_data": {"exists": False},
             "feature_snapshots": {"exists": False},
             "message": f"状态扫描异常: {str(e)}"
@@ -408,6 +444,57 @@ async def update_feature_parquet(
         )
         return {
             "success": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout[-3000:] if proc.stdout else "",
+            "stderr": proc.stderr[-3000:] if proc.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="特征更新超时（>600s），请稍后重试")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post(
+    "/update-market-features",
+    summary="更新非 A 股市场的特征快照（从 H5 数据计算 OHLCV 特征）",
+)
+async def update_market_features(
+    market: str = Query(..., description="市场: crypto, hong_kong, us_stock"),
+    rebuild: bool = Query(False, description="是否重建全部特征（默认增量）"),
+    current_user: dict = Depends(require_admin),
+):
+    """
+    运行 update_market_features.py 脚本，从 H5 文件读取 OHLCV 数据，
+    计算 134 维模型特征，保存到 market-specific parquet。
+    """
+    _ = current_user
+
+    if market not in ("crypto", "hong_kong", "us_stock"):
+        raise HTTPException(status_code=400, detail=f"不支持的市场: {market}")
+
+    script_path = Path("/app/backend/scripts/update_market_features.py")
+    if not script_path.exists():
+        # 回退到主机路径
+        script_path = Path(os.getcwd()) / "backend" / "scripts" / "update_market_features.py"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail=f"脚本不存在: {script_path}")
+
+    cmd = ["python", str(script_path), "--market", market]
+    if rebuild:
+        cmd.append("--rebuild")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(script_path.parent.parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        return {
+            "success": proc.returncode == 0,
+            "market": market,
             "exit_code": proc.returncode,
             "stdout": proc.stdout[-3000:] if proc.stdout else "",
             "stderr": proc.stderr[-3000:] if proc.stderr else "",

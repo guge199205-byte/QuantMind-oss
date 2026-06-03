@@ -272,7 +272,13 @@ def main():
         logger.info("Persisted %d factors to database", count)
 
         # Compute IC metrics for persisted factors
-        data_path = "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5"
+        # Use market-specific data path
+        market_data_paths = {
+            "crypto": "/app/db/crypto_data/5min_pv.h5",
+            "hong_kong": "/app/db/hk_data/daily_pv.h5",
+            "us_stock": "/app/db/us_data/daily_pv.h5",
+        }
+        data_path = market_data_paths.get(args.market, "/app/alphaagent/scenarios/qlib/experiment/factor_data_template/daily_pv_all.h5")
         if Path(data_path).exists():
             logger.info("Computing IC metrics for %d factors...", len(factors))
             from backend.services.engine.qlib_app.services.rd_agent_persistence import RDAgentFactorPersistence

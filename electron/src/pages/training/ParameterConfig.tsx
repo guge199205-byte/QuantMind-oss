@@ -1,11 +1,34 @@
 import React from 'react';
 import { Card, Divider, Input, Button, Row, Col, InputNumber, Select, Alert, Typography } from 'antd';
 import { Settings2, MonitorPlay } from 'lucide-react';
-import { 
-  TrainingParams, 
-  TrainingContext, 
-  DealPrice 
+import {
+  TrainingParams,
+  TrainingContext,
+  DealPrice
 } from './trainingUtils';
+import type { AppMarket } from '../../store/slices/uiSlice';
+
+const MARKET_BENCHMARKS: Record<string, { label: string; value: string }[]> = {
+  CN: [
+    { label: '沪深300', value: 'SH000300' },
+    { label: '中证500', value: 'SH000905' },
+    { label: '中证1000', value: 'SH000852' },
+  ],
+  HK: [
+    { label: '恒生指数', value: 'HSI' },
+    { label: '恒生国企', value: 'HSCEI' },
+    { label: '恒生科技', value: 'HSTECH' },
+  ],
+  US: [
+    { label: '标普500', value: 'SPX' },
+    { label: '纳斯达克100', value: 'NDX' },
+    { label: '道琼斯30', value: 'DJI' },
+  ],
+  CRYPTO: [
+    { label: '比特币', value: 'BTC' },
+    { label: '以太坊', value: 'ETH' },
+  ],
+};
 
 interface ParameterConfigProps {
   params: TrainingParams;
@@ -15,6 +38,7 @@ interface ParameterConfigProps {
   displayName: string;
   onDisplayNameChange: (name: string, mode: 'auto' | 'manual') => void;
   autoDisplayName: string;
+  market?: AppMarket;
 }
 
 const SectionHeader: React.FC<{ title: string; desc: string; icon?: React.ReactNode }> = ({ title, desc, icon }) => (
@@ -41,7 +65,9 @@ export const ParameterConfig: React.FC<ParameterConfigProps> = ({
   displayName,
   onDisplayNameChange,
   autoDisplayName,
+  market = 'CN',
 }) => {
+  const benchmarkOptions = MARKET_BENCHMARKS[market] || MARKET_BENCHMARKS.CN;
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
       <Card className="rounded-3xl border-slate-200 shadow-sm" styles={{ body: { padding: 20 } }}>
@@ -189,11 +215,7 @@ export const ParameterConfig: React.FC<ParameterConfigProps> = ({
                   value={context.benchmark}
                   className="w-full"
                   onChange={(value) => onContextChange({ ...context, benchmark: value })}
-                  options={[
-                    { label: '沪深300', value: 'SH000300' },
-                    { label: '中证500', value: 'SH000905' },
-                    { label: '中证1000', value: 'SH000852' },
-                  ]}
+                  options={benchmarkOptions}
                 />
               </div>
               <div>

@@ -97,6 +97,9 @@ class UserProfileUpdate(BaseModel):
     api_key: str | None = Field(
         None, max_length=2048, description="API Key（全系统通用）"
     )
+    ai_ide_api_key: str | None = Field(None, max_length=2048, description="AI-IDE 专用 API Key")
+    ai_ide_model: str | None = Field(None, max_length=128, description="AI-IDE 模型名称")
+    ai_ide_base_url: str | None = Field(None, max_length=512, description="AI-IDE API Base URL")
 
 
 # ============ 响应模型 ============
@@ -138,6 +141,9 @@ class UserProfileResponse(BaseModel):
     risk_tolerance: str | None = None
     investment_goal: str | None
     api_key: str | None = Field(None, description="API Key（全系统通用）")
+    ai_ide_api_key: str | None = Field(None, description="AI-IDE 专用 API Key")
+    ai_ide_model: str | None = Field(None, description="AI-IDE 模型名称")
+    ai_ide_base_url: str | None = Field(None, description="AI-IDE API Base URL")
     created_at: datetime
     updated_at: datetime | None
 

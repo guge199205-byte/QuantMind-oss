@@ -56,8 +56,8 @@ export interface ResearchStockRow {
   consecutiveLimitUpDays: number;
   volumeTrend3d: number | null;
   volumeTrend5d: boolean;
-  turnoverRate: number;
-  amount: number;
+  turnoverRate: number | null;
+  amount: number | null;
   marketCap?: number;
   sector: string;
   concept: string;
