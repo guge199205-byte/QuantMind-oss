@@ -1077,6 +1077,59 @@ class InferenceScriptRunner:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _resolve_signal_sides(scores: list[float], buy_pct: float = 0.20, sell_pct: float = 0.20) -> list[str]:
+        """百分位排名信号逻辑：用当天分数分布自适应生成信号。
+
+        逻辑：按分数排名，取 top/bottom 百分位。
+        - Top buy_pct → BUY（最强预测上涨的一批）
+        - Bottom sell_pct → SELL（最强预测下跌的一批）
+        - 中间 → HOLD
+
+        为什么比硬编码阈值好？
+        - 自动适应市场状态：牛市整体分数高，熊市整体分数低
+        - 不依赖绝对阈值，避免过拟合
+        - 信号数量可控，不会全买或全卖
+
+        Args:
+            scores: 当日所有股票的预测分数
+            buy_pct: 买入信号百分位（默认 top 20%）
+            sell_pct: 卖出信号百分位（默认 bottom 20%）
+        """
+        import numpy as np
+
+        if not scores:
+            return []
+
+        arr = np.array(scores)
+        n = len(arr)
+
+        # 计算百分位阈值
+        buy_threshold = np.percentile(arr, (1 - buy_pct) * 100)
+        sell_threshold = np.percentile(arr, sell_pct * 100)
+
+        # 生成信号
+        sides = []
+        for s in scores:
+            if s >= buy_threshold:
+                sides.append("BUY")
+            elif s <= sell_threshold:
+                sides.append("SELL")
+            else:
+                sides.append("HOLD")
+
+        # 统计日志
+        buy_count = sides.count("BUY")
+        sell_count = sides.count("SELL")
+        hold_count = sides.count("HOLD")
+        logger.info(
+            f"[SignalLogic] 百分位信号: BUY={buy_count}({buy_count/n*100:.1f}%), "
+            f"SELL={sell_count}({sell_count/n*100:.1f}%), HOLD={hold_count}({hold_count/n*100:.1f}%), "
+            f"buy_threshold={buy_threshold:.4f}, sell_threshold={sell_threshold:.4f}"
+        )
+
+        return sides
+
+    @staticmethod
     def _get_st_symbols() -> set[str]:
         """从数据库获取当前 ST/*ST 股票代码集合。"""
         try:
@@ -1397,18 +1450,11 @@ class InferenceScriptRunner:
                     signal_side = EXCLUDED.signal_side,
                     expected_price = EXCLUDED.expected_price
             """)
-            # 信号逻辑：基于分数绝对值
-            # score > 0 → BUY（模型预测上涨）
-            # score < -0.005 → SELL（模型预测显著下跌）
-            # -0.005 <= score <= 0 → HOLD（不确定）
+            # 百分位排名信号逻辑
+            signal_sides = self._resolve_signal_sides(scores)
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
                 expected_price = None
-                if score > 0:
-                    signal_side = "BUY"
-                elif score < -0.005:
-                    signal_side = "SELL"
-                else:
-                    signal_side = "HOLD"
+                signal_side = signal_sides[idx]
                 if quote_redis:
                     try:
                         raw_sym = (
@@ -1489,14 +1535,12 @@ class InferenceScriptRunner:
                 )
             """)
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
-                if score > 0:
-                    signal_side = "BUY"
+                signal_side = signal_sides[idx]
+                if signal_side == "BUY":
                     confidence_level = "high"
-                elif score < -0.005:
-                    signal_side = "SELL"
+                elif signal_side == "SELL":
                     confidence_level = "watch"
                 else:
-                    signal_side = "HOLD"
                     confidence_level = "medium"
                 # 获取 expected_price（从之前 Redis 查询的结果）
                 expected_price_val = None
