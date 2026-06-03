@@ -25,6 +25,25 @@
 
 ---
 
+## 项目起源
+
+本项目基于 [qusong0627/QuantMind](https://github.com/qusong0627/QuantMind) 分支开发，感谢原作者提供的基础架构和核心思路。
+
+在原项目基础上，本分支进行了以下主要扩展和整合：
+
+- **Qlib 深度集成** — 集成微软 Qlib 量化框架，实现 Alpha158 因子集 + LightGBM 模型训练
+- **RD-Agent 因子挖掘** — 整合微软 RD-Agent，实现 AI 自动因子进化
+- **TradingAgents 投研** — 整合 TradingAgents-Astock 多 Agent A 股投研框架
+- **数据平台** — 统一多市场多数据源接入（A/HK/US/Crypto），151 维特征工程
+- **模型全生命周期** — 训练 → 版本管理 → 推理 → 信号生成完整闭环
+- **实盘交易** — QMT 券商对接、模拟盘验证、风控系统
+- **QuantBot 智能助手** — 自然语言交互，意图识别驱动操作
+- **多市场扩展** — 港股、美股、加密货币数据管线和回测支持
+
+感谢原项目奠定的基础，使后续扩展成为可能。
+
+---
+
 ## 项目简介
 
 QuantMind 是一个端到端的量化交易平台，集成了微软 Qlib 量化框架和 RD-Agent 智能体，支持 A 股、港股、美股、加密货币四个市场。
@@ -489,14 +508,35 @@ git push origin feature/your-feature
 
 ## 致谢
 
+### 核心框架
+
 - [Qlib](https://github.com/microsoft/qlib) — 微软量化投资平台
 - [RD-Agent](https://github.com/microsoft/RD-Agent) — 微软研发智能体
-- [TradingAgents-Astock](https://github.com/simonlin1212/TradingAgents-astock) — 多 Agent A 股投研
-- [FastAPI](https://fastapi.tiangolo.com/) — 高性能 Web 框架
-- [investment_data](https://github.com/chenditc/investment_data) — A 股历史行情数据
+- [AlphaAgent](https://github.com/ModelTC/AlphaAgent) — 因子进化框架
+- [TradingAgents-Astock](https://github.com/simonlin1212/TradingAgents-astock) — 多 Agent A 股投研框架
+- [LightGBM](https://github.com/microsoft/LightGBM) — 微软梯度提升框架
+- [FastAPI](https://fastapi.tiangolo.com/) — 现代高性能 Web 框架
+- [Huntly](https://github.com/lcomplete/huntly) — 财经资讯聚合平台
+- [RSSHub](https://github.com/DIYgod/RSSHub) — RSS 源生成工具
+
+### 数据源与工具
+
+- [investment_data](https://github.com/chenditc/investment_data) — 开源 A 股历史行情数据，提供完整的日线/分钟线/财务数据，支持 Qlib 格式
+- [exchange_calendars](https://github.com/gerrymanoim/exchange_calendars) — 全球交易所交易日历，覆盖 A 股、美股、港股等多市场
+- [baostock](http://baostock.com/) — 证券宝，免费 A 股行情数据接口
+- [akshare](https://akshare.akfamily.xyz/) — AKShare，开源财经数据接口
+- [pandas](https://pandas.pydata.org/) / [pyarrow](https://arrow.apache.org/) — 数据处理与 Parquet 格式支持
+
+---
+
+## QQ 群
+
+<p align="center">
+  <img src="docs/images/1097406397.png" alt="QuantMind QQ 群二维码" width="260">
+</p>
 
 ---
 
 <p align="center">
-  <strong>QuantMind</strong> — AI 驱动的量化交易
+  <strong>QuantMind</strong> — 让量化交易更简单
 </p>
