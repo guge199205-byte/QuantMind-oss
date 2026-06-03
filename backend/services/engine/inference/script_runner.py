@@ -1397,15 +1397,14 @@ class InferenceScriptRunner:
                     signal_side = EXCLUDED.signal_side,
                     expected_price = EXCLUDED.expected_price
             """)
-            # 基于排名的信号：前 20% 为 BUY，后 10% 为 SELL，其余 HOLD
+            # 信号逻辑：分数 > 0 才做多，分数 < 0 且排名后 10% 做空，其余持有
             n_signals = len(symbols)
-            buy_cutoff = max(1, int(n_signals * 0.20))
-            sell_cutoff = max(1, int(n_signals * 0.90))
+            sell_cutoff_idx = max(1, int(n_signals * 0.90))
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
                 expected_price = None
-                if idx < buy_cutoff:
+                if score > 0:
                     signal_side = "BUY"
-                elif idx >= sell_cutoff:
+                elif score < 0 and idx >= sell_cutoff_idx:
                     signal_side = "SELL"
                 else:
                     signal_side = "HOLD"
@@ -1489,15 +1488,17 @@ class InferenceScriptRunner:
                 )
             """)
             buy_cutoff = max(1, int(len(symbols) * 0.20))
-            sell_cutoff = max(1, int(len(symbols) * 0.90))
+            sell_cutoff_idx = max(1, int(len(symbols) * 0.90))
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
-                if idx < buy_cutoff:
+                if score > 0:
                     signal_side = "BUY"
-                elif idx >= sell_cutoff:
+                    confidence_level = "high"
+                elif score < 0 and idx >= sell_cutoff_idx:
                     signal_side = "SELL"
+                    confidence_level = "watch"
                 else:
                     signal_side = "HOLD"
-                confidence_level = "high" if idx < buy_cutoff else ("medium" if idx < sell_cutoff else "watch")
+                    confidence_level = "medium"
                 # 获取 expected_price（从之前 Redis 查询的结果）
                 expected_price_val = None
                 if quote_redis:
