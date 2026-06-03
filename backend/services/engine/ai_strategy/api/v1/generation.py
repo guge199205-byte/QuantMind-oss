@@ -19,6 +19,14 @@ try:
 except ImportError:
     from shared.database_pool import get_db
 
+# Market-specific Qlib configuration
+MARKET_QLIB_CONFIG = {
+    "CN": {"provider_uri": "/app/db/qlib_data", "region": "cn", "benchmark": "SH000300", "label": "A股"},
+    "HK": {"provider_uri": "/app/db/qlib_data/hk_data", "region": "cn", "benchmark": "HSI", "label": "港股"},
+    "US": {"provider_uri": "/app/db/qlib_data/us_data", "region": "us", "benchmark": "SPX", "label": "美股"},
+    "CRYPTO": {"provider_uri": "/app/db/qlib_data/crypto_data", "region": "cn", "benchmark": "BTC", "label": "加密货币"},
+}
+
 from backend.shared.redis_sentinel_client import get_redis_sentinel_client
 from ...services.cos_uploader import get_cos_uploader
 from ...services.llm_resilience import LLMRateLimitError, get_resilient_llm_router
@@ -328,6 +336,10 @@ async def _generate_qlib_impl(body: GenerateQlibRequest, trace_id: str | None) -
                 """
             ).strip()
 
+        # Get market-specific config
+        market_key = (body.market or "CN").strip().upper()
+        market_cfg = MARKET_QLIB_CONFIG.get(market_key, MARKET_QLIB_CONFIG["CN"])
+
         prompt = dedent(
             f"""
             请生成一个 QuantMind Qlib 策略 Python 文件，只需包含 STRATEGY_CONFIG 字典和必要的常量，禁止写策略类。
@@ -338,6 +350,12 @@ async def _generate_qlib_impl(body: GenerateQlibRequest, trace_id: str | None) -
             - class 固定为 "{strategy_class}"
             - module_path 固定为 "{module_path}"
             - kwargs 包含策略参数
+
+            【市场信息】
+            - 当前市场: {market_cfg["label"]}（{market_key}）
+            - Qlib provider_uri: {market_cfg["provider_uri"]}
+            - Qlib region: {market_cfg["region"]}
+            - 基准指数: {market_cfg["benchmark"]}
 
             【策略参数】
             - 选股数量 topk: {topk}

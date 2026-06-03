@@ -205,13 +205,31 @@ async def search_status():
 
 
 # ---------------------------------------------------------------------------
-# 全市场标的清单 — 供"加载全市场 A 股"按钮使用
-# 直接从 stock_daily_latest 取最新交易日的所有 distinct symbol，
+# 全市场标的清单 — 供"加载全市场"按钮使用
+# 直接从 stock_daily_latest* 取最新交易日的所有 distinct symbol，
 # 避免依赖离线构建的 stocks_index.json 文件
 # ---------------------------------------------------------------------------
 
 _ALL_CACHE: dict[str, Any] = {}
 _ALL_CACHE_TTL = 600  # 10 分钟
+
+# Market-specific table mapping
+_MARKET_TABLE_MAP = {
+    "A": "stock_daily_latest",
+    "CN": "stock_daily_latest",
+    "HK": "stock_daily_latest_hk",
+    "US": "stock_daily_latest_us",
+    "CRYPTO": "stock_daily_latest_crypto",
+}
+
+# Non-CN markets use 'name' column instead of 'stock_name'
+_MARKET_NAME_COL = {
+    "A": "stock_name",
+    "CN": "stock_name",
+    "HK": "name",
+    "US": "name",
+    "CRYPTO": "name",
+}
 
 
 def _convert_symbol(raw: str) -> tuple[str, str]:
@@ -229,19 +247,24 @@ def _convert_symbol(raw: str) -> tuple[str, str]:
 
 @router.get("/all")
 async def list_all_stocks(
-    market: str = Query("A", description="市场代码：A=全部A股 / SH / SZ / BJ"),
+    market: str = Query("A", description="市场代码：A/CN=全部A股, HK=港股, US=美股, CRYPTO=加密货币"),
     enrich: bool = Query(True, description="是否带最新交易日的核心字段：close/pe/pb/total_mv/float_mv/pct_change/turnover_rate/is_st"),
 ):
-    """返回全市场标的列表（来自 stock_daily_latest 最新交易日）。
+    """返回全市场标的列表（来自 stock_daily_latest* 最新交易日）。
 
-    用于前端"加载全市场 A 股"功能。结果 10 分钟内做内存缓存。
+    用于前端"加载全市场"功能。结果 10 分钟内做内存缓存。
     enrich=True (默认) 时一并返回核心市场字段，避免前端再次批量查询。
     """
     import time
     from sqlalchemy import text as sql_text
 
+    market_key = (market or "A").strip().upper()
+    table_name = _MARKET_TABLE_MAP.get(market_key, "stock_daily_latest")
+    name_col = _MARKET_NAME_COL.get(market_key, "stock_name")
+    is_cn = market_key in ("A", "CN")
+
     now = time.time()
-    cache_key = f"items_enrich={enrich}"
+    cache_key = f"items_market={market_key}_enrich={enrich}"
     cached_items = _ALL_CACHE.get(cache_key)
     if cached_items and (now - _ALL_CACHE.get(f"ts_{cache_key}", 0)) < _ALL_CACHE_TTL:
         items = cached_items
@@ -267,43 +290,73 @@ async def list_all_stocks(
             engine = create_engine(db_url, pool_pre_ping=True)
             with engine.begin() as conn:
                 if enrich:
-                    # 注：近期交易日（2026-05-11 起）的 pe_ttm/total_mv 字段为空，
+                    # 注：近期交易日的 pe_ttm/total_mv 字段可能为空，
                     # 需要从更早的非空行中回退取值，否则前端表格全部显示为 "-"
-                    rows = conn.execute(
-                        sql_text(
-                            """
-                            WITH latest AS (
-                                SELECT DISTINCT ON (symbol)
-                                    symbol, stock_name, close, pct_change,
-                                    turnover_rate, is_st, listed_days
-                                FROM stock_daily_latest
-                                WHERE stock_name IS NOT NULL AND stock_name <> ''
-                                ORDER BY symbol, trade_date DESC
-                            ),
-                            fundamentals AS (
-                                SELECT DISTINCT ON (symbol)
-                                    symbol, pe_ttm, pb, total_mv, float_mv
-                                FROM stock_daily_latest
-                                WHERE total_mv IS NOT NULL
-                                ORDER BY symbol, trade_date DESC
+                    # CN uses stock_name + listed_days; non-CN uses name, no listed_days
+                    if is_cn:
+                        rows = conn.execute(
+                            sql_text(
+                                f"""
+                                WITH latest AS (
+                                    SELECT DISTINCT ON (symbol)
+                                        symbol, {name_col} AS name, close, pct_change,
+                                        turnover_rate, is_st, listed_days
+                                    FROM {table_name}
+                                    WHERE {name_col} IS NOT NULL AND {name_col} <> ''
+                                    ORDER BY symbol, trade_date DESC
+                                ),
+                                fundamentals AS (
+                                    SELECT DISTINCT ON (symbol)
+                                        symbol, pe_ttm, pb, total_mv, float_mv
+                                    FROM {table_name}
+                                    WHERE total_mv IS NOT NULL AND total_mv > 0
+                                    ORDER BY symbol, trade_date DESC
+                                )
+                                SELECT
+                                    l.symbol, l.name, l.close,
+                                    f.pe_ttm, f.pb, f.total_mv, f.float_mv,
+                                    l.pct_change, l.turnover_rate, l.is_st, l.listed_days
+                                FROM latest l
+                                LEFT JOIN fundamentals f USING (symbol)
+                                """
                             )
-                            SELECT
-                                l.symbol, l.stock_name, l.close,
-                                f.pe_ttm, f.pb, f.total_mv, f.float_mv,
-                                l.pct_change, l.turnover_rate, l.is_st, l.listed_days
-                            FROM latest l
-                            LEFT JOIN fundamentals f USING (symbol)
-                            """
-                        )
-                    ).fetchall()
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            sql_text(
+                                f"""
+                                WITH latest AS (
+                                    SELECT DISTINCT ON (symbol)
+                                        symbol, {name_col} AS name, close, pct_change,
+                                        turnover_rate, is_st
+                                    FROM {table_name}
+                                    WHERE {name_col} IS NOT NULL AND {name_col} <> ''
+                                    ORDER BY symbol, trade_date DESC
+                                ),
+                                fundamentals AS (
+                                    SELECT DISTINCT ON (symbol)
+                                        symbol, pe_ttm, pb, total_mv, float_mv
+                                    FROM {table_name}
+                                    WHERE total_mv IS NOT NULL AND total_mv > 0
+                                    ORDER BY symbol, trade_date DESC
+                                )
+                                SELECT
+                                    l.symbol, l.name, l.close,
+                                    f.pe_ttm, f.pb, f.total_mv, f.float_mv,
+                                    l.pct_change, l.turnover_rate, l.is_st
+                                FROM latest l
+                                LEFT JOIN fundamentals f USING (symbol)
+                                """
+                            )
+                        ).fetchall()
                 else:
                     rows = conn.execute(
                         sql_text(
-                            """
+                            f"""
                             SELECT DISTINCT ON (symbol)
-                                symbol, stock_name
-                            FROM stock_daily_latest
-                            WHERE stock_name IS NOT NULL AND stock_name <> ''
+                                symbol, {name_col} AS name
+                            FROM {table_name}
+                            WHERE {name_col} IS NOT NULL AND {name_col} <> ''
                             ORDER BY symbol, trade_date DESC
                             """
                         )
@@ -316,7 +369,12 @@ async def list_all_stocks(
         for r in rows:
             raw_symbol = r[0]
             raw_name = r[1]
-            sym, exch = _convert_symbol(raw_symbol)
+            # Non-CN symbols don't have exchange suffix, add market hint
+            if is_cn:
+                sym, exch = _convert_symbol(raw_symbol)
+            else:
+                sym = str(raw_symbol).strip()
+                exch = market_key
             if not sym:
                 continue
             row: dict[str, Any] = {
@@ -325,34 +383,34 @@ async def list_all_stocks(
                 "name": str(raw_name).strip(),
                 "exchange": exch,
             }
-            if enrich and len(r) >= 11:
+            if enrich:
                 # total_mv/float_mv 单位为元 → 转为亿元便于前端显示
-                total_mv = float(r[5]) if r[5] is not None else None
-                float_mv = float(r[6]) if r[6] is not None else None
+                total_mv = float(r[5]) if len(r) > 5 and r[5] is not None else None
+                float_mv = float(r[6]) if len(r) > 6 and r[6] is not None else None
                 row.update({
                     "close": float(r[2]) if r[2] is not None else None,
                     "pe": float(r[3]) if r[3] is not None else None,
                     "pb": float(r[4]) if r[4] is not None else None,
                     "marketCap": (total_mv / 1e8) if total_mv else None,
                     "floatMarketCap": (float_mv / 1e8) if float_mv else None,
-                    "pctChange": float(r[7]) if r[7] is not None else None,
-                    "turnoverRate": float(r[8]) if r[8] is not None else None,
-                    "isSt": bool(r[9]) if r[9] is not None else False,
-                    "listedDays": int(r[10]) if r[10] is not None else None,
+                    "pctChange": float(r[7]) if len(r) > 7 and r[7] is not None else None,
+                    "turnoverRate": float(r[8]) if len(r) > 8 and r[8] is not None else None,
+                    "isSt": bool(r[9]) if len(r) > 9 and r[9] is not None else False,
+                    "listedDays": int(r[10]) if len(r) > 10 and r[10] is not None else None,
                 })
             items.append(row)
 
         _ALL_CACHE[cache_key] = items
         _ALL_CACHE[f"ts_{cache_key}"] = now
 
-    # 市场过滤
-    market = (market or "A").strip().upper()
-    if market in ("SH", "SZ", "BJ"):
-        items = [x for x in items if x["exchange"] == market]
+    # 市场过滤（仅 CN 子交易所过滤）
+    if market_key in ("SH", "SZ", "BJ"):
+        items = [x for x in items if x["exchange"] == market_key]
 
     return {
-        "market": market,
+        "market": market_key,
         "count": len(items),
         "items": items,
+        "table": table_name,
         "cached_at": datetime.fromtimestamp(_ALL_CACHE.get(f"ts_{cache_key}", now), timezone.utc).isoformat(),
     }

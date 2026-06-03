@@ -871,6 +871,45 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=f"failed: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# 港美股基本面数据同步 (PE/PB/ROE/EPS)
+# ---------------------------------------------------------------------------
+class FundamentalsSyncRequest(BaseModel):
+    market: str = "ALL"  # HK / US / ALL
+    dry_run: bool = False
+
+
+@router.post("/sync-fundamentals")
+async def sync_fundamentals(
+    payload: FundamentalsSyncRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """同步港美股基本面数据 (PE/PB/ROE/EPS/股息率/市值) 从 yfinance/akshare。"""
+    try:
+        import asyncio
+        from backend.scripts.sync_market_fundamentals import sync_market_fundamentals
+
+        loop = asyncio.get_event_loop()
+        market = payload.market.upper()
+
+        if market == "ALL":
+            results = {}
+            for m in ["HK", "US"]:
+                result = await loop.run_in_executor(
+                    None, lambda _m=m: sync_market_fundamentals(_m, payload.dry_run)
+                )
+                results[m] = result
+            return {"success": True, "data": {"results": results, "dry_run": payload.dry_run}}
+        else:
+            result = await loop.run_in_executor(
+                None, lambda: sync_market_fundamentals(market, payload.dry_run)
+            )
+            return {"success": True, "data": {"result": result, "dry_run": payload.dry_run}}
+    except Exception as exc:  # noqa: BLE001
+        logger.error("sync_fundamentals failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"failed: {exc}")
+
+
 @router.post("/sync-alpha-agent-market")
 async def sync_alpha_agent_market(
     market: str = Query(..., description="市场 ID: a_share, crypto, hong_kong, us_stock"),

@@ -206,6 +206,25 @@ export const AdminDataManagement: React.FC = () => {
         }
     };
 
+    const handleSyncFundamentals = async (market = 'ALL') => {
+        setFundamentalsLoading(true);
+        setFundamentalsResult(null);
+        try {
+            const resp = await adminService.syncFundamentals(market);
+            setFundamentalsResult(resp);
+            if (resp?.success) {
+                message.success(`基本面数据同步完成 (${market})`);
+            } else {
+                message.error('基本面数据同步失败');
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '未知错误';
+            message.error(`同步失败: ${msg}`);
+        } finally {
+            setFundamentalsLoading(false);
+        }
+    };
+
     const handleSyncOfficialData = async () => {
         setSyncLoading(true);
         try {
@@ -234,6 +253,8 @@ export const AdminDataManagement: React.FC = () => {
     const [syncStepProgress, setSyncStepProgress] = useState<{ step: string; detail: string; pct: number; current: number; total: number } | null>(null);
     const [parquetLoading, setParquetLoading] = useState(false);
     const [parquetResult, setParquetResult] = useState<any>(null);
+    const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+    const [fundamentalsResult, setFundamentalsResult] = useState<any>(null);
 
     // 当前选中的市场数据
     const currentMarket = marketsData.find(x => x.market_id === selectedMarket);
@@ -1006,6 +1027,20 @@ export const AdminDataManagement: React.FC = () => {
                                                 >
                                                     全量重建{currentMarketCfg.label}特征
                                                 </Button>
+                                                {(selectedMarket === 'hong_kong' || selectedMarket === 'us_stock') && (
+                                                    <>
+                                                        <Divider className="!my-2" />
+                                                        <Button
+                                                            block
+                                                            className="h-12 rounded-2xl bg-purple-600 hover:bg-purple-700 border-none text-white font-black text-sm shadow-lg shadow-purple-100 transition-all"
+                                                            loading={fundamentalsLoading}
+                                                            onClick={() => handleSyncFundamentals(selectedMarket === 'hong_kong' ? 'HK' : 'US')}
+                                                            icon={<StockOutlined />}
+                                                        >
+                                                            同步{currentMarketCfg.label}基本面 (PE/PB/ROE)
+                                                        </Button>
+                                                    </>
+                                                )}
                                             </>
                                         )}
                                     </>
@@ -1070,6 +1105,23 @@ export const AdminDataManagement: React.FC = () => {
                                         {parquetResult.stderr && !parquetResult.success && (
                                             <pre className="mt-2 text-[10px] text-rose-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
                                                 {parquetResult.stderr.slice(-1000)}
+                                            </pre>
+                                        )}
+                                    </div>
+                                )}
+                                {fundamentalsResult && (
+                                    <div className={`p-4 rounded-2xl border ${fundamentalsResult.success ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                                        <Text className={`text-xs font-bold ${fundamentalsResult.success ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {fundamentalsResult.success ? '基本面同步成功' : '基本面同步失败'}
+                                        </Text>
+                                        {fundamentalsResult.data?.result && (
+                                            <pre className="mt-2 text-[10px] text-slate-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
+                                                {JSON.stringify(fundamentalsResult.data.result, null, 2)}
+                                            </pre>
+                                        )}
+                                        {fundamentalsResult.data?.results && (
+                                            <pre className="mt-2 text-[10px] text-slate-500 bg-white p-2 rounded-lg max-h-32 overflow-auto whitespace-pre-wrap">
+                                                {JSON.stringify(fundamentalsResult.data.results, null, 2)}
                                             </pre>
                                         )}
                                     </div>

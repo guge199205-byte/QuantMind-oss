@@ -163,10 +163,42 @@ def get_strategy_config():
             "3. 新增代码使用 ```python ... ``` 代码块。"
         )
 
+    # Per-market strategy guidance notes (injected into system prompt for non-CN markets)
+    _MARKET_STRATEGY_NOTES = {
+        "HK": (
+            "## 港股策略注意事项\n"
+            "- Qlib init: provider_uri='/app/db/qlib_data/hk_data', region='hk'\n"
+            "- 股票代码格式：纯数字（如 '00700'），不含前缀\n"
+            "- 基准指数：HSTECH（恒生科技指数）\n"
+            "- 无涨跌停限制，但有市场波动调节机制(VCM)\n"
+            "- 印花税：卖出 0.13%\n"
+            "- f_ 过滤字段与 A 股基本一致，但无 ST 概念\n"
+        ),
+        "US": (
+            "## 美股策略注意事项\n"
+            "- Qlib init: provider_uri='/app/db/qlib_data/us_data', region='us'\n"
+            "- 股票代码格式：Ticker 符号（如 'AAPL', 'MSFT'）\n"
+            "- 基准指数：SPY（标普500 ETF）\n"
+            "- T+0 交易，无涨跌停限制\n"
+            "- 佣金结构不同，无印花税\n"
+            "- 部分 f_ 字段可能不适用（如 is_st, idx_hs300）\n"
+        ),
+        "CRYPTO": (
+            "## 加密货币策略注意事项\n"
+            "- Qlib init: provider_uri='/app/db/qlib_data/crypto_data', region='crypto'\n"
+            "- 资产代码格式：如 'BTC', 'ETH'\n"
+            "- 基准：BTC\n"
+            "- 7x24 交易，无交易日历限制\n"
+            "- 波动率极高，建议调整止损阈值\n"
+            "- 无基本面数据（pe_ttm, pb, roe 等 f_ 字段不适用）\n"
+        ),
+    }
+
     def _get_system_prompt(self, user_input: str, context: dict) -> str:
         """根据用户输入动态构建 system prompt
 
         仅在用户提出技术问题时才注入知识库文档。
+        非 CN 市场时追加市场特定策略指导。
         """
         # 判断是否是技术性问题
         is_technical = self._is_technical_query(user_input, context)
@@ -175,10 +207,19 @@ def get_strategy_config():
             # 技术性问题：注入知识库
             if self._kb_context_cached is None:
                 self._kb_context_cached = self.kb.get_context_summary()
-            return f"{self._system_prompt_base}\n\n## 技术参考文档\n{self._kb_context_cached}"
+            base = f"{self._system_prompt_base}\n\n## 技术参考文档\n{self._kb_context_cached}"
         else:
             # 非技术性问题：不注入知识库
-            return self._system_prompt_base
+            base = self._system_prompt_base
+
+        # 追加市场特定策略指导
+        market = str(context.get("market", "") or "").strip().upper()
+        if market and market != "CN":
+            notes = self._MARKET_STRATEGY_NOTES.get(market, "")
+            if notes:
+                base += f"\n\n{notes}"
+
+        return base
 
     def _is_technical_query(self, user_input: str, context: dict) -> bool:
         """判断用户输入是否是技术性查询"""
@@ -365,7 +406,8 @@ def get_strategy_config():
 
         # 注入错误修复指导
         if error_msg:
-            error_injection = self.skill_engine.get_error_injection(error_msg)
+            market = str(context.get("market", "") or "CN").strip().upper()
+            error_injection = self.skill_engine.get_error_injection(error_msg, market=market)
             if error_injection:
                 prompt += error_injection
 

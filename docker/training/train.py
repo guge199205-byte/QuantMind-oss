@@ -343,12 +343,28 @@ def load_data(
         logger.info("Loading market-specific parquet: %s", parquet_path)
 
         # 非 A 股文件使用 'instrument' 列而非 'symbol'
+        # 先检查 parquet schema，过滤掉不存在的列（如 mom_ret_2d）
+        schema_cols = set(pq.ParquetFile(parquet_path).schema_arrow.names)
+        # symbol/instrument 列名兼容
+        has_symbol = "symbol" in schema_cols
+        has_instrument = "instrument" in schema_cols
+        valid_cols = []
+        missing_cols = []
+        for c in required_columns:
+            if c in schema_cols:
+                valid_cols.append(c)
+            elif c == "symbol" and has_instrument:
+                valid_cols.append("instrument")
+            else:
+                missing_cols.append(c)
+        if missing_cols:
+            logger.warning("Columns not in parquet (skipped): %s", missing_cols)
+
         try:
-            df = pd.read_parquet(parquet_path, columns=required_columns, engine="pyarrow")
+            df = pd.read_parquet(parquet_path, columns=valid_cols, engine="pyarrow")
         except Exception:
-            # instrument 列名兼容
-            load_cols = [c.replace("symbol", "instrument") if c == "symbol" else c for c in required_columns]
-            df = pd.read_parquet(parquet_path, columns=load_cols, engine="pyarrow")
+            df = pd.read_parquet(parquet_path, columns=valid_cols, engine="pyarrow")
+        if "instrument" in df.columns and "symbol" not in df.columns:
             df = df.rename(columns={"instrument": "symbol"})
 
         df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")

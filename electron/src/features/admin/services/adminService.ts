@@ -268,6 +268,16 @@ class AdminService {
         return resp.data;
     }
 
+    async syncFundamentals(market = 'ALL', dryRun = false): Promise<any> {
+        const resp = await this.axiosInstance.post('/admin/data-platform/sync-fundamentals', {
+            market,
+            dry_run: dryRun,
+        }, {
+            timeout: 600000,
+        });
+        return resp.data;
+    }
+
     async getModelDirectoryDetail(modelPath: string): Promise<ModelDirectoryInfo> {
         const resp = await this.axiosInstance.get<ModelDirectoryInfo>(`/admin/models/directory/${modelPath}`);
         return resp.data;

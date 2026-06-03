@@ -79,15 +79,23 @@ def _build_runner_environment(
     user_id: str, request_meta: dict[str, Any] | None = None
 ) -> dict[str, str]:
     request_meta = request_meta or {}
+    # Normalize provider_uri: frontend sends relative paths like "db/qlib_data/hk_data"
+    # but container expects absolute paths like "/app/db/qlib_data/hk_data"
+    provider_uri = str(request_meta.get("qlib_provider_uri") or "").strip()
+    if provider_uri and not provider_uri.startswith("/"):
+        provider_uri = f"/app/{provider_uri}"
+    if not provider_uri:
+        provider_uri = "/app/db/qlib_data"
+
+    # Compute market-specific default pred path
+    default_pred = os.path.join(provider_uri, "predictions", "pred.pkl")
     env = {
         "PYTHONPATH": "/app",
         "PYTHONUNBUFFERED": "1",
         "USER_ID": user_id,
         "TENANT_ID": os.getenv("TENANT_ID", "default"),
-        "QLIB_DATA_PATH": "/app/db/qlib_data",
-        "QLIB_PRED_PATH": os.getenv(
-            "AI_IDE_PRED_PATH", "/app/db/qlib_data/predictions/pred.pkl"
-        ),
+        "QLIB_DATA_PATH": provider_uri,
+        "QLIB_PRED_PATH": os.getenv("AI_IDE_PRED_PATH", default_pred),
         "AI_IDE_ALLOW_FEATURE_SIGNAL_FALLBACK": os.getenv(
             "AI_IDE_ALLOW_FEATURE_SIGNAL_FALLBACK", "true"
         ),
@@ -532,7 +540,7 @@ import sys
 import traceback
 
 STRATEGY_PATH = "/app/strategy.py"
-QLIB_DATA_PATH = "/app/db/qlib_data"
+QLIB_DATA_PATH = os.getenv("AI_IDE_BACKTEST_PROVIDER_URI", "/app/db/qlib_data")
 
 
 def _is_docstring_expr(node):
@@ -902,6 +910,9 @@ async def start_execution(request: Request, item: StartRequest):
                 "strategy_id": item.strategy_id,
                 "model_id": item.model_id,
                 "run_id": item.run_id,
+                "qlib_provider_uri": item.qlib_provider_uri,
+                "qlib_region": item.qlib_region,
+                "benchmark": item.benchmark,
             },
         }
 

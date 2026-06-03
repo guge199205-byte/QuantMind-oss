@@ -41,7 +41,7 @@ export const MARKET_CONFIGS: Record<AppMarket, MarketConfig> = {
   },
   HK: {
     label: '港股',
-    qlibRegion: 'hk',
+    qlibRegion: 'cn',
     qlibProviderUri: 'db/qlib_data/hk_data',
     defaultUniverse: 'all',
     benchmark: 'HSI',
@@ -63,7 +63,7 @@ export const MARKET_CONFIGS: Record<AppMarket, MarketConfig> = {
   },
   CRYPTO: {
     label: '区块链',
-    qlibRegion: 'crypto',
+    qlibRegion: 'cn',
     qlibProviderUri: 'db/qlib_data/crypto_data',
     defaultUniverse: 'all',
     benchmark: 'BTC',
