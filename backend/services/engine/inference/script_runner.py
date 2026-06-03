@@ -1397,14 +1397,16 @@ class InferenceScriptRunner:
                     signal_side = EXCLUDED.signal_side,
                     expected_price = EXCLUDED.expected_price
             """)
-            # 信号逻辑：分数 > 0 才做多，分数 < 0 且排名后 10% 做空，其余持有
+            # 信号逻辑：基于相对排名（不依赖分数正负）
+            # 前 20% → BUY，后 10% → SELL，其余 → HOLD
             n_signals = len(symbols)
-            sell_cutoff_idx = max(1, int(n_signals * 0.90))
+            buy_cutoff = max(1, int(n_signals * 0.20))
+            sell_cutoff = max(1, n_signals - int(n_signals * 0.10))
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
                 expected_price = None
-                if score > 0:
+                if idx < buy_cutoff:
                     signal_side = "BUY"
-                elif score < 0 and idx >= sell_cutoff_idx:
+                elif idx >= sell_cutoff:
                     signal_side = "SELL"
                 else:
                     signal_side = "HOLD"
@@ -1487,13 +1489,14 @@ class InferenceScriptRunner:
                     :confidence_level, NOW(), NOW()
                 )
             """)
-            buy_cutoff = max(1, int(len(symbols) * 0.20))
-            sell_cutoff_idx = max(1, int(len(symbols) * 0.90))
+            n_total = len(symbols)
+            buy_cutoff = max(1, int(n_total * 0.20))
+            sell_cutoff = max(1, n_total - int(n_total * 0.10))
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
-                if score > 0:
+                if idx < buy_cutoff:
                     signal_side = "BUY"
                     confidence_level = "high"
-                elif score < 0 and idx >= sell_cutoff_idx:
+                elif idx >= sell_cutoff:
                     signal_side = "SELL"
                     confidence_level = "watch"
                 else:
