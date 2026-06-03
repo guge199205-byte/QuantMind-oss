@@ -38,7 +38,14 @@ except ImportError:
 from .db import Base, DataFileRecord, ModelRecord, TrainingJobRecord  # noqa: F401 — ensure all models are registered in Base.metadata before create_all
 
 from .model_management_utils import *
-from .model_management_utils import _enrich_feature_catalog_with_data_coverage, _load_feature_catalog_from_db, _load_feature_catalog_from_file, _resolve_inference_dates_with_calendar
+from .model_management_utils import (
+    _enrich_feature_catalog_with_data_coverage,
+    _load_feature_catalog_from_db,
+    _load_feature_catalog_from_file,
+    _resolve_inference_dates_with_calendar,
+    _INFERENCE_LOCK_KEY_PREFIX,
+    _INFERENCE_LOCK_TTL_SEC,
+)
 
 @router.post("", response_model=ModelResponse)
 async def create_model(
