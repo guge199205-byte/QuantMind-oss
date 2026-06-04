@@ -745,7 +745,7 @@ class _TSLazyDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.indices)
 
-    def __getitem__(self, idx: int) -> "torch.Tensor":
+    def __getitem__(self, idx: int) -> tuple["torch.Tensor", "torch.Tensor"]:
         import torch
         start = self.indices[idx]
         window = self.X[start : start + self.step_len].copy()  # [step_len, d_feat]
@@ -754,7 +754,9 @@ class _TSLazyDataset(torch.utils.data.Dataset):
         label_col = np.full((self.step_len, 1), np.float32(0.0))
         label_col[-1, 0] = label
         row = np.concatenate([window, label_col], axis=1)  # [step_len, d_feat+1]
-        return torch.from_numpy(row)
+        # Qlib train_epoch 期望 (data, weight) 元组
+        weight = torch.tensor(1.0, dtype=torch.float32)
+        return torch.from_numpy(row), weight
 
 
 def _build_ts_dataloader(
@@ -1007,7 +1009,8 @@ def _predict_dl(
         loader = _build_ts_dataloader(df_X[features], pd.Series(0.0, index=df_X.index), step_len, batch_size, shuffle=False)
         model_obj.model.eval() if hasattr(model_obj, "model") else None
         preds = []
-        for (data,) in loader:
+        for batch in loader:
+            data = batch[0] if isinstance(batch, (list, tuple)) else batch
             feature = data[:, :, 0:-1]
             with torch.no_grad():
                 if hasattr(model_obj, "model") and model_obj.model is not None:
