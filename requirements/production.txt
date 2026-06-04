@@ -54,7 +54,6 @@ baostock>=0.8.9
 lightgbm>=4.3.0
 xgboost>=2.0.0
 catboost>=1.2
-torch>=2.0.0
 cryptography>=3.0.0,<45.0.0
 jsonschema>=4.21.0
 psutil>=5.9.0

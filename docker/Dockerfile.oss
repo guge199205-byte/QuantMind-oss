@@ -46,6 +46,7 @@ COPY requirements/production.txt /tmp/requirements-production.txt
 COPY requirements/ai.txt /tmp/requirements-ai.txt
 
 RUN python -m pip install --upgrade pip setuptools wheel cython \
+    && python -m pip install --no-cache-dir --root-user-action=ignore torch --index-url https://download.pytorch.org/whl/cpu \
     && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt \
     && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements-production.txt \
     && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements-ai.txt \
