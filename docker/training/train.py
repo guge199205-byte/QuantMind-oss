@@ -777,6 +777,13 @@ def _build_ts_dataloader(
     X_values = np.ascontiguousarray(df_X.values, dtype=np.float32)
     y_values = np.ascontiguousarray(df_y.values, dtype=np.float32)
 
+    # 填充特征中的 NaN/inf（GRU 只 mask label 中的 NaN，不处理 feature 中的 NaN）
+    nan_count = np.isnan(X_values).sum()
+    inf_count = np.isinf(X_values).sum()
+    if nan_count > 0 or inf_count > 0:
+        logger.info("Cleaning features: %d NaN, %d inf -> 0.0", nan_count, inf_count)
+        X_values = np.nan_to_num(X_values, nan=0.0, posinf=0.0, neginf=0.0)
+
     if isinstance(df_X.index, pd.MultiIndex):
         instruments = df_X.index.get_level_values(0).unique()
         # 预计算每个 instrument 在连续数组中的 offset
