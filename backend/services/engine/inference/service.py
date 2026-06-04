@@ -295,8 +295,42 @@ class InferenceService:
         """
         兼容多种模型对象:
           - sklearn/lightgbm booster: model.predict(features)
+          - xgboost Booster: model.predict(DMatrix)
+          - catboost: model.predict(features)
           - qlib LGBModel wrapper: model.model.predict(features)
+          - qlib DL model (GRU/LSTM/etc): 内部 PyTorch 模型直接推理
         """
+        import torch
+
+        # Qlib DL 模型: 找到内部 PyTorch 模型，直接用 tensor 推理
+        if hasattr(model, "fitted") and hasattr(model, "device"):
+            inner_model = getattr(model, "model", None)
+            if inner_model is None:
+                for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                    inner_model = getattr(model, attr_name, None)
+                    if inner_model is not None:
+                        break
+            if inner_model is not None:
+                inner_model.eval()
+                if isinstance(features, pd.DataFrame):
+                    x = torch.from_numpy(features.values.astype("float32")).to(model.device)
+                elif isinstance(features, np.ndarray):
+                    x = torch.from_numpy(features.astype("float32")).to(model.device)
+                else:
+                    x = features
+                with torch.no_grad():
+                    pred = inner_model(x).detach().cpu().numpy()
+                return pred
+
+        # XGBoost Booster 需要 DMatrix
+        if type(model).__module__.startswith("xgboost"):
+            import xgboost as xgb
+            if isinstance(features, pd.DataFrame):
+                dmat = xgb.DMatrix(features.values, feature_names=list(features.columns))
+            else:
+                dmat = xgb.DMatrix(features)
+            return model.predict(dmat)
+
         # 常规路径
         if hasattr(model, "predict"):
             try:

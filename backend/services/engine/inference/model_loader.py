@@ -65,6 +65,12 @@ class ModelLoader:
         try:
             if framework == "lightgbm":
                 model = self._load_lightgbm(resolved_model_dir, metadata)
+            elif framework == "xgboost":
+                model = self._load_xgboost(resolved_model_dir, metadata)
+            elif framework == "catboost":
+                model = self._load_catboost(resolved_model_dir, metadata)
+            elif framework == "sklearn":
+                model = self._load_sklearn(resolved_model_dir, metadata)
             elif framework == "pytorch" or framework == "tft":
                 model = self._load_pytorch(resolved_model_dir, metadata)
             elif framework == "onnx":
@@ -118,8 +124,45 @@ class ModelLoader:
                     return pickle.load(f)
             return lgb.Booster(model_file=str(model_file))
 
+    def _load_xgboost(self, model_dir: Path, metadata: dict[str, Any]) -> Any:
+        """加载 XGBoost 模型"""
+        import xgboost as xgb
+        model_file = model_dir / metadata.get("model_file", "model.xgb")
+        if not model_file.exists():
+            candidates = list(model_dir.glob("*.xgb"))
+            if not candidates:
+                raise FileNotFoundError(f"No XGBoost model file found in {model_dir}")
+            model_file = candidates[0]
+        model = xgb.Booster()
+        model.load_model(str(model_file))
+        return model
+
+    def _load_catboost(self, model_dir: Path, metadata: dict[str, Any]) -> Any:
+        """加载 CatBoost 模型"""
+        from catboost import CatBoost
+        model_file = model_dir / metadata.get("model_file", "model.cbm")
+        if not model_file.exists():
+            candidates = list(model_dir.glob("*.cbm"))
+            if not candidates:
+                raise FileNotFoundError(f"No CatBoost model file found in {model_dir}")
+            model_file = candidates[0]
+        model = CatBoost()
+        model.load_model(str(model_file), format="cbm")
+        return model
+
+    def _load_sklearn(self, model_dir: Path, metadata: dict[str, Any]) -> Any:
+        """加载 sklearn 模型 (pickle)"""
+        model_file = model_dir / metadata.get("model_file", "model.pkl")
+        if not model_file.exists():
+            candidates = list(model_dir.glob("*.pkl"))
+            if not candidates:
+                raise FileNotFoundError(f"No sklearn model file found in {model_dir}")
+            model_file = candidates[0]
+        with open(model_file, "rb") as f:
+            return pickle.load(f)
+
     def _load_pytorch(self, model_dir: Path, metadata: dict[str, Any]) -> Any:
-        """加载 PyTorch / TFT 模型"""
+        """加载 PyTorch / TFT / Qlib DL 模型"""
         try:
             import torch
         except ImportError:
@@ -132,6 +175,11 @@ class ModelLoader:
             if not candidates:
                 raise FileNotFoundError(f"No PyTorch model file found in {model_dir}")
             model_file = candidates[0]
+
+        # Qlib DL 模型: 通过 model_class_name + model_params 重建
+        model_class_name = metadata.get("model_class_name")
+        if model_class_name:
+            return self._load_qlib_dl_model(model_file, metadata, model_class_name)
 
         # 针对 TFT (Temporal Fusion Transformer) 的特殊处理
         model_type = str(metadata.get("model_type", ""))
@@ -150,6 +198,48 @@ class ModelLoader:
             return load_native_tft_state_dict(str(model_file), metadata)
 
         return torch.load(str(model_file), map_location="cpu")
+
+    @staticmethod
+    def _load_qlib_dl_model(model_file: Path, metadata: dict[str, Any], model_class_name: str) -> Any:
+        """加载 Qlib DL 模型: 从 state_dict + model_params 重建模型。"""
+        import importlib
+        import torch
+
+        _QLIB_MODEL_MAP = {
+            "GRU":         ("qlib.contrib.model.pytorch_gru_ts",         "GRU"),
+            "LSTM":        ("qlib.contrib.model.pytorch_lstm_ts",        "LSTM"),
+            "ALSTM":       ("qlib.contrib.model.pytorch_alstm_ts",       "ALSTM"),
+            "Transformer": ("qlib.contrib.model.pytorch_transformer_ts", "Transformer"),
+            "TCN":         ("qlib.contrib.model.pytorch_tcn_ts",         "TCN"),
+            "TabNet":      ("qlib.contrib.model.pytorch_tabnet",         "TabNet"),
+        }
+
+        if model_class_name not in _QLIB_MODEL_MAP:
+            raise ValueError(f"Unknown Qlib model class: {model_class_name}")
+
+        mod_path, cls_name = _QLIB_MODEL_MAP[model_class_name]
+        mod = importlib.import_module(mod_path)
+        ModelCls = getattr(mod, cls_name)
+
+        model_params = dict(metadata.get("model_params", {}))
+        model_params["GPU"] = -1  # CPU for inference
+
+        model_obj = ModelCls(**model_params)
+
+        state_dict = torch.load(str(model_file), map_location="cpu")
+        # 找到内部 PyTorch 模型并加载权重
+        inner_model = getattr(model_obj, "model", None)
+        if inner_model is None:
+            for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                inner_model = getattr(model_obj, attr_name, None)
+                if inner_model is not None:
+                    break
+        if inner_model is not None and state_dict is not None:
+            inner_model.load_state_dict(state_dict)
+            inner_model.eval()
+        model_obj.fitted = True
+        logger.info("Loaded Qlib DL model: %s from %s", model_class_name, model_file)
+        return model_obj
 
     def _load_onnx(self, model_dir: Path, metadata: dict[str, Any]) -> Any:
         """加载 ONNX 模型 (预留)"""

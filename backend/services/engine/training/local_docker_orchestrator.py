@@ -135,11 +135,15 @@ class LocalDockerOrchestrator:
             next_progress = max(next_progress, 42)
         if "split mode:" in text or "val_ratio mode:" in text:
             next_progress = max(next_progress, 50)
+        # LightGBM / XGBoost / CatBoost early stopping patterns
         if "did not meet early stopping" in text or "early stopping, best iteration" in text:
+            next_progress = max(next_progress, 70)
+        if "early stopping" in text and ("round" in text or "iteration" in text):
             next_progress = max(next_progress, 70)
         if "training finished" in text:
             next_progress = max(next_progress, 80)
-        if "model saved" in text or "model.lgb" in text:
+        # Multi-model model save patterns
+        if "model saved" in text or "model.lgb" in text or "model.xgb" in text or "model.cbm" in text:
             next_progress = max(next_progress, 85)
         if "predictions saved" in text or "pred.parquet" in text or "pred.pkl" in text:
             next_progress = max(next_progress, 90)
@@ -199,6 +203,9 @@ class LocalDockerOrchestrator:
                 "early_stopping_rounds": payload.get("early_stopping_rounds", 100),
                 "val_ratio": payload.get("val_ratio", 0.15),
                 "params": payload.get("lgb_params", {}),
+                "xgb_params": payload.get("xgb_params", {}),
+                "catboost_params": payload.get("catboost_params", {}),
+                "dl_params": payload.get("dl_params", {}),
             },
             "label": {
                 "target_horizon_days": payload.get("target_horizon_days", 1),
@@ -536,7 +543,10 @@ class LocalDockerOrchestrator:
                         internal_model_dir.mkdir(parents=True, exist_ok=True)
 
                         # 从训练工作目录复制产物到模型注册目录
-                        for artifact in ("model.lgb", "metadata.json", "pred.parquet",
+                        # 支持多框架模型文件：model.lgb (LightGBM), model.xgb (XGBoost),
+                        # model.cbm (CatBoost), model.pkl (sklearn/Linear), model.pth (PyTorch)
+                        for artifact in ("model.lgb", "model.xgb", "model.cbm", "model.pkl",
+                                         "model.pth", "metadata.json", "pred.parquet",
                                          "pred.pkl", "config.yaml", "result.json",
                                          "inference.py", "shap_summary.csv"):
                             src = container_work_dir / artifact
@@ -560,7 +570,8 @@ class LocalDockerOrchestrator:
                                 prod_model_dir = prod_models_root / model_id
                                 prod_model_dir.mkdir(parents=True, exist_ok=True)
 
-                                for artifact in ("model.lgb", "metadata.json", "pred.parquet",
+                                for artifact in ("model.lgb", "model.xgb", "model.cbm", "model.pkl",
+                                                 "model.pth", "metadata.json", "pred.parquet",
                                                  "pred.pkl", "config.yaml", "result.json",
                                                  "inference.py", "shap_summary.csv"):
                                     src = container_work_dir / artifact

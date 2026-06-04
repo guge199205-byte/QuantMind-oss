@@ -16,12 +16,40 @@ export type SplitKey = 'train' | 'val' | 'test';
 export type DealPrice = 'open' | 'close';
 export type TimePeriodMap = Record<SplitKey, [Dayjs, Dayjs]>;
 
+// 模型类型定义
+export type ModelType = 'lightgbm' | 'xgboost' | 'catboost' | 'linear' | 'gru' | 'lstm' | 'alstm' | 'transformer' | 'tabnet' | 'tcn';
+export type ModelCategory = 'tree' | 'deep_learning';
+
+export interface ModelTypeOption {
+  value: ModelType;
+  label: string;
+  category: ModelCategory;
+  description: string;
+  framework: string;
+}
+
+export const MODEL_TYPE_OPTIONS: ModelTypeOption[] = [
+  // 树模型
+  { value: 'lightgbm', label: 'LightGBM', category: 'tree', description: '速度快、效果稳，基线必备', framework: 'lightgbm' },
+  { value: 'xgboost', label: 'XGBoost', category: 'tree', description: '与LGB异构，集成提升明显', framework: 'xgboost' },
+  { value: 'catboost', label: 'CatBoost', category: 'tree', description: '类别特征友好，自带有序提升', framework: 'catboost' },
+  { value: 'linear', label: 'Ridge 线性', category: 'tree', description: '简单线性回归基线', framework: 'sklearn' },
+  // 深度学习模型
+  { value: 'gru', label: 'GRU', category: 'deep_learning', description: '门控循环单元，时序建模性价比最高', framework: 'pytorch' },
+  { value: 'lstm', label: 'LSTM', category: 'deep_learning', description: '长短期记忆网络', framework: 'pytorch' },
+  { value: 'alstm', label: 'ALSTM', category: 'deep_learning', description: '带注意力的LSTM', framework: 'pytorch' },
+  { value: 'transformer', label: 'Transformer', category: 'deep_learning', description: '标准Transformer', framework: 'pytorch' },
+  { value: 'tabnet', label: 'TabNet', category: 'deep_learning', description: 'Google表格数据SOTA，自带特征选择', framework: 'pytorch' },
+  { value: 'tcn', label: 'TCN', category: 'deep_learning', description: '时间卷积网络，比RNN快', framework: 'pytorch' },
+];
+
 export interface TrainingTarget {
   mode: TargetMode;
   horizonDays: number;
 }
 
 export interface TrainingParams {
+  model_type: ModelType;
   learning_rate: number;
   num_leaves: number;
   max_depth: number;
@@ -34,6 +62,26 @@ export interface TrainingParams {
   early_stopping_rounds: number;
   objective: 'regression' | 'binary';
   metric: 'l2' | 'rmse' | 'mae' | 'auc' | 'binary_logloss';
+  // XGBoost specific
+  xgb_subsample?: number;
+  xgb_colsample_bytree?: number;
+  xgb_reg_alpha?: number;
+  xgb_reg_lambda?: number;
+  // CatBoost specific
+  cb_depth?: number;
+  cb_l2_leaf_reg?: number;
+  cb_random_strength?: number;
+  cb_bagging_temperature?: number;
+  // Linear specific
+  linear_alpha?: number;
+  // DL specific
+  dl_hidden_size?: number;
+  dl_num_layers?: number;
+  dl_dropout?: number;
+  dl_n_epochs?: number;
+  dl_batch_size?: number;
+  dl_lr?: number;
+  dl_step_len?: number;
 }
 
 export interface TrainingContext {
@@ -343,6 +391,7 @@ export const LEGACY_DEFAULT_TIME_PERIODS: TimePeriodMap = {
 };
 
 export const DEFAULT_PARAMS: TrainingParams = {
+  model_type: 'lightgbm',
   learning_rate: 0.02,
   num_leaves: 31,
   max_depth: -1,
@@ -355,6 +404,26 @@ export const DEFAULT_PARAMS: TrainingParams = {
   early_stopping_rounds: 50,
   objective: 'regression',
   metric: 'l2',
+  // XGBoost
+  xgb_subsample: 0.7,
+  xgb_colsample_bytree: 0.6,
+  xgb_reg_alpha: 0.1,
+  xgb_reg_lambda: 1.0,
+  // CatBoost
+  cb_depth: 6,
+  cb_l2_leaf_reg: 3.0,
+  cb_random_strength: 1.0,
+  cb_bagging_temperature: 0.8,
+  // Linear
+  linear_alpha: 1.0,
+  // DL
+  dl_hidden_size: 64,
+  dl_num_layers: 2,
+  dl_dropout: 0.3,
+  dl_n_epochs: 200,
+  dl_batch_size: 2000,
+  dl_lr: 0.001,
+  dl_step_len: 20,
 };
 
 export const DEFAULT_CONTEXT: TrainingContext = {
@@ -525,10 +594,12 @@ export const buildBackendTrainingPayload = (
   const splitTotal = Math.max(1, daysBetween(timePeriods.train) + daysBetween(timePeriods.val));
   const valRatio = Math.min(0.5, Math.max(0.01, daysBetween(timePeriods.val) / splitTotal));
 
+  const modelType = request.params.model_type || 'lightgbm';
+
   return {
     job_name: `model_train_t${request.target.horizonDays}_${dayjs().format('YYYYMMDDHHmmss')}`,
     display_name: request.displayName,
-    model_type: 'lightgbm',
+    model_type: modelType,
     train_start: trainStart,
     train_end: trainEnd,
     valid_start: validStart,
@@ -565,6 +636,33 @@ export const buildBackendTrainingPayload = (
       bagging_fraction: request.params.bagging_fraction,
       objective: request.params.objective,
       metric: request.params.metric,
+    },
+    xgb_params: {
+      max_depth: request.params.max_depth,
+      learning_rate: request.params.learning_rate,
+      subsample: request.params.xgb_subsample ?? 0.7,
+      colsample_bytree: request.params.xgb_colsample_bytree ?? 0.6,
+      reg_alpha: request.params.xgb_reg_alpha ?? 0.1,
+      reg_lambda: request.params.xgb_reg_lambda ?? 1.0,
+      objective: request.params.objective === 'binary' ? 'binary:logistic' : 'reg:squarederror',
+    },
+    catboost_params: {
+      depth: request.params.cb_depth ?? 6,
+      learning_rate: request.params.learning_rate,
+      l2_leaf_reg: request.params.cb_l2_leaf_reg ?? 3.0,
+      random_strength: request.params.cb_random_strength ?? 1.0,
+      bagging_temperature: request.params.cb_bagging_temperature ?? 0.8,
+      loss_function: request.params.metric === 'auc' ? 'Logloss' : 'RMSE',
+    },
+    dl_params: {
+      hidden_size: request.params.dl_hidden_size ?? 64,
+      num_layers: request.params.dl_num_layers ?? 2,
+      dropout: request.params.dl_dropout ?? 0.3,
+      n_epochs: request.params.dl_n_epochs ?? 200,
+      batch_size: request.params.dl_batch_size ?? 2000,
+      lr: request.params.dl_lr ?? 0.001,
+      step_len: request.params.dl_step_len ?? 20,
+      alpha: request.params.linear_alpha ?? 1.0,
     },
   };
 };

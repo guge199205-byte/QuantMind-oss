@@ -161,7 +161,7 @@ class ModelRegistryService:
             value = meta.get(key)
             if isinstance(value, str) and value.strip():
                 candidates.append(value.strip())
-        for ext in ("bin", "txt", "pkl", "pth", "onnx", "pt", "lgb"):
+        for ext in ("bin", "txt", "pkl", "pth", "onnx", "pt", "lgb", "xgb", "cbm"):
             candidates.append(f"model.{ext}")
         for name in candidates:
             if (dir_path / name).is_file():
@@ -1435,6 +1435,10 @@ class ModelRegistryService:
     ) -> tuple[str, str, str]:
         artifact_names = [
             "model.lgb",
+            "model.xgb",
+            "model.cbm",
+            "model.pkl",
+            "model.pth",
             "model.txt",
             "model.bin",
             "metadata.json",
@@ -1462,7 +1466,8 @@ class ModelRegistryService:
                 copied.append(filename)
 
         model_file = ""
-        for candidate in ("model.lgb", "model.txt", "model.bin"):
+        for candidate in ("model.lgb", "model.xgb", "model.cbm", "model.pkl",
+                          "model.pth", "model.txt", "model.bin"):
             if (target_dir / candidate).exists():
                 model_file = candidate
                 break

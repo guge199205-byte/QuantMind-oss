@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 _FEATURE_CATALOG_FALLBACK = Path(os.getcwd()) / "config" / "features" / "model_training_feature_catalog_v1.json"
 _ALLOWED_TARGET_MODE = {"return", "classification"}
 _ALLOWED_DEAL_PRICE = {"open", "close"}
+_ALLOWED_MODEL_TYPES = {
+    # Tree models (Tier 1) — share same tabular data pipeline
+    "lightgbm", "xgboost", "catboost", "linear",
+    # Deep learning models (Tier 2) — require sequential data / Qlib
+    "gru", "lstm", "alstm", "transformer", "tabnet", "tcn",
+}
+_TREE_MODEL_TYPES = {"lightgbm", "xgboost", "catboost", "linear"}
+_DL_MODEL_TYPES = {"gru", "lstm", "alstm", "transformer", "tabnet", "tcn"}
 _TRAINING_BASE_FEATURES = [
     "mom_ret_1d",
     "mom_ret_5d",
@@ -194,8 +202,11 @@ def _normalize_payload(payload: dict[str, Any], allowed_features: list[str]) -> 
         raise HTTPException(status_code=422, detail="Payload must be a JSON object")
 
     model_type = str(payload.get("model_type", "lightgbm")).strip().lower()
-    if model_type != "lightgbm":
-        raise HTTPException(status_code=422, detail="Only lightgbm is supported for training")
+    if model_type not in _ALLOWED_MODEL_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported model_type: {model_type}. Allowed: {sorted(_ALLOWED_MODEL_TYPES)}",
+        )
 
     display_name = str(payload.get("display_name") or payload.get("job_name") or "unnamed").strip() or "unnamed"
     if len(display_name) > 128:
@@ -244,6 +255,19 @@ def _normalize_payload(payload: dict[str, Any], allowed_features: list[str]) -> 
     if not isinstance(lgb_params, dict):
         raise HTTPException(status_code=422, detail="lgb_params must be an object")
 
+    # Model-specific params (only validate the one matching model_type)
+    xgb_params = payload.get("xgb_params", {}) or {}
+    if not isinstance(xgb_params, dict):
+        raise HTTPException(status_code=422, detail="xgb_params must be an object")
+
+    catboost_params = payload.get("catboost_params", {}) or {}
+    if not isinstance(catboost_params, dict):
+        raise HTTPException(status_code=422, detail="catboost_params must be an object")
+
+    dl_params = payload.get("dl_params", {}) or {}
+    if not isinstance(dl_params, dict):
+        raise HTTPException(status_code=422, detail="dl_params must be an object")
+
     target_horizon_days = int(payload.get("target_horizon_days", 1))
     if not (1 <= target_horizon_days <= 30):
         raise HTTPException(status_code=422, detail="target_horizon_days must be between 1 and 30")
@@ -289,6 +313,9 @@ def _normalize_payload(payload: dict[str, Any], allowed_features: list[str]) -> 
         "context": context,
         "explain": explain,
         "lgb_params": lgb_params,
+        "xgb_params": xgb_params,
+        "catboost_params": catboost_params,
+        "dl_params": dl_params,
     }
 
     explicit_fields = ["valid_start", "valid_end", "test_start", "test_end"]

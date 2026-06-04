@@ -40,24 +40,83 @@ logging.basicConfig(
 )
 logger = logging.getLogger("quantmind.train")
 
-# ── LightGBM 默认参数 ────────────────────────────────────────────────────────
+
+# ── 硬件环境检测 ──────────────────────────────────────────────────────────────
+def detect_hardware() -> dict[str, Any]:
+    """检测运行环境的硬件配置（CPU、内存、GPU）。"""
+    import os
+    info: dict[str, Any] = {"cpu_count": os.cpu_count() or 1, "gpu_available": False, "gpu_count": 0, "gpu_name": "", "mem_total_gb": 0.0}
+    try:
+        import psutil
+        info["mem_total_gb"] = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    except ImportError:
+        pass
+    try:
+        import torch
+        if torch.cuda.is_available():
+            info["gpu_available"] = True
+            info["gpu_count"] = torch.cuda.device_count()
+            info["gpu_name"] = torch.cuda.get_device_name(0) if info["gpu_count"] > 0 else ""
+    except ImportError:
+        pass
+    logger.info("Hardware: cpu=%d, mem=%.1fGB, gpu=%s(%d), gpu_name=%s",
+                info["cpu_count"], info["mem_total_gb"],
+                info["gpu_available"], info["gpu_count"], info["gpu_name"])
+    return info
+
+
+# ── 模型默认参数 ──────────────────────────────────────────────────────────────
 DEFAULT_LGB_PARAMS: dict[str, Any] = {
     "objective":         "regression",
     "metric":            "l2",
     "boosting":          "gbdt",
-    "num_leaves":        31,              # 降低复杂度（127→31），减少过拟合
+    "num_leaves":        31,
     "learning_rate":     0.05,
-    "feature_fraction":  0.6,             # 每棵树只用 60% 特征
-    "bagging_fraction":  0.7,             # 每棵树只用 70% 样本
+    "feature_fraction":  0.6,
+    "bagging_fraction":  0.7,
     "bagging_freq":      5,
-    "min_child_samples": 50,              # 叶子最少样本数，防拟合噪声
-    "lambda_l1":         0.1,             # L1 正则化
-    "lambda_l2":         1.0,             # L2 正则化
-    "max_depth":         6,               # 限制树深度
-    "path_smooth":       0.5,             # 路径平滑
+    "min_child_samples": 50,
+    "lambda_l1":         0.1,
+    "lambda_l2":         1.0,
+    "max_depth":         6,
+    "path_smooth":       0.5,
     "n_jobs":            -1,
     "verbosity":         -1,
 }
+
+DEFAULT_XGB_PARAMS: dict[str, Any] = {
+    "objective":        "reg:squarederror",
+    "eval_metric":      "rmse",
+    "max_depth":        6,
+    "learning_rate":    0.05,
+    "subsample":        0.7,
+    "colsample_bytree": 0.6,
+    "reg_alpha":        0.1,
+    "reg_lambda":       1.0,
+    "min_child_weight": 50,
+    "tree_method":      "hist",
+    "nthread":          -1,
+    "verbosity":        0,
+}
+
+DEFAULT_CATBOOST_PARAMS: dict[str, Any] = {
+    "loss_function":    "RMSE",
+    "depth":            6,
+    "learning_rate":    0.05,
+    "iterations":       1000,
+    "l2_leaf_reg":      3.0,
+    "random_strength":  1.0,
+    "bagging_temperature": 0.8,
+    "od_type":          "Iter",
+    "od_wait":          50,
+    "thread_count":     -1,
+    "verbose":          100,
+}
+
+# 支持的模型类型集合
+_TREE_MODEL_TYPES = {"lightgbm", "xgboost", "catboost", "linear"}
+_DL_MODEL_TYPES = {"gru", "lstm", "alstm", "transformer", "tabnet", "tcn"}
+_ALL_MODEL_TYPES = _TREE_MODEL_TYPES | _DL_MODEL_TYPES
 
 TRAINING_BASE_FEATURES: list[str] = [
     "mom_ret_1d",
@@ -483,20 +542,16 @@ def load_data(
 
 
 # ── 训练 ──────────────────────────────────────────────────────────────────────
-def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
-    model_cfg       = cfg.get("model", {})
-    num_boost_round = int(model_cfg.get("num_boost_round", 1000))
-    early_stopping_rounds = int(model_cfg.get("early_stopping_rounds", 100) or 100)
-    if early_stopping_rounds < 1:
-        early_stopping_rounds = 1
-    params          = {**DEFAULT_LGB_PARAMS, **model_cfg.get("params", {})}
+
+def _split_data(df: pd.DataFrame, cfg: dict) -> tuple:
+    """数据切分：显式 split 优先于 val_ratio。返回 (train_df, val_df, test_df)。"""
+    model_cfg = cfg.get("model", {})
 
     def _frame_range_text(frame: pd.DataFrame) -> str:
         if frame.empty:
             return "EMPTY"
         return f"{frame['trade_date'].min().date()}~{frame['trade_date'].max().date()}"
 
-    # 显式 split 优先于 val_ratio（config 有 split.valid 时 val_ratio 为 null）
     split_cfg = cfg.get("split", {})
     if split_cfg.get("valid"):
         valid_start_str, valid_end_str = split_cfg["valid"]
@@ -520,7 +575,7 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
         logger.info(f"Split mode: train~{split_cfg['train'][1]}  val {valid_start_str}~{valid_end_str}")
     else:
         val_ratio = float(model_cfg.get("val_ratio") or 0.15)
-        dates     = sorted(df["trade_date"].unique())
+        dates = sorted(df["trade_date"].unique())
         if not dates:
             raise RuntimeError("No rows available for split after preprocessing. 请检查训练时间窗口与特征快照覆盖范围。")
         val_start = dates[int(len(dates) * (1 - val_ratio))]
@@ -549,10 +604,13 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
             f"test={len(test_df)}({_frame_range_text(test_df)}) requested={requested_test}. "
             "请调整 train/valid/test 时间窗口，确保三段均与可用数据重叠。"
         )
+    return train_df, val_df, test_df
 
+
+def _prepare_arrays(train_df: pd.DataFrame, val_df: pd.DataFrame, features: list[str]) -> tuple:
+    """计算 fill_values 并转换为 numpy 数组。返回 (fill_values, X_train, y_train, X_val, y_val, _fill_fn)。"""
     import math
     fill_values_raw = train_df[features].median().to_dict()
-    # NaN fill values (columns missing in training data) → 0.0
     fill_values = {k: (0.0 if (isinstance(v, float) and math.isnan(v)) else v) for k, v in fill_values_raw.items()}
 
     def _fill(frame: pd.DataFrame) -> np.ndarray:
@@ -561,11 +619,23 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
             x[c] = x[c].astype("float32").fillna(fill_values[c])
         return x.to_numpy(dtype=np.float32)
 
-    X_train, y_train = _fill(train_df), train_df["label"].astype("float32").to_numpy()
-    X_val,   y_val   = _fill(val_df),   val_df["label"].astype("float32").to_numpy()
+    X_train = _fill(train_df)
+    y_train = train_df["label"].astype("float32").to_numpy()
+    X_val = _fill(val_df)
+    y_val = val_df["label"].astype("float32").to_numpy()
+    return fill_values, X_train, y_train, X_val, y_val, _fill
+
+
+def _train_lgb(cfg: dict, features: list[str], X_train: np.ndarray, y_train: np.ndarray,
+               X_val: np.ndarray, y_val: np.ndarray) -> Any:
+    """LightGBM 训练。"""
+    model_cfg = cfg.get("model", {})
+    params = {**DEFAULT_LGB_PARAMS, **model_cfg.get("params", {})}
+    num_boost_round = int(model_cfg.get("num_boost_round", 1000))
+    early_stopping_rounds = max(1, int(model_cfg.get("early_stopping_rounds", 100) or 100))
 
     ds_train = lgb.Dataset(X_train, label=y_train, feature_name=features, free_raw_data=True)
-    ds_val   = lgb.Dataset(X_val,   label=y_val,   feature_name=features, free_raw_data=True)
+    ds_val = lgb.Dataset(X_val, label=y_val, feature_name=features, free_raw_data=True)
 
     callbacks = [
         lgb.early_stopping(stopping_rounds=early_stopping_rounds, verbose=True),
@@ -578,10 +648,519 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
         valid_names=["train", "valid"],
         callbacks=callbacks,
     )
+    return model
 
-    y_train_pred = model.predict(_fill(train_df))
-    y_val_pred = model.predict(_fill(val_df))
-    y_test_pred = model.predict(_fill(test_df))
+
+def _train_xgb(cfg: dict, features: list[str], X_train: np.ndarray, y_train: np.ndarray,
+               X_val: np.ndarray, y_val: np.ndarray) -> Any:
+    """XGBoost 训练。"""
+    import xgboost as xgb
+    model_cfg = cfg.get("model", {})
+    params = {**DEFAULT_XGB_PARAMS, **model_cfg.get("xgb_params", {})}
+    num_boost_round = int(model_cfg.get("num_boost_round", 1000))
+    early_stopping_rounds = max(1, int(model_cfg.get("early_stopping_rounds", 100) or 100))
+
+    dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=features)
+    dval = xgb.DMatrix(X_val, label=y_val, feature_names=features)
+
+    evals_result: dict = {}
+    model = xgb.train(
+        params, dtrain,
+        num_boost_round=num_boost_round,
+        evals=[(dtrain, "train"), (dval, "valid")],
+        evals_result=evals_result,
+        early_stopping_rounds=early_stopping_rounds,
+        verbose_eval=100,
+    )
+    return model
+
+
+def _train_catboost(cfg: dict, features: list[str], X_train: np.ndarray, y_train: np.ndarray,
+                    X_val: np.ndarray, y_val: np.ndarray) -> Any:
+    """CatBoost 训练。"""
+    from catboost import CatBoost, Pool
+    model_cfg = cfg.get("model", {})
+    params = {**DEFAULT_CATBOOST_PARAMS, **model_cfg.get("catboost_params", {})}
+    # iterations 覆盖 num_boost_round
+    if "iterations" not in model_cfg.get("catboost_params", {}):
+        params["iterations"] = int(model_cfg.get("num_boost_round", 1000))
+
+    train_pool = Pool(X_train, label=y_train, feature_names=features)
+    val_pool = Pool(X_val, label=y_val, feature_names=features)
+
+    model = CatBoost(params)
+    model.fit(train_pool, eval_set=val_pool, early_stopping_rounds=max(1, int(model_cfg.get("early_stopping_rounds", 100) or 100)))
+    return model
+
+
+def _train_linear(cfg: dict, features: list[str], X_train: np.ndarray, y_train: np.ndarray,
+                  X_val: np.ndarray, y_val: np.ndarray) -> Any:
+    """Linear 模型训练（Ridge 回归）。"""
+    from sklearn.linear_model import Ridge
+    model_cfg = cfg.get("model", {})
+    dl_params = model_cfg.get("dl_params", {})
+    alpha = float(dl_params.get("alpha", 1.0))
+    model = Ridge(alpha=alpha)
+    model.fit(X_train, y_train)
+    return model
+
+
+# ── 深度学习训练 ────────────────────────────────────────────────────────────────
+
+# Qlib TS 模型映射: model_type → (qlib_module, qlib_class)
+_QLIB_TS_MODEL_MAP: dict[str, tuple[str, str]] = {
+    "gru":         ("qlib.contrib.model.pytorch_gru_ts",         "GRU"),
+    "lstm":        ("qlib.contrib.model.pytorch_lstm_ts",        "LSTM"),
+    "alstm":       ("qlib.contrib.model.pytorch_alstm_ts",       "ALSTM"),
+    "transformer": ("qlib.contrib.model.pytorch_transformer_ts", "Transformer"),
+    "tcn":         ("qlib.contrib.model.pytorch_tcn_ts",         "TCN"),
+}
+_QLIB_FLAT_MODEL_MAP: dict[str, tuple[str, str]] = {
+    "tabnet":      ("qlib.contrib.model.pytorch_tabnet",         "TabNet"),
+}
+_QLIB_MODEL_MAP = {**_QLIB_TS_MODEL_MAP, **_QLIB_FLAT_MODEL_MAP}
+
+
+def _build_ts_dataloader(
+    df_X: pd.DataFrame,
+    df_y: pd.Series,
+    step_len: int,
+    batch_size: int,
+    shuffle: bool = True,
+) -> "torch.utils.data.DataLoader":
+    """将扁平 DataFrame (MultiIndex: instrument x datetime) 转为 3D DataLoader。
+
+    每个样本是 [step_len, d_feat+1]，最后一列为 label (取自最后一个时间步)。
+    """
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+
+    X_values = df_X.values.astype(np.float32)
+    y_values = df_y.values.astype(np.float32)
+
+    if isinstance(df_X.index, pd.MultiIndex):
+        instruments = df_X.index.get_level_values(0).unique()
+        get_mask = lambda inst: df_X.index.get_level_values(0) == inst
+    else:
+        instruments = ["_all"]
+        get_mask = lambda _: pd.Series(True, index=df_X.index)
+
+    windows: list[np.ndarray] = []
+    labels: list[float] = []
+
+    for inst in instruments:
+        mask = get_mask(inst)
+        inst_X = X_values[mask]
+        inst_y = y_values[mask]
+        n = len(inst_X)
+        for i in range(n - step_len + 1):
+            windows.append(inst_X[i : i + step_len])
+            labels.append(inst_y[i + step_len - 1])
+
+    if not windows:
+        raise ValueError(f"No valid TS samples (step_len={step_len}, rows={len(X_values)})")
+
+    data_arr = np.array(windows, dtype=np.float32)  # [N, step_len, d_feat]
+    label_arr = np.array(labels, dtype=np.float32)   # [N]
+    # Qlib TS 模型期望: data[:, :, 0:-1] = features, data[:, -1, -1] = label
+    label_col = np.broadcast_to(
+        label_arr[:, np.newaxis, np.newaxis],
+        (len(label_arr), step_len, 1),
+    ).astype(np.float32)
+    data = np.concatenate([data_arr, label_col], axis=2)  # [N, step_len, d_feat+1]
+
+    tensor_data = torch.from_numpy(data)
+    dataset = TensorDataset(tensor_data)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
+
+
+def _train_dl(
+    model_type: str,
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    features: list[str],
+    dl_params: dict[str, Any],
+    output_dir: Path,
+    hardware: dict[str, Any] | None = None,
+) -> tuple:
+    """Qlib 深度学习模型训练。
+
+    返回 (model_obj, train_metrics, val_metrics, dl_metadata)
+    """
+    import importlib
+    import copy
+    import torch
+
+    mod_path, cls_name = _QLIB_MODEL_MAP[model_type]
+    mod = importlib.import_module(mod_path)
+    ModelCls = getattr(mod, cls_name)
+
+    d_feat = len(features)
+    is_ts = model_type in _QLIB_TS_MODEL_MAP
+
+    # 构建模型参数
+    model_params: dict[str, Any] = {"d_feat": d_feat}
+    if model_type == "tabnet":
+        model_params.update({
+            "n_d":     int(dl_params.get("dl_hidden_size", 64)),
+            "n_a":     int(dl_params.get("dl_hidden_size", 64)),
+            "n_steps": max(1, int(dl_params.get("dl_num_layers", 3))),
+            "lr":      float(dl_params.get("dl_lr", 0.001)),
+        })
+    else:
+        model_params.update({
+            "hidden_size": int(dl_params.get("dl_hidden_size", 64)),
+            "num_layers":  int(dl_params.get("dl_num_layers", 2)),
+            "dropout":     float(dl_params.get("dl_dropout", 0.3)),
+        })
+
+    n_epochs    = int(dl_params.get("dl_n_epochs", 200))
+    batch_size  = int(dl_params.get("dl_batch_size", 2000))
+    lr          = float(dl_params.get("dl_lr", 0.001))
+    step_len    = int(dl_params.get("dl_step_len", 20))
+    early_stop  = int(dl_params.get("early_stopping_rounds", 20))
+    metric_name = str(dl_params.get("metric", "")).lower()
+
+    # 确定 GPU
+    gpu_id = 0
+    if hardware and not hardware.get("gpu_available"):
+        gpu_id = -1
+    model_params["GPU"] = gpu_id
+    model_params["n_epochs"] = n_epochs
+    model_params["lr"] = lr
+    model_params["batch_size"] = batch_size
+    model_params["early_stop"] = early_stop
+    model_params["metric"] = metric_name
+
+    logger.info("DL model: %s, params=%s, is_ts=%s", model_type, model_params, is_ts)
+
+    # 实例化模型
+    model_obj = ModelCls(**model_params)
+
+    # 准备训练/验证数据
+    X_train = train_df[features]
+    y_train = train_df["label"]
+    X_val = val_df[features]
+    y_val = val_df["label"]
+
+    if is_ts:
+        train_loader = _build_ts_dataloader(X_train, y_train, step_len, batch_size, shuffle=True)
+        val_loader = _build_ts_dataloader(X_val, y_val, step_len, batch_size, shuffle=False)
+        logger.info("TS DataLoader: train_batches=%d, val_batches=%d, step_len=%d",
+                     len(train_loader), len(val_loader), step_len)
+    else:
+        # TabNet: 使用扁平数据
+        train_loader = (X_train, y_train)
+        val_loader = (X_val, y_val)
+
+    # 训练循环 (直接调用 Qlib 模型的 train_epoch/test_epoch)
+    best_score = -np.inf
+    best_epoch = 0
+    stop_steps = 0
+    best_state = None
+    evals: dict[str, list[float]] = {"train": [], "valid": []}
+
+    logger.info("DL training: %d epochs, batch_size=%d, lr=%s", n_epochs, batch_size, lr)
+
+    for epoch in range(n_epochs):
+        # Train
+        model_obj.train_epoch(train_loader) if is_ts else model_obj.train_epoch(X_train, y_train)
+
+        # Evaluate
+        if is_ts:
+            train_loss, train_score = model_obj.test_epoch(train_loader)
+            val_loss, val_score = model_obj.test_epoch(val_loader)
+        else:
+            train_loss, train_score = model_obj.test_epoch(X_train, y_train)
+            val_loss, val_score = model_obj.test_epoch(X_val, y_val)
+
+        evals["train"].append(train_score)
+        evals["valid"].append(val_score)
+
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            logger.info("Epoch %d/%d: train=%.6f, valid=%.6f", epoch + 1, n_epochs, train_score, val_score)
+
+        if val_score > best_score:
+            best_score = val_score
+            best_epoch = epoch
+            stop_steps = 0
+            # 保存最佳状态
+            inner_model = getattr(model_obj, "model", None)
+            if inner_model is None:
+                for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                    inner_model = getattr(model_obj, attr_name, None)
+                    if inner_model is not None:
+                        break
+            if inner_model is not None:
+                best_state = copy.deepcopy(inner_model.state_dict())
+        else:
+            stop_steps += 1
+            if stop_steps >= early_stop:
+                logger.info("Early stop at epoch %d (best=%d, score=%.6f)", epoch, best_epoch, best_score)
+                break
+
+    # 恢复最佳模型
+    if best_state is not None:
+        inner_model = getattr(model_obj, "model", None)
+        if inner_model is None:
+            for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                inner_model = getattr(model_obj, attr_name, None)
+                if inner_model is not None:
+                    break
+        if inner_model is not None:
+            inner_model.load_state_dict(best_state)
+
+    # 保存模型
+    torch.save(best_state, str(output_dir / "model.pth"))
+    logger.info("DL model saved: model.pth (best_epoch=%d, best_score=%.6f)", best_epoch, best_score)
+
+    # 计算指标
+    train_m = {"ic": evals["train"][best_epoch] if evals["train"] else float("nan"), "rank_ic": float("nan"), "rank_icir": float("nan"), "rmse": float("nan"), "auc": float("nan")}
+    val_m = {"ic": evals["valid"][best_epoch] if evals["valid"] else float("nan"), "rank_ic": float("nan"), "rank_icir": float("nan"), "rmse": float("nan"), "auc": float("nan")}
+
+    # DL 元数据 (供推理重建模型)
+    dl_metadata = {
+        "model_class_name": cls_name,
+        "model_params": {k: v for k, v in model_params.items() if k not in ("GPU", "n_epochs", "lr", "batch_size", "early_stop", "metric")},
+        "is_sequence_model": is_ts,
+        "input_spec": {
+            "tensor_shape": [None, step_len, d_feat] if is_ts else [None, d_feat],
+            "feature_columns": features,
+        },
+        "dl_params": {k: v for k, v in dl_params.items()},
+    }
+
+    return model_obj, train_m, val_m, dl_metadata
+
+
+def _predict_dl(
+    model_dir: Path,
+    df_X: pd.DataFrame,
+    features: list[str],
+    dl_metadata: dict[str, Any],
+    batch_size: int = 2000,
+) -> np.ndarray:
+    """加载训练好的 DL 模型并预测。"""
+    import importlib
+    import torch
+
+    cls_name = dl_metadata.get("model_class_name", "")
+    model_params = dl_metadata.get("model_params", {})
+    is_ts = dl_metadata.get("is_sequence_model", False)
+
+    # 找到对应的 Qlib 模型类
+    model_cls = None
+    for _map in (_QLIB_TS_MODEL_MAP, _QLIB_FLAT_MODEL_MAP):
+        for _mt, (_mod_path, _cls_name) in _map.items():
+            if _cls_name == cls_name:
+                mod = importlib.import_module(_mod_path)
+                model_cls = getattr(mod, _cls_name)
+                break
+        if model_cls is not None:
+            break
+
+    if model_cls is None:
+        raise ValueError(f"Cannot find Qlib model class: {cls_name}")
+
+    model_params["GPU"] = -1  # CPU for inference
+    model_obj = model_cls(**model_params)
+
+    # 加载权重
+    model_path = model_dir / "model.pth"
+    if not model_path.exists():
+        raise FileNotFoundError(f"model.pth not found at {model_path}")
+
+    state_dict = torch.load(str(model_path), map_location="cpu")
+    inner_model = getattr(model_obj, "model", None)
+    if inner_model is None:
+        for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+            inner_model = getattr(model_obj, attr_name, None)
+            if inner_model is not None:
+                break
+    if inner_model is not None:
+        inner_model.load_state_dict(state_dict)
+    model_obj.fitted = True
+
+    # 预测
+    if is_ts:
+        step_len = dl_metadata.get("dl_params", {}).get("dl_step_len", 20)
+        loader = _build_ts_dataloader(df_X[features], pd.Series(0.0, index=df_X.index), step_len, batch_size, shuffle=False)
+        model_obj.model.eval() if hasattr(model_obj, "model") else None
+        preds = []
+        for (data,) in loader:
+            feature = data[:, :, 0:-1]
+            with torch.no_grad():
+                if hasattr(model_obj, "model") and model_obj.model is not None:
+                    pred = model_obj.model(feature.float()).detach().cpu().numpy()
+                else:
+                    pred = model_obj.predict(feature.float()).detach().cpu().numpy()
+            preds.append(pred)
+        return np.concatenate(preds)
+    else:
+        X_values = df_X[features].values.astype(np.float32)
+        X_tensor = torch.from_numpy(X_values)
+        model_obj.model.eval() if hasattr(model_obj, "model") else None
+        preds = []
+        for i in range(0, len(X_tensor), batch_size):
+            batch = X_tensor[i:i+batch_size]
+            with torch.no_grad():
+                priors = torch.ones(batch.shape[0], len(features))
+                pred = model_obj.model(batch, priors).detach().cpu().numpy()
+            preds.append(pred)
+        return np.concatenate(preds)
+
+
+def _predict_with_model(model: Any, X: np.ndarray, model_type: str, features: list[str] | None = None) -> np.ndarray:
+    """统一预测接口，适配不同框架。"""
+    if model_type == "lightgbm":
+        return model.predict(X, num_iteration=model.best_iteration)
+    elif model_type == "xgboost":
+        import xgboost as xgb
+        dmat = xgb.DMatrix(X, feature_names=features)
+        return model.predict(dmat, iteration_range=(0, model.best_iteration + 1))
+    elif model_type == "catboost":
+        return model.predict(X)
+    elif model_type == "linear":
+        return model.predict(X)
+    else:
+        return model.predict(X)
+
+
+def _save_model(model: Any, model_type: str, out_dir: Path) -> str:
+    """保存模型到文件，返回实际文件名。"""
+    if model_type == "lightgbm":
+        path = out_dir / "model.lgb"
+        model.save_model(str(path))
+        return "model.lgb"
+    elif model_type == "xgboost":
+        path = out_dir / "model.xgb"
+        model.save_model(str(path))
+        return "model.xgb"
+    elif model_type == "catboost":
+        path = out_dir / "model.cbm"
+        model.save_model(str(path), format="cbm")
+        return "model.cbm"
+    elif model_type == "linear":
+        import pickle
+        path = out_dir / "model.pkl"
+        with open(path, "wb") as f:
+            pickle.dump(model, f)
+        return "model.pkl"
+    elif model_type in _DL_MODEL_TYPES:
+        # DL 模型在 _train_dl() 中已保存 model.pth，此处仅返回文件名
+        return "model.pth"
+    else:
+        import pickle
+        path = out_dir / "model.pkl"
+        with open(path, "wb") as f:
+            pickle.dump(model, f)
+        return "model.pkl"
+
+
+def _get_model_framework(model_type: str) -> str:
+    """返回模型框架名。"""
+    mapping = {
+        "lightgbm": "lightgbm",
+        "xgboost": "xgboost",
+        "catboost": "catboost",
+        "linear": "sklearn",
+        "gru": "pytorch",
+        "lstm": "pytorch",
+        "alstm": "pytorch",
+        "transformer": "pytorch",
+        "tra": "pytorch",
+        "hist": "pytorch",
+        "tabnet": "pytorch",
+        "tcn": "pytorch",
+    }
+    return mapping.get(model_type, "unknown")
+
+
+def train_model(df: pd.DataFrame, features: list[str], cfg: dict, hardware: dict | None = None) -> tuple:
+    """统一训练入口：根据 model_type 路由到对应训练函数。"""
+    model_cfg = cfg.get("model", {})
+    model_type = str(model_cfg.get("type", "lightgbm")).strip().lower()
+
+    if model_type not in _ALL_MODEL_TYPES:
+        raise ValueError(f"Unsupported model_type: {model_type}")
+
+    # 检查深度学习模型是否有 GPU
+    if model_type in _DL_MODEL_TYPES and hardware and not hardware.get("gpu_available"):
+        logger.warning("DL model '%s' requested but no GPU detected. Training will be slow on CPU.", model_type)
+
+    # 数据切分
+    train_df, val_df, test_df = _split_data(df, cfg)
+    fill_values, X_train, y_train, X_val, y_val, _fill = _prepare_arrays(train_df, val_df, features)
+
+    # 路由到对应训练函数
+    logger.info("Training model: %s (framework=%s)", model_type, _get_model_framework(model_type))
+    train_t0 = time.time()
+
+    if model_type == "lightgbm":
+        model = _train_lgb(cfg, features, X_train, y_train, X_val, y_val)
+    elif model_type == "xgboost":
+        model = _train_xgb(cfg, features, X_train, y_train, X_val, y_val)
+    elif model_type == "catboost":
+        model = _train_catboost(cfg, features, X_train, y_train, X_val, y_val)
+    elif model_type == "linear":
+        model = _train_linear(cfg, features, X_train, y_train, X_val, y_val)
+    elif model_type in _DL_MODEL_TYPES:
+        dl_params = model_cfg.get("dl_params", {})
+        output_dir = Path("/workspace")
+        model, train_m, val_m, dl_metadata = _train_dl(
+            model_type, train_df, val_df, features, dl_params, output_dir, hardware=hardware
+        )
+        train_elapsed = time.time() - train_t0
+        logger.info("Training finished in %.2fs (%s)", train_elapsed, model_type)
+        logger.info(f"Val IC={val_m['ic']:.4f}")
+
+        # DL 模型生成全窗口预测
+        y_full_pred = _predict_dl(output_dir, df, features, dl_metadata)
+        full_pred_df = df[["symbol", "trade_date", "label"]].copy()
+        full_pred_df["pred"] = y_full_pred
+        full_pred_df["split"] = "train"
+        full_pred_df.loc[
+            (full_pred_df["trade_date"] >= val_df["trade_date"].min()) &
+            (full_pred_df["trade_date"] <= val_df["trade_date"].max()),
+            "split",
+        ] = "valid"
+        full_pred_df.loc[
+            (full_pred_df["trade_date"] >= test_df["trade_date"].min()) &
+            (full_pred_df["trade_date"] <= test_df["trade_date"].max()),
+            "split",
+        ] = "test"
+
+        # 计算 test 集指标
+        test_mask = full_pred_df["split"] == "test"
+        y_test_pred = full_pred_df.loc[test_mask, "pred"].values
+        y_test_true = full_pred_df.loc[test_mask, "label"].values
+        test_m = _compute_metrics(test_df, y_test_true.astype("float32"), y_test_pred.astype("float32"))
+
+        return (
+            model,
+            fill_values,
+            train_m,
+            val_m,
+            test_m,
+            full_pred_df.reset_index(drop=True),
+            {
+                "train": train_df.reset_index(drop=True),
+                "valid": val_df.reset_index(drop=True),
+                "test": test_df.reset_index(drop=True),
+            },
+            model_type,
+            dl_metadata,
+        )
+    else:
+        raise ValueError(f"Unsupported model_type: {model_type}")
+
+    train_elapsed = time.time() - train_t0
+    logger.info("Training finished in %.2fs (%s)", train_elapsed, model_type)
+
+    # 统一预测 (树模型)
+    y_train_pred = _predict_with_model(model, _fill(train_df), model_type, features)
+    y_val_pred = _predict_with_model(model, _fill(val_df), model_type, features)
+    y_test_pred = _predict_with_model(model, _fill(test_df), model_type, features)
     train_m = _compute_metrics(train_df, y_train, y_train_pred)
     val_m   = _compute_metrics(val_df,   y_val,   y_val_pred)
     test_m  = _compute_metrics(test_df,  test_df["label"].astype("float32").to_numpy(), y_test_pred)
@@ -589,9 +1168,9 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
     logger.info(f"Train IC={train_m['ic']:.4f}  RankIC={train_m['rank_ic']:.4f}")
     logger.info(f"Val   IC={val_m['ic']:.4f}    RankIC={val_m['rank_ic']:.4f}  ICIR={val_m['rank_icir']:.4f}")
 
-    # 生成全窗口预测：覆盖 train/valid/test 三段，供后续完整回测使用
+    # 生成全窗口预测
     full_pred_df = df[["symbol", "trade_date", "label"]].copy()
-    full_pred_df["pred"] = model.predict(_fill(df))
+    full_pred_df["pred"] = _predict_with_model(model, _fill(df), model_type, features)
     full_pred_df["split"] = "train"
     full_pred_df.loc[
         (full_pred_df["trade_date"] >= val_df["trade_date"].min()) &
@@ -615,6 +1194,7 @@ def train_model(df: pd.DataFrame, features: list[str], cfg: dict) -> tuple:
             "valid": val_df.reset_index(drop=True),
             "test": test_df.reset_index(drop=True),
         },
+        model_type,
     )
 
 
@@ -661,6 +1241,10 @@ def main() -> int:
 
         logger.info("=== QuantMind Training Start ===")
         logger.info(f"run_id={run_id}  job={job_name}  config={cfg_path}")
+
+        # 硬件环境检测
+        hardware = detect_hardware()
+
         # 数据加载（特征列自动补齐基础6列）
         submitted_features = list(dict.fromkeys([str(item).strip() for item in (cfg["data"].get("features", []) or []) if str(item).strip()]))
         auto_appended_features = [feature for feature in TRAINING_BASE_FEATURES if feature not in submitted_features]
@@ -684,14 +1268,28 @@ def main() -> int:
             market=market,
         )
         train_t0 = time.time()
-        model, fill_values, train_m, val_m, test_m, pred_df, split_frames = train_model(df, valid_features, cfg)
+        train_result = train_model(df, valid_features, cfg, hardware=hardware)
+        # train_model 返回 8-tuple (树模型) 或 9-tuple (DL 模型，含 dl_metadata)
+        if len(train_result) == 9:
+            model, fill_values, train_m, val_m, test_m, pred_df, split_frames, actual_model_type, dl_metadata = train_result
+        else:
+            model, fill_values, train_m, val_m, test_m, pred_df, split_frames, actual_model_type = train_result
+            dl_metadata = None
         elapsed = float(time.time() - train_t0)
-        logger.info("Training finished in %.2fs, best_iteration=%s", elapsed, model.best_iteration)
 
-        # 保存模型
-        model_path = Path("/workspace/model.lgb")
-        model.save_model(str(model_path))
-        logger.info(f"Model saved to {model_path}")
+        # 获取 best_iteration（不同框架方式不同）
+        best_iteration = getattr(model, "best_iteration", None)
+        if best_iteration is None and hasattr(model, "get_best_iteration"):
+            try:
+                best_iteration = model.get_best_iteration()
+            except Exception:
+                best_iteration = None
+        logger.info("Training finished in %.2fs, best_iteration=%s, model_type=%s", elapsed, best_iteration, actual_model_type)
+
+        # 保存模型（多框架）
+        workspace = Path("/workspace")
+        model_filename = _save_model(model, actual_model_type, workspace)
+        logger.info(f"Model saved to {workspace / model_filename}")
 
         # 保存预测结果（parquet 压缩用于存档，比 pickle 小 ~10x）
         pred_path = Path("/workspace/pred.parquet")
@@ -712,12 +1310,18 @@ def main() -> int:
         logger.info(f"Backtest-compatible pred.pkl saved ({pred_pkl_path.stat().st_size/1024/1024:.1f} MB, {len(pred_qlib):,} rows)")
 
         shap_summary_path = Path("/workspace/shap_summary.csv")
+        # SHAP: pred_contrib 仅支持 LightGBM；其他框架暂跳过
+        if actual_model_type != "lightgbm":
+            explain_cfg_shap = {**explain_cfg, "enable_shap": False}
+            logger.info("SHAP disabled: pred_contrib not supported for %s", actual_model_type)
+        else:
+            explain_cfg_shap = explain_cfg
         shap_info = _compute_shap_summary(
             model=model,
             split_frames=split_frames,
             features=valid_features,
             fill_values=fill_values,
-            explain_cfg=explain_cfg,
+            explain_cfg=explain_cfg_shap,
             out_path=shap_summary_path,
         )
         if shap_info.get("status") == "completed":
@@ -737,9 +1341,10 @@ def main() -> int:
         # 构造 metadata
         metadata = {
             "run_id": run_id, "job_name": job_name,
-            "framework": "lightgbm",
-            "model_type": cfg.get("model", {}).get("type", "lightgbm"),
-            "model_file": "model.lgb",
+            "framework": _get_model_framework(actual_model_type),
+            "model_type": actual_model_type,
+            "model_file": model_filename,
+            "hardware": hardware,
             "feature_count": len(valid_features),
             "requested_feature_count": len(submitted_features),
             "requested_features": submitted_features,
@@ -756,7 +1361,7 @@ def main() -> int:
             "test_end":    (cfg.get("split", {}).get("test")  or [None, None])[1] or "",
             "data_source": "parquet",
             "context": context_cfg,
-            "best_iteration": model.best_iteration,
+            "best_iteration": best_iteration,
             "target_horizon_days": int((cfg.get("label", {}) or {}).get("target_horizon_days") or 1),
             "target_mode": str((cfg.get("label", {}) or {}).get("target_mode") or "return"),
             "label_formula": str((cfg.get("label", {}) or {}).get("label_formula") or ""),
@@ -774,6 +1379,9 @@ def main() -> int:
             "generated_at": datetime.utcnow().isoformat(),
             "elapsed_seconds": elapsed,
         }
+        # DL 模型特有元数据 (model_class_name, model_params, input_spec 等)
+        if dl_metadata:
+            metadata.update(dl_metadata)
         def _sanitize_for_json_meta(obj):
             import math
             if isinstance(obj, dict):
@@ -928,7 +1536,7 @@ if __name__ == "__main__":
                 "test": {"rmse": test_m["rmse"], "auc": test_m["auc"]},
             },
             "artifacts": [
-                {"name": "model.lgb",     "local": "/workspace/model.lgb"},
+                {"name": model_filename,  "local": f"/workspace/{model_filename}"},
                 {"name": "pred.parquet",  "local": "/workspace/pred.parquet"},
                 {"name": "metadata.json", "local": "/workspace/metadata.json"},
                 {"name": "inference.py",  "local": "/workspace/inference.py"},
@@ -937,7 +1545,7 @@ if __name__ == "__main__":
             ],
             "summary": {
                 "status": "训练完成",
-                "message": f"训练完成，best_iteration={model.best_iteration}，产物已保存到本地模型目录",
+                "message": f"训练完成({actual_model_type})，best_iteration={best_iteration}，产物已保存到本地模型目录",
             },
             "metadata": metadata,
             "error": "",
