@@ -241,6 +241,13 @@ services:
     command: >
       sh -c "pip install -e /app/TradingAgents-astock --quiet 2>/dev/null;
              python backend/main_oss.py"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     networks:
       - quantmind-net

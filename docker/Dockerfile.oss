@@ -44,13 +44,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /tmp/requirements.txt
 COPY requirements/production.txt /tmp/requirements-production.txt
 COPY requirements/ai.txt /tmp/requirements-ai.txt
+COPY docker/torch_wheels/ /tmp/torch_wheels/
 
 RUN python -m pip install --upgrade pip setuptools wheel cython \
-    && python -m pip install --no-cache-dir --root-user-action=ignore torch --index-url https://download.pytorch.org/whl/cpu \
+    && python -m pip install --no-cache-dir --root-user-action=ignore /tmp/torch_wheels/*.whl \
     && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt \
     && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements-production.txt \
     && python -m pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements-ai.txt \
-    && rm -f /tmp/requirements*.txt
+    && rm -rf /tmp/requirements*.txt /tmp/torch_wheels
 
 # 修复 qlib 0.9.7 bug: position.py 中 price=None 导致 TypeError
 COPY docker/patch_qlib.py /tmp/patch_qlib.py

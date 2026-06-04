@@ -179,3 +179,4 @@ db/db.zip
 /TradingAgents-astock/
 /dexter-finance/
 /openbb-cn/
+docker/torch_wheels/
