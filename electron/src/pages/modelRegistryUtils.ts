@@ -145,16 +145,45 @@ export function modelIdToDisplayName(modelId?: string | null, fallback?: string)
   return MODEL_ID_NAME_MAP[modelId] || fallback || modelId;
 }
 
+/** 返回算法短标签（用于名称前缀），如 LightGBM、GRU */
+export function extractModelTypeShort(m: UserModelRecord): string {
+  const raw = String(getMeta(m).model_type ?? '').toLowerCase();
+  if (raw.includes('lightgbm') || raw.includes('lgb')) return 'LightGBM';
+  if (raw.includes('xgboost') || raw.includes('xgb')) return 'XGBoost';
+  if (raw.includes('catboost')) return 'CatBoost';
+  if (raw === 'linear') return 'Linear';
+  if (raw === 'gru') return 'GRU';
+  if (raw === 'lstm') return 'LSTM';
+  if (raw === 'alstm') return 'ALSTM';
+  if (raw === 'transformer') return 'Transformer';
+  if (raw === 'tcn') return 'TCN';
+  if (raw === 'tabnet') return 'TabNet';
+  if (raw.includes('tft')) return 'TFT';
+  return '';
+}
+
 export function modelDisplayName(m: UserModelRecord): string {
   const meta = getMeta(m);
-  return modelIdToDisplayName(m.model_id, meta.display_name || m.model_id);
+  const base = modelIdToDisplayName(m.model_id, meta.display_name || m.model_id);
+  const algo = extractModelTypeShort(m);
+  if (algo && !base.toLowerCase().startsWith(algo.toLowerCase())) {
+    return `${algo} - ${base}`;
+  }
+  return base;
 }
 export function extractModelType(m: UserModelRecord): string {
   const raw = String(getMeta(m).model_type ?? '').toLowerCase();
   if (raw.includes('lgb') || raw.includes('lightgbm')) return '轻量级GBDT';
   if (raw.includes('xgb') || raw.includes('xgboost')) return '极端梯度提升';
+  if (raw.includes('catboost')) return 'CatBoost 梯度提升';
+  if (raw === 'linear') return '线性回归';
+  if (raw === 'gru') return '门控循环单元';
+  if (raw === 'lstm') return '长短期记忆网络';
+  if (raw === 'alstm') return '注意力 LSTM';
+  if (raw === 'transformer') return 'Transformer';
+  if (raw === 'tcn') return '时序卷积网络';
+  if (raw === 'tabnet') return 'TabNet';
   if (raw.includes('tft')) return '时序融合变换器';
-  if (raw.includes('lstm')) return '长短期记忆网络';
   if (raw) return '自定义模型';
   return '模型';
 }
