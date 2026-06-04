@@ -612,6 +612,17 @@ def _build_precheck_items(
                 model_file_exists = True
                 model_file_path = candidate
                 break
+    # ensemble 模型：ensemble_config.json 或 inference.py 算作模型文件
+    if not model_file_exists:
+        meta = runner._read_primary_metadata()
+        model_type = str(meta.get("model_type") or "").lower()
+        if model_type == "ensemble":
+            for name in ("ensemble_config.json", "inference.py"):
+                candidate = model_dir / name
+                if candidate.is_file():
+                    model_file_exists = True
+                    model_file_path = candidate
+                    break
     items.append(
         {
             "key": "model_file",
