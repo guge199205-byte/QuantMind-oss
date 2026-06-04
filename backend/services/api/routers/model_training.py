@@ -687,15 +687,16 @@ def _build_precheck_items(
         readiness = runner._query_dimension_readiness(trade_date=data_trade_date, expected_dim=expected_feature_dim)
         readiness_label = "当日数据覆盖就绪"
 
-    items.append(
-        {
-            "key": "market_data_ready",
-            "label": readiness_label,
-            "passed": bool(readiness.get("ready")),
-            "severity": "hard",
-            "detail": str(readiness.get("detail") or ""),
-        }
-    )
+    market_data_item: dict[str, Any] = {
+        "key": "market_data_ready",
+        "label": readiness_label,
+        "passed": bool(readiness.get("ready")),
+        "severity": "hard",
+        "detail": str(readiness.get("detail") or ""),
+    }
+    if readiness.get("latest_available_date"):
+        market_data_item["latest_available_date"] = readiness["latest_available_date"]
+    items.append(market_data_item)
 
     items.append(
         {
@@ -752,6 +753,26 @@ async def precheck_inference(
         data_trade_date=data_trade_date,
         prediction_trade_date=prediction_trade_date,
     )
+
+    # 数据回退：如果指定日期无数据但有更新的可用日期，自动回退
+    data_fallback = False
+    for item in items:
+        if item.get("key") == "market_data_ready" and not item.get("passed"):
+            latest = item.get("latest_available_date")
+            if latest and latest != data_trade_date:
+                data_trade_date = latest
+                prediction_trade_date = runner._resolve_prediction_trade_date(data_trade_date)
+                items = _build_precheck_items(
+                    resolved_model_id=requested_model_id,
+                    model_dir=model_dir,
+                    model_file=str(resolved.model_file or ""),
+                    runner=runner,
+                    data_trade_date=data_trade_date,
+                    prediction_trade_date=prediction_trade_date,
+                )
+                data_fallback = True
+            break
+
     items.insert(
         0,
         {
@@ -766,6 +787,14 @@ async def precheck_inference(
             ),
         },
     )
+    if data_fallback:
+        items.insert(1, {
+            "key": "data_fallback",
+            "label": "数据日期回退",
+            "passed": True,
+            "severity": "soft",
+            "detail": f"请求日期 {requested_inference_date.isoformat()} 无数据，已回退到最新可用 {data_trade_date}",
+        })
     return {
         "passed": _precheck_passed(items),
         "checked_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
@@ -812,6 +841,24 @@ async def run_model_inference(
         data_trade_date=data_trade_date,
         prediction_trade_date=prediction_trade_date,
     )
+
+    # 数据回退：如果指定日期无数据但有更新的可用日期，自动回退
+    for item in precheck_items:
+        if item.get("key") == "market_data_ready" and not item.get("passed"):
+            latest = item.get("latest_available_date")
+            if latest and latest != data_trade_date:
+                data_trade_date = latest
+                prediction_trade_date = runner._resolve_prediction_trade_date(data_trade_date)
+                precheck_items = _build_precheck_items(
+                    resolved_model_id=requested_model_id,
+                    model_dir=model_dir,
+                    model_file=str(resolved.model_file or ""),
+                    runner=runner,
+                    data_trade_date=data_trade_date,
+                    prediction_trade_date=prediction_trade_date,
+                )
+            break
+
     precheck_items.insert(
         0,
         {

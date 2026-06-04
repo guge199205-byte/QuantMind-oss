@@ -389,13 +389,20 @@ class InferenceScriptRunner:
             df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.strftime("%Y-%m-%d")
             rows = int((df["trade_date"] == trade_date).sum())
             ready = rows > 0
-            return {
+            result = {
                 "ready": ready,
                 "detail": (
                     f"parquet={parquet_path.name}, date={trade_date}, rows={rows}"
                     + ("" if ready else " (该日期无数据)")
                 ),
             }
+            if not ready:
+                # 返回最新可用日期，供 precheck 自动回退
+                latest = df["trade_date"].max()
+                if latest:
+                    result["latest_available_date"] = latest
+                    result["detail"] += f", 最新可用={latest}"
+            return result
         except Exception as exc:
             return {"ready": False, "detail": f"parquet 读取失败: {exc}"}
 
