@@ -895,19 +895,18 @@ def _train_dl(
         # Train
         model_obj.train_epoch(train_loader) if is_ts else model_obj.train_epoch(X_train, y_train)
 
-        # Evaluate
+        # Evaluate (only on val set — skip train set test for speed)
         if is_ts:
-            train_loss, train_score = model_obj.test_epoch(train_loader)
             val_loss, val_score = model_obj.test_epoch(val_loader)
         else:
-            train_loss, train_score = model_obj.test_epoch(X_train, y_train)
             val_loss, val_score = model_obj.test_epoch(X_val, y_val)
 
+        train_score = float("nan")  # placeholder, not computed each epoch
         evals["train"].append(train_score)
         evals["valid"].append(val_score)
 
         if (epoch + 1) % 10 == 0 or epoch == 0:
-            logger.info("Epoch %d/%d: train=%.6f, valid=%.6f", epoch + 1, n_epochs, train_score, val_score)
+            logger.info("Epoch %d/%d: valid=%.6f", epoch + 1, n_epochs, val_score)
 
         if val_score > best_score:
             best_score = val_score
