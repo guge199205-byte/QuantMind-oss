@@ -151,20 +151,53 @@ export const ModelRegistryPage: React.FC = () => {
   const loadModels = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const resp = await modelTrainingService.listUserModels(true);
+      const [resp, sysModels] = await Promise.all([
+        modelTrainingService.listUserModels(true),
+        modelTrainingService.listSystemModels(),
+      ]);
       const allItems = resp.items ?? [];
-      // 按当前市场过滤模型
+      // 按当前市场过滤用户模型
       const items = allItems.filter((m) => {
         const meta = m.metadata_json || {};
         const modelMarket = (meta.market as string) || '';
-        // 如果模型没有标记市场，则兼容显示（旧数据）
         if (!modelMarket) return true;
         return modelMarket === currentMarket;
       });
-      setUserModels(items);
+      // 系统模型转为 UserModelRecord 格式并合并到列表顶部
+      const sysItems: UserModelRecord[] = (sysModels ?? [])
+        .filter((sm) => {
+          const meta = sm as unknown as Record<string, unknown>;
+          const mkt = (meta.market as string) || '';
+          if (!mkt) return true;
+          return mkt === currentMarket;
+        })
+        .map((sm) => ({
+          tenant_id: 'system',
+          user_id: 'system',
+          model_id: sm.model_id,
+          source_run_id: '',
+          status: 'active',
+          storage_path: '',
+          model_file: '',
+          metadata_json: {
+            display_name: sm.display_name,
+            description: sm.description,
+            framework: sm.framework,
+            model_type: sm.model_type,
+            feature_count: sm.feature_count,
+            feature_columns: sm.feature_columns,
+            market: (sm as unknown as Record<string, unknown>).market,
+            ensemble_config: (sm as unknown as Record<string, unknown>).ensemble_config,
+          },
+          metrics_json: sm.performance_metrics ?? {},
+          is_default: false,
+          created_at: sm.created_at,
+        }));
+      const merged = [...sysItems, ...items];
+      setUserModels(merged);
 
-      if (!selectedId && items.length > 0) {
-        const def = items.find(m => m.is_default) ?? items[0];
+      if (!selectedId && merged.length > 0) {
+        const def = merged.find(m => m.is_default) ?? merged[0];
         if (def) setSelectedId(def.model_id);
       }
     } catch (err: any) {
