@@ -75,3 +75,16 @@ research/
 README.md
 FRONTEND_CONFIG.md
 AGENTS.md
+
+# Large non-essential directories
+models/
+alphaagent/
+daily_stock_analysis/
+go-stock/
+TradingAgents-astock/
+dexter-finance/
+dashboard/
+tools/
+openbb-cn/
+user_pools_local/
+electron/
