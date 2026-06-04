@@ -395,6 +395,10 @@ class LocalDockerOrchestrator:
         logger.info("[%s] Final volumes config: %s", run_id, volumes)
 
         try:
+            # GPU 设备请求：请求所有可用 GPU
+            device_requests = [
+                docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+            ]
             container = await asyncio.to_thread(
                 self.docker.containers.run,
                 _TRAINING_IMAGE,
@@ -410,6 +414,7 @@ class LocalDockerOrchestrator:
                 detach=True,
                 name=f"qm-train-{run_id}",
                 mem_limit=os.getenv("TRAINING_MEM_LIMIT", "24g"),
+                device_requests=device_requests,
             )
         except Exception as e:
             from backend.shared.database_manager_v2 import get_session

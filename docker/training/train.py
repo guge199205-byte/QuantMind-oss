@@ -721,6 +721,41 @@ _QLIB_FLAT_MODEL_MAP: dict[str, tuple[str, str]] = {
 _QLIB_MODEL_MAP = {**_QLIB_TS_MODEL_MAP, **_QLIB_FLAT_MODEL_MAP}
 
 
+class _TSLazyDataset(torch.utils.data.Dataset):
+    """Lazy TS dataset: 按需生成滚动窗口，避免一次性加载全部窗口到内存。
+
+    存储原始数据 (per-instrument contiguous arrays)，__getitem__ 时动态切片。
+    内存占用: O(total_rows * d_feat) 而非 O(N_windows * step_len * d_feat)。
+    """
+
+    def __init__(self, X: np.ndarray, y: np.ndarray, instrument_offsets: list[int], step_len: int):
+        self.X = X              # [total_rows, d_feat] float32 contiguous
+        self.y = y              # [total_rows] float32
+        self.step_len = step_len
+        # 每个 instrument 的有效窗口起始行号 (全局索引)
+        self.indices: list[int] = []
+        for start, end in zip(instrument_offsets[:-1], instrument_offsets[1:]):
+            n = end - start
+            for i in range(n - step_len + 1):
+                self.indices.append(start + i)
+        if not self.indices:
+            raise ValueError(f"No valid TS samples (step_len={step_len}, rows={len(X)})")
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def __getitem__(self, idx: int) -> "torch.Tensor":
+        import torch
+        start = self.indices[idx]
+        window = self.X[start : start + self.step_len].copy()  # [step_len, d_feat]
+        label = self.y[start + self.step_len - 1]
+        # Qlib TS 模型期望: data[:, 0:-1] = features, data[-1, -1] = label
+        label_col = np.full((self.step_len, 1), np.float32(0.0))
+        label_col[-1, 0] = label
+        row = np.concatenate([window, label_col], axis=1)  # [step_len, d_feat+1]
+        return torch.from_numpy(row)
+
+
 def _build_ts_dataloader(
     df_X: pd.DataFrame,
     df_y: pd.Series,
@@ -731,47 +766,31 @@ def _build_ts_dataloader(
     """将扁平 DataFrame (MultiIndex: instrument x datetime) 转为 3D DataLoader。
 
     每个样本是 [step_len, d_feat+1]，最后一列为 label (取自最后一个时间步)。
+    使用 LazyDataset 按需生成窗口，内存占用 O(rows * d_feat)。
     """
     import torch
-    from torch.utils.data import DataLoader, TensorDataset
+    from torch.utils.data import DataLoader
 
-    X_values = df_X.values.astype(np.float32)
-    y_values = df_y.values.astype(np.float32)
+    X_values = np.ascontiguousarray(df_X.values, dtype=np.float32)
+    y_values = np.ascontiguousarray(df_y.values, dtype=np.float32)
 
     if isinstance(df_X.index, pd.MultiIndex):
         instruments = df_X.index.get_level_values(0).unique()
-        get_mask = lambda inst: df_X.index.get_level_values(0) == inst
+        # 预计算每个 instrument 在连续数组中的 offset
+        offsets = [0]
+        for inst in instruments:
+            mask = df_X.index.get_level_values(0) == inst
+            offsets.append(offsets[-1] + int(mask.sum()))
+        # 重排为 instrument-连续布局
+        order = np.concatenate([np.where(df_X.index.get_level_values(0) == inst)[0] for inst in instruments])
+        X_values = X_values[order]
+        y_values = y_values[order]
     else:
-        instruments = ["_all"]
-        get_mask = lambda _: pd.Series(True, index=df_X.index)
+        offsets = [0, len(X_values)]
 
-    windows: list[np.ndarray] = []
-    labels: list[float] = []
-
-    for inst in instruments:
-        mask = get_mask(inst)
-        inst_X = X_values[mask]
-        inst_y = y_values[mask]
-        n = len(inst_X)
-        for i in range(n - step_len + 1):
-            windows.append(inst_X[i : i + step_len])
-            labels.append(inst_y[i + step_len - 1])
-
-    if not windows:
-        raise ValueError(f"No valid TS samples (step_len={step_len}, rows={len(X_values)})")
-
-    data_arr = np.array(windows, dtype=np.float32)  # [N, step_len, d_feat]
-    label_arr = np.array(labels, dtype=np.float32)   # [N]
-    # Qlib TS 模型期望: data[:, :, 0:-1] = features, data[:, -1, -1] = label
-    label_col = np.broadcast_to(
-        label_arr[:, np.newaxis, np.newaxis],
-        (len(label_arr), step_len, 1),
-    ).astype(np.float32)
-    data = np.concatenate([data_arr, label_col], axis=2)  # [N, step_len, d_feat+1]
-
-    tensor_data = torch.from_numpy(data)
-    dataset = TensorDataset(tensor_data)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
+    dataset = _TSLazyDataset(X_values, y_values, offsets, step_len)
+    logger.info("TS DataLoader: %d samples from %d rows (step_len=%d)", len(dataset), len(X_values), step_len)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False, num_workers=0)
 
 
 def _train_dl(
