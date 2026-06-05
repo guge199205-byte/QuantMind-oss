@@ -65,18 +65,26 @@ async def scan_model_directories(
     """
     自动扫描 models/ 下所有有效模型目录，聚合 metadata.json、
     workflow_config.yaml、best_params.yaml 等元数据文件，返回结构化列表。
+    使用线程池避免阻塞事件循环。
     """
+    import concurrent.futures
+
     try:
         dirs = _find_model_directories(MODELS_ROOT)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"扫描目录失败: {e}") from e
 
-    results = []
-    for d in dirs:
-        try:
-            results.append(_scan_model_directory(d))
-        except Exception as e:
-            results.append({"model_id": Path(d).name, "dir_path": d, "error": str(e)})
+    def _scan_all():
+        results = []
+        for d in dirs:
+            try:
+                results.append(_scan_model_directory(d))
+            except Exception as e:
+                results.append({"model_id": Path(d).name, "dir_path": d, "error": str(e)})
+        return results
+
+    loop = __import__("asyncio").get_event_loop()
+    results = await loop.run_in_executor(None, _scan_all)
 
     return {"total": len(results), "models": results}
 
