@@ -57,11 +57,10 @@ RUN python -m pip install --upgrade pip setuptools wheel cython \
 COPY docker/patch_qlib.py /tmp/patch_qlib.py
 RUN python /tmp/patch_qlib.py && rm /tmp/patch_qlib.py
 
-# 安装 rd-agent 因子演化模块（setuptools-scm 需要 SETUPTOOLS_SCM_PRETEND_VERSION 绕过 .git 缺失）
-COPY rd-agent rd-agent
-RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RDAGENT=0.1.dev1 \
-    python -m pip install --no-cache-dir --root-user-action=ignore ./rd-agent \
-    && rm -rf rd-agent
+# 安装 rd-agent 因子演化模块（可选，目录不存在则跳过）
+# rd-agent 在 .gitignore 中，OSS 克隆后可能不存在
+COPY docker/install_rdagent.sh /tmp/install_rdagent.sh
+RUN chmod +x /tmp/install_rdagent.sh && /tmp/install_rdagent.sh && rm /tmp/install_rdagent.sh
 
 # 复制源代码
 COPY backend backend
