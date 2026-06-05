@@ -915,7 +915,7 @@ def _train_dl(
             # 保存最佳状态
             inner_model = getattr(model_obj, "model", None)
             if inner_model is None:
-                for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                for attr_name in ("GRU_model", "gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
                     inner_model = getattr(model_obj, attr_name, None)
                     if inner_model is not None:
                         break
@@ -931,7 +931,7 @@ def _train_dl(
     if best_state is not None:
         inner_model = getattr(model_obj, "model", None)
         if inner_model is None:
-            for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+            for attr_name in ("GRU_model", "gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
                 inner_model = getattr(model_obj, attr_name, None)
                 if inner_model is not None:
                     break
@@ -1001,7 +1001,7 @@ def _predict_dl(
     state_dict = torch.load(str(model_path), map_location="cpu")
     inner_model = getattr(model_obj, "model", None)
     if inner_model is None:
-        for attr_name in ("gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+        for attr_name in ("GRU_model", "gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
             inner_model = getattr(model_obj, attr_name, None)
             if inner_model is not None:
                 break
@@ -1013,28 +1013,37 @@ def _predict_dl(
     if is_ts:
         step_len = dl_metadata.get("dl_params", {}).get("dl_step_len", 20)
         loader = _build_ts_dataloader(df_X[features], pd.Series(0.0, index=df_X.index), step_len, batch_size, shuffle=False)
-        model_obj.model.eval() if hasattr(model_obj, "model") else None
+        # 找到内部模型（GRU 用 GRU_model，LSTM 用 lstm_model 等）
+        inner_model = getattr(model_obj, "model", None)
+        if inner_model is None:
+            for attr_name in ("GRU_model", "gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                inner_model = getattr(model_obj, attr_name, None)
+                if inner_model is not None:
+                    break
+        inner_model.eval() if inner_model is not None else None
         preds = []
         for batch in loader:
             data = batch[0] if isinstance(batch, (list, tuple)) else batch
             feature = data[:, :, 0:-1]
             with torch.no_grad():
-                if hasattr(model_obj, "model") and model_obj.model is not None:
-                    pred = model_obj.model(feature.float()).detach().cpu().numpy()
-                else:
-                    pred = model_obj.predict(feature.float()).detach().cpu().numpy()
+                pred = inner_model(feature.float()).detach().cpu().numpy()
             preds.append(pred)
         return np.concatenate(preds)
     else:
         X_values = df_X[features].values.astype(np.float32)
         X_tensor = torch.from_numpy(X_values)
-        model_obj.model.eval() if hasattr(model_obj, "model") else None
+        inner_model = getattr(model_obj, "model", None)
+        if inner_model is None:
+            for attr_name in ("GRU_model", "gru_model", "lstm_model", "alstm_model", "transformer_model", "tcn_model", "tabnet_model"):
+                inner_model = getattr(model_obj, attr_name, None)
+                if inner_model is not None:
+                    break
+        inner_model.eval() if inner_model is not None else None
         preds = []
         for i in range(0, len(X_tensor), batch_size):
             batch = X_tensor[i:i+batch_size]
             with torch.no_grad():
-                priors = torch.ones(batch.shape[0], len(features))
-                pred = model_obj.model(batch, priors).detach().cpu().numpy()
+                pred = inner_model(batch.float()).detach().cpu().numpy()
             preds.append(pred)
         return np.concatenate(preds)
 
