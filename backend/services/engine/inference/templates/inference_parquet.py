@@ -2,10 +2,10 @@
 """
 QuantMind Parquet 数据源推理脚本 (inference.py 模板)
 =====================================================
-适用于训练数据来自 feature_snapshots/*.parquet 的 LightGBM 模型。
+适用于训练数据来自 feature_snapshots/*.parquet 的 LightGBM/XGBoost 模型。
 
 平台注入环境变量：
-    MODEL_DIR      模型目录绝对路径（含 metadata.json + model.lgb）
+    MODEL_DIR      模型目录绝对路径（含 metadata.json + model.lgb/model.xgb）
     TRADE_DATE     推理日期（同 --date 参数，互为备份）
     OUTPUT_FORMAT  固定值 json
 
@@ -29,9 +29,18 @@ import os
 import sys
 from pathlib import Path
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
+
+try:
+    import xgboost as xgb
+except ImportError:
+    xgb = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +66,7 @@ def parse_args():
                    help="输出 JSON 文件路径")
     p.add_argument("--model-dir", type=str,
                    default=os.getenv("MODEL_DIR", str(Path(__file__).parent)),
-                   help="模型目录（含 metadata.json + model.lgb）")
+                   help="模型目录（含 metadata.json + model.lgb/model.xgb）")
     p.add_argument("--data-dir", type=str,
                    default=os.getenv("MODEL_TRAINING_DATA_DIR", _DEFAULT_DATA_DIR),
                    help="训练数据 parquet 目录")
@@ -78,21 +87,40 @@ def load_metadata(model_dir: Path) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3. 模型加载
+# 3. 模型加载（支持 LightGBM + XGBoost）
 # ═══════════════════════════════════════════════════════════════════════════
 
-def load_model(model_dir: Path, meta: dict) -> lgb.Booster:
-    model_file = meta.get("model_file", "model.lgb")
-    model_path = model_dir / model_file
-    if not model_path.exists():
-        candidates = list(model_dir.glob("*.lgb")) + list(model_dir.glob("*.txt"))
-        if not candidates:
-            logger.error("未找到 LightGBM 模型文件: %s", model_dir)
+def load_model(model_dir: Path, meta: dict):
+    model_file = meta.get("model_file", "")
+    model_path = model_dir / model_file if model_file else None
+
+    # 如果 metadata 没指定，按扩展名搜索
+    if not model_path or not model_path.exists():
+        for ext in ("*.xgb", "*.lgb", "*.txt", "*.bin"):
+            candidates = list(model_dir.glob(ext))
+            if candidates:
+                model_path = candidates[0]
+                break
+        else:
+            logger.error("未找到模型文件: %s", model_dir)
             sys.exit(1)
-        model_path = candidates[0]
         logger.warning("使用候选模型文件: %s", model_path.name)
-    logger.info("加载模型: %s", model_path.name)
-    return lgb.Booster(model_file=str(model_path))
+
+    suffix = model_path.suffix.lower()
+    logger.info("加载模型: %s (格式=%s)", model_path.name, suffix)
+
+    if suffix == ".xgb":
+        if xgb is None:
+            logger.error("模型为 XGBoost 格式，但 xgboost 未安装")
+            sys.exit(1)
+        booster = xgb.Booster()
+        booster.load_model(str(model_path))
+        return ("xgb", booster)
+    else:
+        if lgb is None:
+            logger.error("模型为 LightGBM 格式，但 lightgbm 未安装")
+            sys.exit(1)
+        return ("lgb", lgb.Booster(model_file=str(model_path)))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -257,7 +285,7 @@ def main():
         sys.exit(2)
 
     # 3. 加载模型
-    model = load_model(model_dir, meta)
+    model_type, model = load_model(model_dir, meta)
 
     # 4. 预处理
     X_df, symbols = preprocess(day_df, meta)
@@ -268,9 +296,16 @@ def main():
         print(msg, file=sys.stderr)
         sys.exit(2)
 
-    # 5. 推理
+    # 5. 推理（LightGBM 和 XGBoost 使用不同的 predict 接口）
     best_iter = meta.get("best_iteration")
-    scores = model.predict(X_df.values.astype(np.float32), num_iteration=best_iter)
+    X_values = X_df.values.astype(np.float32)
+
+    if model_type == "xgb":
+        dmat = xgb.DMatrix(X_values)
+        scores = model.predict(dmat, iteration_range=(0, best_iter) if best_iter else None)
+    else:
+        scores = model.predict(X_values, num_iteration=best_iter)
+
     logger.info("推理完成，生成 %d 条信号", len(scores))
 
     # 6. 输出 JSON

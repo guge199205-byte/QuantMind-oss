@@ -1447,10 +1447,10 @@ def main() -> int:
 """
 QuantMind Parquet 数据源推理脚本 (inference.py 模板)
 =====================================================
-适用于训练数据来自 feature_snapshots/*.parquet 的 LightGBM 模型。
+适用于训练数据来自 feature_snapshots/*.parquet 的 LightGBM/XGBoost 模型。
 
 平台注入环境变量：
-    MODEL_DIR      模型目录绝对路径（含 metadata.json + model.lgb）
+    MODEL_DIR      模型目录绝对路径（含 metadata.json + model.lgb/model.xgb）
     TRADE_DATE     推理日期（同 --date 参数，互为备份）
     OUTPUT_FORMAT  固定值 json
 
@@ -1468,9 +1468,17 @@ exit code：
 from __future__ import annotations
 import argparse, json, logging, os, sys
 from pathlib import Path
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
+try:
+    import xgboost as xgb
+except ImportError:
+    xgb = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", stream=sys.stderr)
 logger = logging.getLogger("inference_parquet")
@@ -1492,14 +1500,23 @@ def load_metadata(model_dir):
     return json.loads(meta_path.read_text(encoding="utf-8"))
 
 def load_model(model_dir, meta):
-    model_path = Path(model_dir) / meta.get("model_file", "model.lgb")
-    if not model_path.exists():
-        candidates = list(Path(model_dir).glob("*.lgb")) + list(Path(model_dir).glob("*.txt"))
-        if not candidates:
-            logger.error("未找到 LightGBM 模型文件: %s", model_dir); sys.exit(1)
-        model_path = candidates[0]
-    logger.info("加载模型: %s", model_path.name)
-    return lgb.Booster(model_file=str(model_path))
+    model_file = meta.get("model_file", "")
+    model_path = Path(model_dir) / model_file if model_file else None
+    if not model_path or not model_path.exists():
+        for ext in ("*.xgb", "*.lgb", "*.txt", "*.bin"):
+            candidates = list(Path(model_dir).glob(ext))
+            if candidates:
+                model_path = candidates[0]; break
+        else:
+            logger.error("未找到模型文件: %s", model_dir); sys.exit(1)
+    suffix = model_path.suffix.lower()
+    logger.info("加载模型: %s (格式=%s)", model_path.name, suffix)
+    if suffix == ".xgb":
+        if xgb is None: logger.error("XGBoost 未安装"); sys.exit(1)
+        booster = xgb.Booster(); booster.load_model(str(model_path)); return ("xgb", booster)
+    else:
+        if lgb is None: logger.error("LightGBM 未安装"); sys.exit(1)
+        return ("lgb", lgb.Booster(model_file=str(model_path)))
 
 _MARKET_PARQUET = {"HK": "model_features_hk.parquet", "US": "model_features_us.parquet", "CRYPTO": "model_features_crypto.parquet"}
 
@@ -1545,11 +1562,17 @@ def main():
     day_df = load_date_data(trade_date, data_dir, meta)
     if day_df is None:
         print(f"日期 {trade_date} 无数据，触发兜底", file=sys.stderr); sys.exit(2)
-    model = load_model(model_dir, meta)
+    model_type, model = load_model(model_dir, meta)
     X_df, symbols = preprocess(day_df, meta)
     if len(X_df) == 0:
         print(f"日期 {trade_date} 预处理后无有效行", file=sys.stderr); sys.exit(2)
-    scores = model.predict(X_df.values.astype(np.float32), num_iteration=meta.get("best_iteration"))
+    X_values = X_df.values.astype(np.float32)
+    best_iter = meta.get("best_iteration")
+    if model_type == "xgb":
+        dmat = xgb.DMatrix(X_values)
+        scores = model.predict(dmat, iteration_range=(0, best_iter) if best_iter else None)
+    else:
+        scores = model.predict(X_values, num_iteration=best_iter)
     signals = sorted(
         [{"symbol": s, "score": float(v)} for s, v in zip(symbols, scores) if v == v],
         key=lambda x: x["score"], reverse=True
