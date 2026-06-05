@@ -48,6 +48,7 @@ const AdminPage: React.FC = () => {
             label: '推理引擎',
             children: [
                 { key: 'models', label: '模型管理' },
+                { key: 'feature-catalog', label: '特征字典' },
                 { key: 'rd-agent', label: 'AlphaAgent因子' },
                 { key: 'inference', label: '推理监控' },
             ]

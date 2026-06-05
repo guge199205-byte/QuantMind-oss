@@ -109,6 +109,32 @@ async def get_model_feature_catalog(
     )
 
 
+@router.put("/feature-catalog", summary="更新特征字典（保存到 JSON 文件）")
+async def update_feature_catalog(
+    catalog: dict[str, Any],
+    current_user: dict = Depends(require_admin),
+):
+    """保存特征字典到 JSON 文件，前端训练页下次加载时自动生效。"""
+    categories = catalog.get("categories")
+    if not isinstance(categories, list):
+        raise HTTPException(status_code=400, detail="categories must be a list")
+
+    # 计算总特征数
+    total_features = 0
+    for cat in categories:
+        features = cat.get("features", [])
+        if not isinstance(features, list):
+            raise HTTPException(status_code=400, detail=f"Category '{cat.get('id')}' features must be a list")
+        cat["feature_count"] = len(features)
+        total_features += len(features)
+    catalog["feature_count"] = total_features
+
+    path = Path(os.getcwd()) / "config" / "features" / "model_training_feature_catalog_v1.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"status": "ok", "feature_count": total_features, "path": str(path)}
+
+
 @router.get("/data-status", summary="查看当前数据状态（Qlib + 特征快照）")
 async def get_data_status(
     refresh: bool = Query(False, description="是否强制刷新（后台异步）"),

@@ -164,6 +164,11 @@ class AdminService {
         return resp.data;
     }
 
+    async updateFeatureCatalog(catalog: AdminModelFeatureCatalog): Promise<{ status: string; feature_count: number }> {
+        const resp = await this.axiosInstance.put('/admin/models/feature-catalog', catalog);
+        return resp.data;
+    }
+
     async getDataStatus(refresh = false, market = 'a_share'): Promise<AdminDataStatusResult> {
         const resp = await this.axiosInstance.get<AdminDataStatusResult>('/admin/models/data-status', {
             params: { refresh, market },
