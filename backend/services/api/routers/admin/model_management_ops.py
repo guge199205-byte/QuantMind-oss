@@ -890,7 +890,7 @@ class BacktestRequest(BaseModel):
     start_date: str = Field(..., description="回测起始日期 YYYY-MM-DD")
     end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
     horizon: int = Field(default=10, description="预测周期 T+N（天）")
-    sample_interval: int = Field(default=10, description="每隔 N 个交易日采样一次")
+    sample_interval: int = Field(default=3, description="每隔 N 个交易日采样一次")
     model_config = {"protected_namespaces": ()}
 
 

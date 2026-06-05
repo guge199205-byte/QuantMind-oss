@@ -206,7 +206,7 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
       itemStyle: {
         color: (params: any) => {
           const val = params.value as number;
-          return val >= 0 ? '#22c55e' : '#ef4444';
+          return val >= 0 ? '#ef4444' : '#22c55e';
         },
         borderRadius: [4, 4, 0, 0],
       },
@@ -219,7 +219,7 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
     {
       title: 'IC', dataIndex: 'ic', key: 'ic', width: 100,
       render: (v: number) => (
-        <span style={{ color: v > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+        <span style={{ color: v > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>
           {v.toFixed(4)}
         </span>
       ),
@@ -228,7 +228,7 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
     {
       title: 'Top 10%', dataIndex: 'top_10pct_return', key: 'top10', width: 100,
       render: (v: number) => (
-        <span style={{ color: v > 0 ? '#22c55e' : '#ef4444' }}>
+        <span style={{ color: v > 0 ? '#ef4444' : '#22c55e' }}>
           {(v * 100).toFixed(2)}%
         </span>
       ),
@@ -236,7 +236,7 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
     {
       title: 'Bottom 10%', dataIndex: 'bottom_10pct_return', key: 'bottom10', width: 100,
       render: (v: number) => (
-        <span style={{ color: v > 0 ? '#22c55e' : '#ef4444' }}>
+        <span style={{ color: v > 0 ? '#ef4444' : '#22c55e' }}>
           {(v * 100).toFixed(2)}%
         </span>
       ),
@@ -246,7 +246,7 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
       render: (_: any, record: any) => {
         const ls = (record.top_10pct_return || 0) - (record.bottom_10pct_return || 0);
         return (
-          <span style={{ color: ls > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+          <span style={{ color: ls > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>
             {(ls * 100).toFixed(2)}%
           </span>
         );
@@ -260,21 +260,21 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
       value: result.metrics.ic_mean.toFixed(4),
       icon: Activity,
       color: result.metrics.ic_mean > 0.03 ? 'text-green-600' : result.metrics.ic_mean > 0 ? 'text-yellow-600' : 'text-red-600',
-      desc: '预测与实际收益的秩相关系数',
+      desc: `预测与实际收益的秩相关（随机基准: ${result.metrics.random_ic_mean?.toFixed(4) || '0'}）`,
     },
     {
       label: 'IC_IR',
       value: result.metrics.ic_ir.toFixed(2),
       icon: Zap,
       color: result.metrics.ic_ir > 0.5 ? 'text-green-600' : result.metrics.ic_ir > 0 ? 'text-yellow-600' : 'text-red-600',
-      desc: 'IC均值/IC标准差，衡量稳定性',
+      desc: 'IC均值/IC标准差，衡量稳定性（>0.5为佳）',
     },
     {
       label: '命中率',
       value: `${(result.metrics.hit_rate * 100).toFixed(1)}%`,
       icon: Target,
       color: result.metrics.hit_rate > 0.55 ? 'text-green-600' : result.metrics.hit_rate > 0.5 ? 'text-yellow-600' : 'text-red-600',
-      desc: 'IC > 0 的日期占比',
+      desc: 'IC > 0 的日期占比（随机为50%）',
     },
     {
       label: '多空收益',
@@ -338,6 +338,7 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
               value={sampleInterval}
               onChange={setSampleInterval}
               options={[
+                { value: 3, label: '每3个交易日' },
                 { value: 5, label: '每5个交易日' },
                 { value: 10, label: '每10个交易日' },
                 { value: 20, label: '每20个交易日' },
@@ -397,6 +398,8 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
               <Statistic title="IC 标准差" value={result.metrics.ic_std.toFixed(4)} />
               <Statistic title="十分位单调性" value={`${(result.metrics.monotonicity * 100).toFixed(0)}%`} />
               <Statistic title="Decile Rank IC" value={result.metrics.decile_rank_ic.toFixed(4)} />
+              <Statistic title="T统计量" value={result.metrics.t_stat?.toFixed(2) ?? '-'} />
+              <Statistic title="IC vs 随机" value={result.metrics.ic_vs_random?.toFixed(4) ?? '-'} />
               <Statistic title="回测天数" value={result.metrics.n_dates} />
               <Statistic title="失败天数" value={result.errors.length} />
               <Statistic title="平均Top十分位" value={`${(result.metrics.avg_top_decile * 100).toFixed(2)}%`} />

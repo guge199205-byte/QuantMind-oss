@@ -123,6 +123,16 @@ class BacktestService:
         ic_series = [r["ic"] for r in results]
         ic_arr = np.array(ic_series)
 
+        # Random baseline: shuffle predictions, compute IC, repeat 100 times
+        rng = np.random.RandomState(42)
+        random_ics = []
+        for _ in range(100):
+            shuffled = ic_arr.copy()
+            rng.shuffle(shuffled)
+            random_ics.append(float(np.nanmean(shuffled)))
+        random_ic_mean = float(np.nanmean(random_ics))
+        random_ic_std = float(np.nanstd(random_ics))
+
         metrics = {
             "ic_mean": float(np.nanmean(ic_arr)),
             "ic_std": float(np.nanstd(ic_arr)),
@@ -131,6 +141,10 @@ class BacktestService:
             "ic_positive_rate": float(np.mean([ic > 0 for ic in ic_series])),
             "n_dates": len(results),
             "n_errors": len(errors),
+            "random_ic_mean": random_ic_mean,
+            "random_ic_std": random_ic_std,
+            "ic_vs_random": float(np.nanmean(ic_arr) - random_ic_mean),
+            "t_stat": float((np.nanmean(ic_arr) - random_ic_mean) / (np.nanstd(ic_arr) / np.sqrt(len(ic_series)))) if np.nanstd(ic_arr) > 0 and len(ic_series) > 1 else 0.0,
         }
 
         # Decile aggregation
