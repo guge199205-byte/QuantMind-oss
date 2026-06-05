@@ -632,7 +632,22 @@ def _enrich_feature_catalog_with_data_coverage(catalog: dict[str, Any] | None, m
 
     # Filter to features available in market parquet(s)
     if market:
-        catalog = _filter_catalog_for_non_cn(catalog, market=market.upper())
+        mkt = market.upper()
+        if mkt == "CN":
+            # CN 市场：只按 markets 字段过滤（CN 特征不从 parquet 列名过滤）
+            filtered_cats = []
+            for cat in catalog.get("categories", []):
+                filtered = [f for f in cat.get("features", []) if _feature_available_for_market(f, "CN")]
+                if filtered:
+                    new_cat = dict(cat)
+                    new_cat["features"] = filtered
+                    new_cat["feature_count"] = len(filtered)
+                    filtered_cats.append(new_cat)
+            catalog = dict(catalog)
+            catalog["categories"] = filtered_cats
+            catalog["feature_count"] = sum(c["feature_count"] for c in filtered_cats)
+        else:
+            catalog = _filter_catalog_for_non_cn(catalog, market=mkt)
 
     coverage = _get_feature_snapshot_coverage_cached(market=market)
     if not coverage:
@@ -641,6 +656,14 @@ def _enrich_feature_catalog_with_data_coverage(catalog: dict[str, Any] | None, m
     enriched = dict(catalog)
     enriched["data_coverage"] = coverage
     return enriched
+
+
+def _feature_available_for_market(feature: dict[str, Any], market: str) -> bool:
+    """检查特征是否适用于指定市场。markets 为空或缺失表示适用于所有市场。"""
+    markets = feature.get("markets")
+    if not markets or not isinstance(markets, list):
+        return True
+    return market.upper() in [m.upper() for m in markets]
 
 
 def _filter_catalog_for_non_cn(catalog: dict[str, Any], market: str = "US") -> dict[str, Any]:
@@ -653,6 +676,7 @@ def _filter_catalog_for_non_cn(catalog: dict[str, Any], market: str = "US") -> d
         filtered_features = [
             f for f in cat.get("features", [])
             if f.get("key") in available
+            and _feature_available_for_market(f, market)
         ]
         if filtered_features:
             new_cat = dict(cat)

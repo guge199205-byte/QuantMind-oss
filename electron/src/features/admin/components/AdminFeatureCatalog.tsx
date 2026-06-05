@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Button,
   Card,
-  Collapse,
+  Checkbox,
   Divider,
   Empty,
   Form,
@@ -37,6 +37,13 @@ import { adminService } from '../services/adminService';
 import type { AdminModelFeatureCatalog, AdminModelFeatureCategory, AdminModelFeatureItem } from '../types';
 
 const { Title, Text } = Typography;
+
+const MARKET_OPTIONS = [
+  { value: 'CN', label: 'A股', color: 'red' },
+  { value: 'HK', label: '港股', color: 'blue' },
+  { value: 'US', label: '美股', color: 'green' },
+  { value: 'CRYPTO', label: '加密', color: 'purple' },
+];
 
 // ─── 辅助函数 ────────────────────────────────────────────────────────────────
 
@@ -160,6 +167,7 @@ export const AdminFeatureCatalog: React.FC = () => {
   const openAddFeature = () => {
     setEditingFeat(null);
     featForm.resetFields();
+    featForm.setFieldsValue({ markets: MARKET_OPTIONS.map(m => m.value) });
     setFeatModalOpen(true);
   };
 
@@ -170,6 +178,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       feature_name: feat.feature_name,
       formula: feat.formula,
       source_table_fields: feat.source_table_fields,
+      markets: feat.markets && feat.markets.length > 0 ? feat.markets : MARKET_OPTIONS.map(m => m.value),
     });
     setFeatModalOpen(true);
   };
@@ -178,13 +187,17 @@ export const AdminFeatureCatalog: React.FC = () => {
     const values = await featForm.validateFields();
     if (!catalog || !selectedCatId) return;
 
+    // 处理 markets：全选时设为空数组（表示适用所有市场）
+    const allMarketValues = MARKET_OPTIONS.map(m => m.value);
+    const markets = values.markets && values.markets.length === allMarketValues.length ? [] : (values.markets || []);
+
     const cats = catalog.categories.map(cat => {
       if (cat.id !== selectedCatId) return cat;
       const features = [...cat.features];
       if (editingFeat) {
         const idx = features.findIndex(f => f.key === editingFeat.key);
         if (idx >= 0) {
-          features[idx] = { ...features[idx], ...values };
+          features[idx] = { ...features[idx], ...values, markets };
         }
       } else {
         if (features.some(f => f.key === values.key)) {
@@ -199,6 +212,7 @@ export const AdminFeatureCatalog: React.FC = () => {
           source_table_fields: values.source_table_fields || '',
           enabled: true,
           order_no: features.length + 1,
+          markets,
         });
       }
       return { ...cat, features, feature_count: features.length };
@@ -252,6 +266,22 @@ export const AdminFeatureCatalog: React.FC = () => {
       ellipsis: true,
       width: 200,
       render: (v: string) => v ? <Text type="secondary" className="text-xs font-mono">{v}</Text> : '—',
+    },
+    {
+      title: '市场',
+      dataIndex: 'markets',
+      width: 180,
+      render: (markets: string[] | undefined) => {
+        const list = markets && markets.length > 0 ? markets : MARKET_OPTIONS.map(m => m.value);
+        return (
+          <Space size={2} wrap>
+            {list.map(m => {
+              const opt = MARKET_OPTIONS.find(o => o.value === m);
+              return <Tag key={m} color={opt?.color || 'default'} className="text-[10px] m-0">{opt?.label || m}</Tag>;
+            })}
+          </Space>
+        );
+      },
     },
     {
       title: '启用',
@@ -429,6 +459,9 @@ export const AdminFeatureCatalog: React.FC = () => {
           </Form.Item>
           <Form.Item name="source_table_fields" label="数据来源">
             <Input placeholder="例如: stock_daily.ClosePrice" />
+          </Form.Item>
+          <Form.Item name="markets" label="适用市场" initialValue={MARKET_OPTIONS.map(m => m.value)}>
+            <Checkbox.Group options={MARKET_OPTIONS.map(m => ({ label: m.label, value: m.value }))} />
           </Form.Item>
         </Form>
       </Modal>

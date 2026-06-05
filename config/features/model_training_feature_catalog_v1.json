@@ -18,7 +18,10 @@
           "description": "开盘价（复权）",
           "formula": "OpenPrice",
           "source": "股票历史日行情信息表后复权",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_ohlcv_002",
@@ -26,7 +29,10 @@
           "description": "最高价（复权）",
           "formula": "HighPrice",
           "source": "股票历史日行情信息表后复权",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_ohlcv_003",
@@ -34,7 +40,10 @@
           "description": "最低价（复权）",
           "formula": "LowPrice",
           "source": "股票历史日行情信息表后复权",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_ohlcv_004",
@@ -42,7 +51,10 @@
           "description": "收盘价（复权）",
           "formula": "ClosePrice",
           "source": "股票历史日行情信息表后复权",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_ohlcv_005",
@@ -50,7 +62,10 @@
           "description": "成交量",
           "formula": "Volume",
           "source": "股票历史日行情信息表后复权",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_ohlcv_006",
@@ -58,7 +73,10 @@
           "description": "复权因子",
           "formula": "1.0",
           "source": "constant",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -74,7 +92,11 @@
           "description": "1日收益率动量",
           "formula": "(C_t/C_{t-1})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_002",
@@ -82,7 +104,10 @@
           "description": "3日收益率动量",
           "formula": "(C_t/C_{t-3})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_003",
@@ -90,7 +115,11 @@
           "description": "5日收益率动量",
           "formula": "(C_t/C_{t-5})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_004",
@@ -98,7 +127,10 @@
           "description": "10日收益率动量",
           "formula": "(C_t/C_{t-10})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_005",
@@ -106,7 +138,12 @@
           "description": "20日收益率动量",
           "formula": "(C_t/C_{t-20})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_006",
@@ -114,7 +151,11 @@
           "description": "60日收益率动量",
           "formula": "(C_t/C_{t-60})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_007",
@@ -122,7 +163,10 @@
           "description": "120日收益率动量",
           "formula": "(C_t/C_{t-120})-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_008",
@@ -130,7 +174,12 @@
           "description": "收盘价偏离5日均线",
           "formula": "C_t/MA(C,5)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_009",
@@ -138,7 +187,10 @@
           "description": "收盘价偏离10日均线",
           "formula": "C_t/MA(C,10)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_010",
@@ -146,7 +198,13 @@
           "description": "收盘价偏离20日均线",
           "formula": "C_t/MA(C,20)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_011",
@@ -154,7 +212,10 @@
           "description": "收盘价偏离60日均线",
           "formula": "C_t/MA(C,60)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_012",
@@ -162,7 +223,10 @@
           "description": "收盘价偏离120日均线",
           "formula": "C_t/MA(C,120)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_013",
@@ -170,7 +234,10 @@
           "description": "收盘价偏离12日EMA",
           "formula": "C_t/EMA(C,12)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_014",
@@ -178,7 +245,10 @@
           "description": "收盘价偏离26日EMA",
           "formula": "C_t/EMA(C,26)-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_015",
@@ -186,7 +256,10 @@
           "description": "MACD-DIF",
           "formula": "EMA(C,12)-EMA(C,26)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_016",
@@ -194,7 +267,10 @@
           "description": "MACD-DEA",
           "formula": "EMA(DIF,9)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_017",
@@ -202,7 +278,10 @@
           "description": "MACD柱值",
           "formula": "2*(DIF-DEA)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_018",
@@ -210,7 +289,10 @@
           "description": "RSI(6)",
           "formula": "100-100/(1+RS_6)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_019",
@@ -218,7 +300,12 @@
           "description": "RSI(14)",
           "formula": "100-100/(1+RS_14)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_020",
@@ -226,7 +313,10 @@
           "description": "KDJ-K",
           "formula": "SMA(RSV,3,1)",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_021",
@@ -234,7 +324,10 @@
           "description": "KDJ-D",
           "formula": "SMA(K,3,1)",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_022",
@@ -242,7 +335,10 @@
           "description": "KDJ-J",
           "formula": "3*K-2*D",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_023",
@@ -250,7 +346,10 @@
           "description": "12日变化率",
           "formula": "C_t/C_{t-12}-1",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_024",
@@ -258,7 +357,11 @@
           "description": "20日突破强度",
           "formula": "C_t/MAX(H,20)-1",
           "source": "股票历史日行情信息表后复权.HighPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         }
       ]
     },
@@ -274,7 +377,10 @@
           "description": "5日收益率标准差",
           "formula": "STD(ret,5)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_026",
@@ -282,7 +388,10 @@
           "description": "10日收益率标准差",
           "formula": "STD(ret,10)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_027",
@@ -290,7 +399,12 @@
           "description": "20日收益率标准差",
           "formula": "STD(ret,20)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_028",
@@ -298,7 +412,10 @@
           "description": "60日收益率标准差",
           "formula": "STD(ret,60)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_029",
@@ -306,7 +423,10 @@
           "description": "ATR(14)",
           "formula": "MA(TR,14)",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_030",
@@ -314,7 +434,12 @@
           "description": "ATR(20)",
           "formula": "MA(TR,20)",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_031",
@@ -322,7 +447,10 @@
           "description": "真实波幅TR",
           "formula": "MAX(H-L,|H-PC|,|L-PC|)",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_032",
@@ -330,7 +458,10 @@
           "description": "Parkinson波动率10日",
           "formula": "sqrt(sum((ln(H/L))^2)/(4nln2))",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK"
+          ]
         },
         {
           "feature_id": "feat_033",
@@ -338,7 +469,11 @@
           "description": "Parkinson波动率20日",
           "formula": "同上窗口=20",
           "source": "股票历史日行情信息表后复权.HighPrice/LowPrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_034",
@@ -346,7 +481,10 @@
           "description": "Garman-Klass波动率10日",
           "formula": "GK公式窗口10",
           "source": "股票历史日行情信息表后复权.OpenPrice/HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_035",
@@ -354,7 +492,10 @@
           "description": "Garman-Klass波动率20日",
           "formula": "GK公式窗口20",
           "source": "股票历史日行情信息表后复权.OpenPrice/HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_036",
@@ -362,7 +503,10 @@
           "description": "Rogers-Satchell波动率10日",
           "formula": "RS公式窗口10",
           "source": "股票历史日行情信息表后复权.OpenPrice/HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_037",
@@ -370,7 +514,10 @@
           "description": "Rogers-Satchell波动率20日",
           "formula": "RS公式窗口20",
           "source": "股票历史日行情信息表后复权.OpenPrice/HighPrice/LowPrice/ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_038",
@@ -378,7 +525,13 @@
           "description": "下行波动率20日",
           "formula": "STD(min(ret,0),20)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_039",
@@ -386,7 +539,10 @@
           "description": "上行波动率20日",
           "formula": "STD(max(ret,0),20)",
           "source": "股票历史日行情信息表后复权.ClosePrice",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_040",
@@ -394,7 +550,10 @@
           "description": "已实现波动率RV (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "HF RV当日值 (建议 Lag 1)",
           "source": "个股已实现指标表日.RV",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_041",
@@ -402,7 +561,10 @@
           "description": "稳健已实现波动率RRV (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "HF RRV当日值 (建议 Lag 1)",
           "source": "个股已实现指标表日.RRV",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_042",
@@ -410,7 +572,10 @@
           "description": "已实现偏度RSkew (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "HF RSkew当日值 (建议 Lag 1)",
           "source": "个股已实现指标表日.RSkew",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_043",
@@ -418,7 +583,10 @@
           "description": "已实现峰度RKurt (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "HF RKurt当日值 (建议 Lag 1)",
           "source": "个股已实现指标表日.RKurt",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_044",
@@ -426,7 +594,11 @@
           "description": "跳跃显著性Z值 (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "HF Z_Adj当日值 (建议 Lag 1)",
           "source": "个股跳跃指标表日.Z_Adj",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_045",
@@ -434,7 +606,10 @@
           "description": "跳跃波动占比(RJV/RV) (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "RJV/(RV+eps) (建议 Lag 1)",
           "source": "个股跳跃指标表日.RJV,RV",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_046",
@@ -442,7 +617,10 @@
           "description": "符号跳跃占比(SJV/RV) (高频当日值，建议使用 Ref(...,1) 以防未来函数)",
           "formula": "SJV/(RV+eps) (建议 Lag 1)",
           "source": "个股跳跃指标表日.SJV,RV",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -458,7 +636,10 @@
           "description": "流通换手率",
           "formula": "ToverOs",
           "source": "个股换手率表日.ToverOs",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_048",
@@ -466,7 +647,10 @@
           "description": "总股本换手率",
           "formula": "ToverTl",
           "source": "个股换手率表日.ToverTl",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_049",
@@ -474,7 +658,10 @@
           "description": "当日成交量",
           "formula": "Volume_t",
           "source": "股票历史日行情信息表后复权.Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_050",
@@ -482,7 +669,10 @@
           "description": "5日平均成交量",
           "formula": "MA(Volume,5)",
           "source": "股票历史日行情信息表后复权.Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_051",
@@ -490,7 +680,11 @@
           "description": "10日平均成交量",
           "formula": "MA(Volume,10)",
           "source": "股票历史日行情信息表后复权.Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_052",
@@ -498,7 +692,10 @@
           "description": "20日平均成交量",
           "formula": "MA(Volume,20)",
           "source": "股票历史日行情信息表后复权.Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_053",
@@ -506,7 +703,10 @@
           "description": "量比(5日)",
           "formula": "Volume/MA(Volume,5)",
           "source": "股票历史日行情信息表后复权.Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_054",
@@ -514,7 +714,10 @@
           "description": "量比(20日)",
           "formula": "Volume/MA(Volume,20)",
           "source": "股票历史日行情信息表后复权.Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_055",
@@ -522,7 +725,10 @@
           "description": "当日成交额",
           "formula": "Amount_t",
           "source": "股票历史日行情信息表后复权.Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_056",
@@ -530,7 +736,10 @@
           "description": "5日平均成交额",
           "formula": "MA(Amount,5)",
           "source": "股票历史日行情信息表后复权.Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_057",
@@ -538,7 +747,10 @@
           "description": "10日平均成交额",
           "formula": "MA(Amount,10)",
           "source": "股票历史日行情信息表后复权.Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_058",
@@ -546,7 +758,10 @@
           "description": "20日平均成交额",
           "formula": "MA(Amount,20)",
           "source": "股票历史日行情信息表后复权.Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_059",
@@ -554,7 +769,10 @@
           "description": "额比(5日)",
           "formula": "Amount/MA(Amount,5)",
           "source": "股票历史日行情信息表后复权.Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_060",
@@ -562,7 +780,10 @@
           "description": "额比(20日)",
           "formula": "Amount/MA(Amount,20)",
           "source": "股票历史日行情信息表后复权.Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_061",
@@ -570,7 +791,10 @@
           "description": "成交笔数",
           "formula": "Toltrdtims",
           "source": "日交易统计文件.Toltrdtims",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_062",
@@ -578,7 +802,10 @@
           "description": "平均每笔成交额",
           "formula": "Tolstknva/Toltrdtims",
           "source": "日交易统计文件.Tolstknva,Toltrdtims",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_063",
@@ -586,7 +813,10 @@
           "description": "OBV趋势(20日)",
           "formula": "OBV窗口20",
           "source": "股票历史日行情信息表后复权.ClosePrice,Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_064",
@@ -594,7 +824,10 @@
           "description": "OBV趋势(60日)",
           "formula": "OBV窗口60",
           "source": "股票历史日行情信息表后复权.ClosePrice,Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_065",
@@ -602,7 +835,10 @@
           "description": "资金流量指标MFI14",
           "formula": "MFI窗口14",
           "source": "股票历史日行情信息表后复权.HighPrice,LowPrice,ClosePrice,Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_066",
@@ -610,7 +846,10 @@
           "description": "A/D累积线20日",
           "formula": "AD窗口20",
           "source": "股票历史日行情信息表后复权.HighPrice,LowPrice,ClosePrice,Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_067",
@@ -618,7 +857,13 @@
           "description": "Amihud非流动性20日",
           "formula": "MA(|ret|/Amount,20)",
           "source": "股票历史日行情信息表后复权.ClosePrice,Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_068",
@@ -626,7 +871,10 @@
           "description": "Amihud非流动性60日",
           "formula": "MA(|ret|/Amount,60)",
           "source": "股票历史日行情信息表后复权.ClosePrice,Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -642,7 +890,10 @@
           "description": "总净流入额",
           "formula": "B_Amount-S_Amount",
           "source": "个股买卖不平衡指标表日.B_Amount,S_Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_070",
@@ -650,7 +901,10 @@
           "description": "总净流入占比",
           "formula": "(B_Amount-S_Amount)/(B_Amount+S_Amount)",
           "source": "个股买卖不平衡指标表日.B_Amount,S_Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_071",
@@ -658,7 +912,10 @@
           "description": "大单净流入额",
           "formula": "B_Amount_L-S_Amount_L",
           "source": "个股买卖不平衡指标表日.B_Amount_L,S_Amount_L",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_072",
@@ -666,7 +923,10 @@
           "description": "大单净流入占比",
           "formula": "(B_Amount_L-S_Amount_L)/(B_Amount_L+S_Amount_L)",
           "source": "个股买卖不平衡指标表日.B_Amount_L,S_Amount_L",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_073",
@@ -674,7 +934,10 @@
           "description": "中单净流入额",
           "formula": "B_Amount_M-S_Amount_M",
           "source": "个股买卖不平衡指标表日.B_Amount_M,S_Amount_M",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_074",
@@ -682,7 +945,10 @@
           "description": "中单净流入占比",
           "formula": "(B_Amount_M-S_Amount_M)/(B_Amount_M+S_Amount_M)",
           "source": "个股买卖不平衡指标表日.B_Amount_M,S_Amount_M",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_075",
@@ -690,7 +956,10 @@
           "description": "小单净流入额",
           "formula": "B_Amount_S-S_Amount_S",
           "source": "个股买卖不平衡指标表日.B_Amount_S,S_Amount_S",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_076",
@@ -698,7 +967,10 @@
           "description": "小单净流入占比",
           "formula": "(B_Amount_S-S_Amount_S)/(B_Amount_S+S_Amount_S)",
           "source": "个股买卖不平衡指标表日.B_Amount_S,S_Amount_S",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_077",
@@ -706,7 +978,10 @@
           "description": "净买入委托笔数",
           "formula": "B_Num-S_Num",
           "source": "个股买卖不平衡指标表日.B_Num,S_Num",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_078",
@@ -714,7 +989,10 @@
           "description": "净买入委托占比",
           "formula": "(B_Num-S_Num)/(B_Num+S_Num)",
           "source": "个股买卖不平衡指标表日.B_Num,S_Num",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_079",
@@ -722,7 +1000,10 @@
           "description": "大单净委托笔数",
           "formula": "B_Num_L-S_Num_L",
           "source": "个股买卖不平衡指标表日.B_Num_L,S_Num_L",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_080",
@@ -730,7 +1011,10 @@
           "description": "大单净委托占比",
           "formula": "(B_Num_L-S_Num_L)/(B_Num_L+S_Num_L)",
           "source": "个股买卖不平衡指标表日.B_Num_L,S_Num_L",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_081",
@@ -738,7 +1022,11 @@
           "description": "VPIN当日值",
           "formula": "VPIN_t",
           "source": "个股知情交易概率指标表日.VPIN",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_082",
@@ -746,7 +1034,12 @@
           "description": "VPIN五日均值",
           "formula": "MA(VPIN,5)",
           "source": "个股知情交易概率指标表日.VPIN",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_083",
@@ -754,7 +1047,13 @@
           "description": "VPIN二十日均值",
           "formula": "MA(VPIN,20)",
           "source": "个股知情交易概率指标表日.VPIN",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "US",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_084",
@@ -762,7 +1061,10 @@
           "description": "VPIN五日变化",
           "formula": "VPIN_t-VPIN_{t-5}",
           "source": "个股知情交易概率指标表日.VPIN",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_085",
@@ -770,7 +1072,10 @@
           "description": "报价价差Qsp",
           "formula": "Qsp_equal",
           "source": "个股买卖价差表日.Qsp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_086",
@@ -778,7 +1083,10 @@
           "description": "有效价差Esp",
           "formula": "Esp_equal",
           "source": "个股买卖价差表日.Esp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_087",
@@ -786,7 +1094,10 @@
           "description": "加权报价价差AQsp",
           "formula": "AQsp_equal",
           "source": "个股买卖价差表日.AQsp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_088",
@@ -794,7 +1105,10 @@
           "description": "时间加权报价价差",
           "formula": "Qsp_time",
           "source": "个股买卖价差表日.Qsp_time",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_089",
@@ -802,7 +1116,10 @@
           "description": "时间加权有效价差",
           "formula": "Esp_time",
           "source": "个股买卖价差表日.Esp_time",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_090",
@@ -810,7 +1127,10 @@
           "description": "资金压力指数",
           "formula": "z(flow_net_amount)+z(VPIN)+z(Esp)",
           "source": "个股买卖不平衡指标表日 + 个股知情交易概率指标表日 + 个股买卖价差表日",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -826,7 +1146,11 @@
           "description": "总市值对数",
           "formula": "ln(MarketValue)",
           "source": "股票历史日行情信息表后复权.MarketValue",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_092",
@@ -834,7 +1158,10 @@
           "description": "流通市值对数",
           "formula": "ln(CirculatedMarketValue)",
           "source": "股票历史日行情信息表后复权.CirculatedMarketValue",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_093",
@@ -842,7 +1169,10 @@
           "description": "账面市净率倒数(B/P)",
           "formula": "1/PB",
           "source": "相对价值指标.pb_ratio",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_094",
@@ -850,7 +1180,10 @@
           "description": "盈利收益率(E/P)",
           "formula": "1/PE_TTM",
           "source": "相对价值指标.pe_ratio_ttm",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_099",
@@ -858,7 +1191,10 @@
           "description": "小盘风格因子暴露",
           "formula": "SMB1",
           "source": "三因子模型指标日.SMB1",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_100",
@@ -866,7 +1202,10 @@
           "description": "价值风格因子暴露",
           "formula": "HML1",
           "source": "三因子模型指标日.HML1",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_101",
@@ -874,7 +1213,10 @@
           "description": "市场风险溢价",
           "formula": "RiskPremium1",
           "source": "三因子模型指标日.RiskPremium1",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_102",
@@ -882,7 +1224,11 @@
           "description": "20日市场Beta",
           "formula": "cov(ret,mkt)/var(mkt),window=20",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 指数文件.Retindex",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "CRYPTO"
+          ]
         },
         {
           "feature_id": "feat_103",
@@ -890,7 +1236,12 @@
           "description": "60日市场Beta",
           "formula": "window=60",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 指数文件.Retindex",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN",
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_104",
@@ -898,7 +1249,10 @@
           "description": "120日市场Beta",
           "formula": "window=120",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 指数文件.Retindex",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_105",
@@ -906,7 +1260,10 @@
           "description": "20日特质波动",
           "formula": "STD(ret-beta*mkt,20)",
           "source": "股票历史日行情信息表后复权 + 指数文件",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_106",
@@ -914,7 +1271,11 @@
           "description": "60日特质波动",
           "formula": "STD(ret-beta*mkt,60)",
           "source": "股票历史日行情信息表后复权 + 指数文件",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_107",
@@ -922,7 +1283,10 @@
           "description": "20日残差收益",
           "formula": "sum(ret-beta*mkt,20)",
           "source": "股票历史日行情信息表后复权 + 指数文件",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_108",
@@ -930,7 +1294,10 @@
           "description": "估值复合分",
           "formula": "rank(BP)+rank(EP)+rank(CFP)",
           "source": "相对价值指标",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_109",
@@ -938,7 +1305,10 @@
           "description": "规模分位数",
           "formula": "cs_percentile(ln_mv_total)",
           "source": "股票历史日行情信息表后复权.MarketValue",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_110",
@@ -946,7 +1316,10 @@
           "description": "价值分位数",
           "formula": "cs_percentile(valuation_composite)",
           "source": "相对价值指标",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -962,7 +1335,10 @@
           "description": "所属行业1日收益",
           "formula": "industry_mean(ret,1d)",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_112",
@@ -970,7 +1346,10 @@
           "description": "所属行业5日收益",
           "formula": "industry_mean(ret,5d)",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_113",
@@ -978,7 +1357,10 @@
           "description": "所属行业10日收益",
           "formula": "industry_mean(ret,10d)",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_114",
@@ -986,7 +1368,10 @@
           "description": "所属行业20日收益",
           "formula": "industry_mean(ret,20d)",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_115",
@@ -994,7 +1379,10 @@
           "description": "行业20日波动率",
           "formula": "industry_std(ret,20d)",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_116",
@@ -1002,7 +1390,10 @@
           "description": "行业20日平均换手率",
           "formula": "industry_mean(ToverOs,20d)",
           "source": "个股换手率表日.ToverOs + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_117",
@@ -1010,7 +1401,10 @@
           "description": "行业20日平均成交额",
           "formula": "industry_mean(Amount,20d)",
           "source": "股票历史日行情信息表后复权.Amount + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_118",
@@ -1018,7 +1412,10 @@
           "description": "个股相对行业强度20日",
           "formula": "ret_20d-ind_ret_20d",
           "source": "股票历史日行情信息表后复权 + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_119",
@@ -1026,7 +1423,10 @@
           "description": "个股相对行业强度60日",
           "formula": "ret_60d-ind_ret_60d",
           "source": "股票历史日行情信息表后复权 + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_120",
@@ -1034,7 +1434,10 @@
           "description": "行业横截面离散度",
           "formula": "industry_std(stock_ret,20d)",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_121",
@@ -1042,7 +1445,10 @@
           "description": "行业上涨广度",
           "formula": "up_stock_count/stock_count",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_122",
@@ -1050,7 +1456,10 @@
           "description": "行业下跌广度",
           "formula": "down_stock_count/stock_count",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_123",
@@ -1058,7 +1467,10 @@
           "description": "个股相对行业量比",
           "formula": "stock_vol_ma20/industry_vol_ma20",
           "source": "股票历史日行情信息表后复权.Volume + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_124",
@@ -1066,7 +1478,10 @@
           "description": "个股相对行业波动",
           "formula": "stock_vol_20/industry_vol_20",
           "source": "股票历史日行情信息表后复权.ChangeRatio + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_125",
@@ -1074,7 +1489,10 @@
           "description": "个股相对行业资金流",
           "formula": "stock_flow_20-industry_flow_20",
           "source": "个股买卖不平衡指标表日 + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_126",
@@ -1082,7 +1500,10 @@
           "description": "行业动量排名",
           "formula": "rank(ind_ret_20)",
           "source": "股票历史日行情信息表后复权 + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_127",
@@ -1090,7 +1511,10 @@
           "description": "行业价值排名",
           "formula": "rank(industry_mean(BP))",
           "source": "相对价值指标 + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_128",
@@ -1098,7 +1522,10 @@
           "description": "行业规模排名",
           "formula": "rank(industry_mean(MarketValue))",
           "source": "股票历史日行情信息表后复权.MarketValue + 公司文件.Indcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_129",
@@ -1106,7 +1533,10 @@
           "description": "一级行业编码数值化",
           "formula": "hash_or_dict_encode(Indcd level1)",
           "source": "公司文件.Indcd/Nindcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_130",
@@ -1114,7 +1544,10 @@
           "description": "二级行业编码数值化",
           "formula": "hash_or_dict_encode(Indcd level2)",
           "source": "公司文件.Nindcd/Nnindcd",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -1130,7 +1563,10 @@
           "description": "报价价差(等权)",
           "formula": "Qsp_equal",
           "source": "个股买卖价差表日.Qsp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_132",
@@ -1138,7 +1574,10 @@
           "description": "有效价差(等权)",
           "formula": "Esp_equal",
           "source": "个股买卖价差表日.Esp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_133",
@@ -1146,7 +1585,10 @@
           "description": "报价价差(成交量加权)",
           "formula": "AQsp_equal",
           "source": "个股买卖价差表日.AQsp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_134",
@@ -1154,7 +1596,10 @@
           "description": "报价价差(时间加权)",
           "formula": "Qsp_time",
           "source": "个股买卖价差表日.Qsp_time",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_135",
@@ -1162,7 +1607,10 @@
           "description": "有效价差(时间加权)",
           "formula": "Esp_time",
           "source": "个股买卖价差表日.Esp_time",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_136",
@@ -1170,7 +1618,10 @@
           "description": "报价价差(成交量加权版本)",
           "formula": "Qsp_Volume",
           "source": "个股买卖价差表日.Qsp_Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_137",
@@ -1178,7 +1629,10 @@
           "description": "有效价差(成交量加权版本)",
           "formula": "Esp_Volume",
           "source": "个股买卖价差表日.Esp_Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_138",
@@ -1186,7 +1640,10 @@
           "description": "报价价差(成交额加权版本)",
           "formula": "Qsp_Amount",
           "source": "个股买卖价差表日.Qsp_Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_139",
@@ -1194,7 +1651,10 @@
           "description": "有效价差(成交额加权版本)",
           "formula": "Esp_Amount",
           "source": "个股买卖价差表日.Esp_Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_140",
@@ -1202,7 +1662,10 @@
           "description": "有效点差代理",
           "formula": "2*|trade_price-mid_quote|/mid_quote",
           "source": "个股买卖价差表日 + 股票历史日行情信息表后复权",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_141",
@@ -1210,7 +1673,10 @@
           "description": "报价点差代理",
           "formula": "(ask-bid)/mid_quote",
           "source": "个股买卖价差表日相关字段",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_142",
@@ -1218,7 +1684,10 @@
           "description": "点差波动20日",
           "formula": "STD(Esp_equal,20)",
           "source": "个股买卖价差表日.Esp_equal",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_143",
@@ -1226,7 +1695,10 @@
           "description": "成交量不平衡",
           "formula": "(B_Volume-S_Volume)/(B_Volume+S_Volume)",
           "source": "个股买卖不平衡指标表日.B_Volume,S_Volume",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_144",
@@ -1234,7 +1706,10 @@
           "description": "成交额不平衡",
           "formula": "(B_Amount-S_Amount)/(B_Amount+S_Amount)",
           "source": "个股买卖不平衡指标表日.B_Amount,S_Amount",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_145",
@@ -1242,7 +1717,10 @@
           "description": "委托笔数不平衡",
           "formula": "(B_Num-S_Num)/(B_Num+S_Num)",
           "source": "个股买卖不平衡指标表日.B_Num,S_Num",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_146",
@@ -1250,7 +1728,10 @@
           "description": "大单不平衡",
           "formula": "(B_Amount_L-S_Amount_L)/(B_Amount_L+S_Amount_L)",
           "source": "个股买卖不平衡指标表日.B_Amount_L,S_Amount_L",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_147",
@@ -1258,7 +1739,10 @@
           "description": "中单不平衡",
           "formula": "(B_Amount_M-S_Amount_M)/(B_Amount_M+S_Amount_M)",
           "source": "个股买卖不平衡指标表日.B_Amount_M,S_Amount_M",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_148",
@@ -1266,7 +1750,10 @@
           "description": "小单不平衡",
           "formula": "(B_Amount_S-S_Amount_S)/(B_Amount_S+S_Amount_S)",
           "source": "个股买卖不平衡指标表日.B_Amount_S,S_Amount_S",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_149",
@@ -1274,7 +1761,10 @@
           "description": "跳跃事件标记",
           "formula": "ISJump(0/1)",
           "source": "个股跳跃指标表日.ISJump",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_150",
@@ -1282,7 +1772,10 @@
           "description": "微观结构压力分",
           "formula": "z(Esp)+z(VPIN)+z(imbalance_amount)",
           "source": "个股买卖价差表日 + 个股知情交易概率指标表日 + 个股买卖不平衡指标表日",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -1298,7 +1791,10 @@
           "description": "全市场标记",
           "formula": "1",
           "source": "stock_daily_latest.idx_all",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_idx_002",
@@ -1306,7 +1802,10 @@
           "description": "沪深300成分股",
           "formula": "0/1",
           "source": "stock_daily_latest.idx_hs300",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_idx_003",
@@ -1314,7 +1813,10 @@
           "description": "中证1000成分股",
           "formula": "0/1",
           "source": "stock_daily_latest.idx_zz1000",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_idx_004",
@@ -1322,7 +1824,10 @@
           "description": "创业板标记",
           "formula": "0/1",
           "source": "stock_daily_latest.idx_chinext",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_idx_005",
@@ -1330,7 +1835,10 @@
           "description": "融资融券标的",
           "formula": "0/1",
           "source": "stock_daily_latest.idx_margin",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -1346,7 +1854,10 @@
           "description": "AI概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_ai",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_002",
@@ -1354,7 +1865,10 @@
           "description": "芯片概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_chip",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_003",
@@ -1362,7 +1876,10 @@
           "description": "新能源概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_new_energy",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_004",
@@ -1370,7 +1887,10 @@
           "description": "光伏概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_pv",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_005",
@@ -1378,7 +1898,10 @@
           "description": "军工概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_military",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_006",
@@ -1386,7 +1909,10 @@
           "description": "医药概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_medical",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_007",
@@ -1394,7 +1920,10 @@
           "description": "金融科技概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_fintech",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_008",
@@ -1402,7 +1931,10 @@
           "description": "消费概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_consumption",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_009",
@@ -1410,7 +1942,10 @@
           "description": "国企改革概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_state_owned",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_con_010",
@@ -1418,7 +1953,10 @@
           "description": "锂电概念",
           "formula": "0/1",
           "source": "stock_daily_latest.concept_lithium",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     },
@@ -1434,7 +1972,11 @@
           "description": "市盈率(TTM)",
           "formula": "Price / EPS_TTM",
           "source": "stock_daily_latest.pe_ttm",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_fund_002",
@@ -1442,7 +1984,11 @@
           "description": "市净率",
           "formula": "Price / BVPS",
           "source": "stock_daily_latest.pb",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_fund_003",
@@ -1450,7 +1996,11 @@
           "description": "净资产收益率",
           "formula": "NetIncome / Equity",
           "source": "stock_daily_latest.roe",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_fund_004",
@@ -1458,7 +2008,11 @@
           "description": "账面价值比(B/P)",
           "formula": "1 / PB",
           "source": "stock_daily_latest.bp",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_fund_005",
@@ -1466,7 +2020,11 @@
           "description": "盈利收益率(E/P)",
           "formula": "1 / PE_TTM",
           "source": "stock_daily_latest.ep_ttm",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "HK",
+            "US"
+          ]
         },
         {
           "feature_id": "feat_fund_006",
@@ -1474,7 +2032,10 @@
           "description": "总市值对数",
           "formula": "ln(MarketValue)",
           "source": "stock_daily_latest.ln_mv_total",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_fund_007",
@@ -1482,7 +2043,10 @@
           "description": "ST标记",
           "formula": "0/1",
           "source": "stock_daily_latest.is_st",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         },
         {
           "feature_id": "feat_fund_008",
@@ -1490,7 +2054,10 @@
           "description": "换手率",
           "formula": "Volume / FloatShares",
           "source": "stock_daily_latest.turnover_rate",
-          "enabled": true
+          "enabled": true,
+          "markets": [
+            "CN"
+          ]
         }
       ]
     }

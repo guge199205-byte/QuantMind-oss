@@ -85,6 +85,7 @@ export interface AdminModelFeatureItem {
     source_table_fields: string;
     enabled: boolean;
     order_no: number;
+    markets?: string[];
 }
 
 export interface AdminModelFeatureCategory {
