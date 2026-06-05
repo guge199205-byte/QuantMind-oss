@@ -349,6 +349,7 @@ export interface StrategyTemplateAdmin {
     execution_defaults: Record<string, any>;
     live_defaults: Record<string, any>;
     live_config_tips: string[];
+    markets?: string[];
 }
 
 /** 新建/更新模板的请求体 */
@@ -363,4 +364,5 @@ export interface StrategyTemplateUpsertRequest {
     execution_defaults?: Record<string, any>;
     live_defaults?: Record<string, any>;
     live_config_tips?: string[];
+    markets?: string[];
 }

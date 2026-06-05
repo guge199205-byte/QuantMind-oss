@@ -6,6 +6,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
     Button,
+    Checkbox,
     Table,
     Tag,
     Space,
@@ -46,6 +47,13 @@ const DIFFICULTY_OPTIONS = [
     { label: '入门', value: 'beginner' },
     { label: '中级', value: 'intermediate' },
     { label: '高级', value: 'advanced' },
+];
+
+const MARKET_OPTIONS = [
+    { label: 'A股', value: 'a_share', color: 'red' },
+    { label: '港股', value: 'hong_kong', color: 'blue' },
+    { label: '美股', value: 'us_stock', color: 'green' },
+    { label: '加密', value: 'crypto', color: 'purple' },
 ];
 
 const categoryColor: Record<string, string> = {
@@ -96,6 +104,7 @@ export const AdminStrategyTemplates: React.FC = () => {
     const [code, setCode] = useState(DEFAULT_CODE);
     const [params, setParams] = useState<StrategyTemplateParam[]>([]);
     const [filterCategory, setFilterCategory] = useState<string>('all');
+    const [markets, setMarkets] = useState<string[]>([]);
     const [form] = Form.useForm();
 
     const fetchTemplates = useCallback(async () => {
@@ -134,6 +143,7 @@ export const AdminStrategyTemplates: React.FC = () => {
         setEditingTemplate(null);
         setCode(DEFAULT_CODE);
         setParams([]);
+        setMarkets(MARKET_OPTIONS.map(m => m.value));
         setModalOpen(true);
     };
 
@@ -141,6 +151,7 @@ export const AdminStrategyTemplates: React.FC = () => {
         setEditingTemplate(tpl);
         setCode(tpl.code);
         setParams(tpl.params || []);
+        setMarkets(tpl.markets && tpl.markets.length > 0 ? tpl.markets : MARKET_OPTIONS.map(m => m.value));
         setModalOpen(true);
     };
 
@@ -159,10 +170,15 @@ export const AdminStrategyTemplates: React.FC = () => {
             const values = await form.validateFields();
             setSubmitting(true);
 
+            // 全选时设为空数组（表示适用所有市场）
+            const allMarketValues = MARKET_OPTIONS.map(m => m.value);
+            const finalMarkets = markets.length === allMarketValues.length ? [] : markets;
+
             const payload: StrategyTemplateUpsertRequest = {
                 ...values,
                 code,
                 params,
+                markets: finalMarkets,
                 execution_defaults: editingTemplate?.execution_defaults || {},
                 live_defaults: editingTemplate?.live_defaults || {},
                 live_config_tips: editingTemplate?.live_config_tips || [],
@@ -255,6 +271,23 @@ export const AdminStrategyTemplates: React.FC = () => {
             render: (params) => (
                 <Tag icon={<CodeOutlined />}>{params?.length || 0} 个</Tag>
             ),
+        },
+        {
+            title: '市场',
+            dataIndex: 'markets',
+            key: 'markets',
+            width: 180,
+            render: (markets: string[] | undefined) => {
+                const list = markets && markets.length > 0 ? markets : MARKET_OPTIONS.map(m => m.value);
+                return (
+                    <Space size={2} wrap>
+                        {list.map(m => {
+                            const opt = MARKET_OPTIONS.find(o => o.value === m);
+                            return <Tag key={m} color={opt?.color || 'default'} className="text-[10px] m-0">{opt?.label || m}</Tag>;
+                        })}
+                    </Space>
+                );
+            },
         },
         {
             title: '操作',
@@ -426,6 +459,15 @@ export const AdminStrategyTemplates: React.FC = () => {
                             <Select options={DIFFICULTY_OPTIONS} placeholder="选择难度" />
                         </Form.Item>
                     </div>
+
+                    <Form.Item label="适用市场">
+                        <Checkbox.Group
+                            value={markets}
+                            onChange={(vals) => setMarkets(vals as string[])}
+                            options={MARKET_OPTIONS.map(m => ({ label: m.label, value: m.value }))}
+                        />
+                        <Text type="secondary" className="text-xs block mt-1">全选表示适用所有市场</Text>
+                    </Form.Item>
 
                     <Divider orientation="left" plain className="text-xs text-slate-400 my-2">
                         可调参数定义

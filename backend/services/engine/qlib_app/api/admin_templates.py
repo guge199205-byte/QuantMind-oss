@@ -67,6 +67,7 @@ class TemplateCreateRequest(BaseModel):
     execution_defaults: dict[str, Any] = {}
     live_defaults: dict[str, Any] = {}
     live_config_tips: list[str] = []
+    markets: list[str] = []  # a_share, hong_kong, us_stock, crypto
 
     @field_validator("category")
     @classmethod
@@ -130,6 +131,7 @@ def _write_template(template_id: str, data: TemplateCreateRequest) -> None:
         "execution_defaults": data.execution_defaults,
         "live_defaults": data.live_defaults,
         "live_config_tips": data.live_config_tips,
+        "markets": data.markets,
     }
 
     templates_dir = _resolve_templates_dir()
