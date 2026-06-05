@@ -202,11 +202,26 @@ class BacktestService:
         joined = pd.DataFrame({"pred": pred_series, "actual": actual_series})
         joined = joined.replace([np.inf, -np.inf], np.nan).dropna()
 
+        # Normalize: if mean |actual| > 1, assume it's percentage (e.g. 10 = 10%)
+        if joined["actual"].abs().mean() > 1:
+            joined["actual"] = joined["actual"] / 100.0
+
+        # Filter extreme outliers (new stock IPOs, data errors)
+        q01 = joined["actual"].quantile(0.01)
+        q99 = joined["actual"].quantile(0.99)
+        iqr = q99 - q01
+        lower = q01 - 3 * iqr
+        upper = q99 + 3 * iqr
+        before = len(joined)
+        joined = joined[(joined["actual"] >= lower) & (joined["actual"] <= upper)]
+        if len(joined) < before:
+            logger.info("日期 %s 过滤极端值: %d -> %d", date_str, before, len(joined))
+
         if len(joined) < 20:
             logger.warning("日期 %s 有效样本不足 (%d)", date_str, len(joined))
             return None
 
-        # IC (Spearman rank correlation)
+        # IC (Spearman rank correlation — robust to outliers)
         ic, _ = spearmanr(joined["pred"], joined["actual"])
         if np.isnan(ic):
             ic = 0.0
@@ -215,11 +230,9 @@ class BacktestService:
         try:
             joined["decile"] = pd.qcut(joined["pred"], 10, labels=False, duplicates="drop")
         except ValueError:
-            # Not enough unique values for 10 bins
             joined["decile"] = pd.qcut(joined["pred"], 5, labels=False, duplicates="drop")
 
         decile_returns = joined.groupby("decile")["actual"].mean().to_dict()
-        # Normalize keys to int
         decile_returns = {int(k): float(v) for k, v in decile_returns.items()}
 
         # Top/Bottom N returns
