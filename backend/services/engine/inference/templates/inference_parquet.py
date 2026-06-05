@@ -2,10 +2,12 @@
 """
 QuantMind Parquet 数据源推理脚本 (inference.py 模板)
 =====================================================
-适用于训练数据来自 feature_snapshots/*.parquet 的 LightGBM/XGBoost 模型。
+适用于训练数据来自 feature_snapshots/*.parquet 的所有模型类型：
+  - 树模型: LightGBM / XGBoost / CatBoost / sklearn
+  - 深度学习: GRU / LSTM / ALSTM / Transformer / TCN / TabNet (PyTorch)
 
 平台注入环境变量：
-    MODEL_DIR      模型目录绝对路径（含 metadata.json + model.lgb/model.xgb）
+    MODEL_DIR      模型目录绝对路径（含 metadata.json + model 文件）
     TRADE_DATE     推理日期（同 --date 参数，互为备份）
     OUTPUT_FORMAT  固定值 json
 
@@ -48,6 +50,11 @@ try:
     from catboost import CatBoost
 except ImportError:
     CatBoost = None
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,8 +101,60 @@ def load_metadata(model_dir: Path) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3. 模型加载（支持 LightGBM + XGBoost）
+# 3. 模型加载（支持 LightGBM / XGBoost / CatBoost / sklearn / PyTorch DL）
 # ═══════════════════════════════════════════════════════════════════════════
+
+# Qlib DL 模型类映射
+_QLIB_DL_MAP: dict[str, tuple[str, str]] = {
+    "GRU":         ("qlib.contrib.model.pytorch_gru_ts",         "GRU"),
+    "LSTM":        ("qlib.contrib.model.pytorch_lstm_ts",        "LSTM"),
+    "ALSTM":       ("qlib.contrib.model.pytorch_alstm_ts",       "ALSTM"),
+    "Transformer": ("qlib.contrib.model.pytorch_transformer_ts", "Transformer"),
+    "TCN":         ("qlib.contrib.model.pytorch_tcn_ts",         "TCN"),
+    "TabNet":      ("qlib.contrib.model.pytorch_tabnet",         "TabNet"),
+}
+
+
+def _load_pytorch_model(model_path: Path, meta: dict):
+    """加载 PyTorch / Qlib DL 模型。"""
+    if torch is None:
+        logger.error("模型为 PyTorch 格式，但 torch 未安装")
+        sys.exit(1)
+
+    model_class_name = meta.get("model_class_name")
+    if model_class_name and model_class_name in _QLIB_DL_MAP:
+        # Qlib DL 模型: 重建模型架构 + 加载 state_dict
+        import importlib
+        mod_path, cls_name = _QLIB_DL_MAP[model_class_name]
+        mod = importlib.import_module(mod_path)
+        ModelCls = getattr(mod, cls_name)
+
+        model_params = dict(meta.get("model_params", {}))
+        model_params["GPU"] = -1  # 推理用 CPU
+        model_obj = ModelCls(**model_params)
+
+        state_dict = torch.load(str(model_path), map_location="cpu", weights_only=True)
+        inner_model = getattr(model_obj, "model", None)
+        if inner_model is None:
+            for attr in ("gru_model", "lstm_model", "alstm_model",
+                         "transformer_model", "tcn_model", "tabnet_model"):
+                inner_model = getattr(model_obj, attr, None)
+                if inner_model is not None:
+                    break
+        if inner_model is not None and state_dict is not None:
+            inner_model.load_state_dict(state_dict)
+            inner_model.eval()
+        model_obj.fitted = True
+        logger.info("Qlib DL 模型已加载: %s", model_class_name)
+        return ("torch_qlib", model_obj)
+
+    # 通用 PyTorch 模型
+    model = torch.load(str(model_path), map_location="cpu", weights_only=False)
+    if hasattr(model, "eval"):
+        model.eval()
+    logger.info("PyTorch 模型已加载")
+    return ("torch", model)
+
 
 def load_model(model_dir: Path, meta: dict):
     model_file = meta.get("model_file", "")
@@ -103,7 +162,7 @@ def load_model(model_dir: Path, meta: dict):
 
     # 如果 metadata 没指定，按扩展名搜索
     if not model_path or not model_path.exists():
-        for ext in ("*.xgb", "*.lgb", "*.cbm", "*.pkl", "*.txt", "*.bin"):
+        for ext in ("*.xgb", "*.lgb", "*.cbm", "*.pkl", "*.pth", "*.pt", "*.txt", "*.bin"):
             candidates = list(model_dir.glob(ext))
             if candidates:
                 model_path = candidates[0]
@@ -134,6 +193,8 @@ def load_model(model_dir: Path, meta: dict):
         with open(model_path, "rb") as f:
             model = pickle.load(f)
         return ("sklearn", model)
+    elif suffix in (".pth", ".pt"):
+        return _load_pytorch_model(model_path, meta)
     else:
         # .lgb / .txt → LightGBM
         if lgb is None:
@@ -147,11 +208,12 @@ def load_model(model_dir: Path, meta: dict):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def filter_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """过滤不可交易记录（停牌、零成交等）。
+    """过滤不可交易记录（停牌、零成交、ST 股等）。
 
     剔除条件：
     - close <= 0（价格异常）
     - volume <= 0（零成交/停牌）
+    - is_st == 1（ST / *ST / 退市整理股）
     """
     if df.empty:
         return df
@@ -166,6 +228,12 @@ def filter_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     if "volume" in filtered.columns:
         filtered = filtered.loc[
             pd.to_numeric(filtered["volume"], errors="coerce") > 0
+        ].copy()
+
+    # 排除 ST / *ST / 退市股
+    if "is_st" in filtered.columns:
+        filtered = filtered.loc[
+            pd.to_numeric(filtered["is_st"], errors="coerce") != 1
         ].copy()
 
     return filtered
@@ -320,7 +388,7 @@ def main():
     X_values = X_df.values.astype(np.float32)
 
     if model_type == "xgb":
-        dmat = xgb.DMatrix(X_values)
+        dmat = xgb.DMatrix(X_values, feature_names=list(X_df.columns))
         scores = model.predict(dmat, iteration_range=(0, best_iter) if best_iter else None)
     elif model_type == "catboost":
         scores = model.predict(X_values)
@@ -329,6 +397,30 @@ def main():
             scores = model.predict_proba(X_values)[:, 1]
         else:
             scores = model.predict(X_values)
+    elif model_type in ("torch_qlib", "torch"):
+        # PyTorch DL 模型推理
+        inner_model = model
+        if model_type == "torch_qlib":
+            # Qlib DL 模型: 找到内部 PyTorch 模型
+            inner_model = getattr(model, "model", None)
+            if inner_model is None:
+                for attr in ("gru_model", "lstm_model", "alstm_model",
+                             "transformer_model", "tcn_model", "tabnet_model"):
+                    inner_model = getattr(model, attr, None)
+                    if inner_model is not None:
+                        break
+            if inner_model is None:
+                logger.error("Qlib DL 模型内部 PyTorch 模型未找到")
+                sys.exit(1)
+        inner_model.eval()
+        x_tensor = torch.from_numpy(X_values)
+        # 如果模型有 device 属性，移到对应设备
+        device = getattr(model, "device", None) or getattr(inner_model, "device", None)
+        if device is not None:
+            x_tensor = x_tensor.to(device)
+        with torch.no_grad():
+            pred = inner_model(x_tensor).detach().cpu().numpy()
+        scores = pred.flatten()
     else:
         # LightGBM
         scores = model.predict(X_values, num_iteration=best_iter)

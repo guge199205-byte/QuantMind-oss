@@ -573,6 +573,31 @@ class ModelTrainingService {
       updated_at: data?.updated_at ? String(data.updated_at) : undefined,
     };
   }
+
+  // ── 滚动回测（模型预测质量评估） ──
+
+  async runModelBacktest(params: {
+    model_id: string;
+    start_date: string;
+    end_date: string;
+    horizon?: number;
+    sample_interval?: number;
+  }): Promise<any> {
+    const resp = await this.client.post('/admin/models/backtest', params, { timeout: 300000 });
+    return resp.data;
+  }
+
+  async listModelsForBacktest(): Promise<any[]> {
+    const resp = await this.client.get('/admin/models/list-for-backtest');
+    return (resp.data as any)?.models ?? [];
+  }
+
+  async getBacktestTradingDates(start: string, end: string): Promise<string[]> {
+    const resp = await this.client.get('/admin/models/backtest/trading-dates', {
+      params: { start, end },
+    });
+    return (resp.data as any)?.dates ?? [];
+  }
 }
 
 export const modelTrainingService = new ModelTrainingService();

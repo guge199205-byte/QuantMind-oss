@@ -17,6 +17,7 @@ import {
   Settings,
   FolderKanban,
   TrendingUp,
+  BarChart3,
 } from 'lucide-react';
 import HelpCenterLink from '../common/HelpCenterLink';
 import { ModuleId } from '../../stores/backtestCenterStore';
@@ -78,6 +79,13 @@ const modules: Module[] = [
     icon: TrendingUp,
     color: 'text-pink-400',
     description: '深度性能分析'
+  },
+  {
+    id: 'model-evaluation',
+    name: '模型评估',
+    icon: BarChart3,
+    color: 'text-emerald-400',
+    description: '滚动回测评估模型预测质量'
   }
 ];
 

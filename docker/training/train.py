@@ -1484,6 +1484,10 @@ try:
     from catboost import CatBoost
 except ImportError:
     CatBoost = None
+try:
+    import torch
+except ImportError:
+    torch = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", stream=sys.stderr)
 logger = logging.getLogger("inference_parquet")
@@ -1508,7 +1512,7 @@ def load_model(model_dir, meta):
     model_file = meta.get("model_file", "")
     model_path = Path(model_dir) / model_file if model_file else None
     if not model_path or not model_path.exists():
-        for ext in ("*.xgb", "*.lgb", "*.cbm", "*.pkl", "*.txt", "*.bin"):
+        for ext in ("*.xgb", "*.lgb", "*.cbm", "*.pkl", "*.pth", "*.pt", "*.txt", "*.bin"):
             candidates = list(Path(model_dir).glob(ext))
             if candidates:
                 model_path = candidates[0]; break
@@ -1525,6 +1529,27 @@ def load_model(model_dir, meta):
     elif suffix == ".pkl":
         with open(model_path, "rb") as f: m = pickle.load(f)
         return ("sklearn", m)
+    elif suffix in (".pth", ".pt"):
+        if torch is None: logger.error("PyTorch 未安装"); sys.exit(1)
+        model_class_name = meta.get("model_class_name")
+        _QLIB_MAP = {"GRU":("qlib.contrib.model.pytorch_gru_ts","GRU"),"LSTM":("qlib.contrib.model.pytorch_lstm_ts","LSTM"),"ALSTM":("qlib.contrib.model.pytorch_alstm_ts","ALSTM"),"Transformer":("qlib.contrib.model.pytorch_transformer_ts","Transformer"),"TCN":("qlib.contrib.model.pytorch_tcn_ts","TCN"),"TabNet":("qlib.contrib.model.pytorch_tabnet","TabNet")}
+        if model_class_name and model_class_name in _QLIB_MAP:
+            import importlib
+            mod_path, cls_name = _QLIB_MAP[model_class_name]
+            mod = importlib.import_module(mod_path); ModelCls = getattr(mod, cls_name)
+            mp = dict(meta.get("model_params", {})); mp["GPU"] = -1
+            model_obj = ModelCls(**mp)
+            sd = torch.load(str(model_path), map_location="cpu", weights_only=True)
+            inner = getattr(model_obj, "model", None)
+            if inner is None:
+                for a in ("gru_model","lstm_model","alstm_model","transformer_model","tcn_model","tabnet_model"):
+                    inner = getattr(model_obj, a, None)
+                    if inner is not None: break
+            if inner is not None and sd is not None: inner.load_state_dict(sd); inner.eval()
+            model_obj.fitted = True; return ("torch_qlib", model_obj)
+        m = torch.load(str(model_path), map_location="cpu", weights_only=False)
+        if hasattr(m, "eval"): m.eval()
+        return ("torch", m)
     else:
         if lgb is None: logger.error("LightGBM 未安装"); sys.exit(1)
         return ("lgb", lgb.Booster(model_file=str(model_path)))
@@ -1547,6 +1572,15 @@ def load_date_data(trade_date, data_dir, meta):
     day_df = df[df["trade_date"] == trade_date].copy()
     if len(day_df) == 0:
         logger.warning("日期 %s 无数据", trade_date); return None
+    # 过滤不可交易（停牌、零成交、ST）
+    if "close" in day_df.columns:
+        day_df = day_df[pd.to_numeric(day_df["close"], errors="coerce") > 0]
+    if "volume" in day_df.columns:
+        day_df = day_df[pd.to_numeric(day_df["volume"], errors="coerce") > 0]
+    if "is_st" in day_df.columns:
+        day_df = day_df[pd.to_numeric(day_df["is_st"], errors="coerce") != 1]
+    if len(day_df) == 0:
+        logger.warning("日期 %s 过滤后无数据", trade_date); return None
     logger.info("找到 %d 条记录，日期=%s", len(day_df), trade_date)
     return day_df
 
@@ -1580,12 +1614,27 @@ def main():
     X_values = X_df.values.astype(np.float32)
     best_iter = meta.get("best_iteration")
     if model_type == "xgb":
-        dmat = xgb.DMatrix(X_values)
+        dmat = xgb.DMatrix(X_values, feature_names=list(X_df.columns))
         scores = model.predict(dmat, iteration_range=(0, best_iter) if best_iter else None)
     elif model_type == "catboost":
         scores = model.predict(X_values)
     elif model_type == "sklearn":
         scores = model.predict_proba(X_values)[:, 1] if hasattr(model, "predict_proba") else model.predict(X_values)
+    elif model_type in ("torch_qlib", "torch"):
+        inner = model
+        if model_type == "torch_qlib":
+            inner = getattr(model, "model", None)
+            if inner is None:
+                for a in ("gru_model","lstm_model","alstm_model","transformer_model","tcn_model","tabnet_model"):
+                    inner = getattr(model, a, None)
+                    if inner is not None: break
+            if inner is None: logger.error("DL 内部模型未找到"); sys.exit(1)
+        inner.eval()
+        xt = torch.from_numpy(X_values)
+        dev = getattr(model, "device", None) or getattr(inner, "device", None)
+        if dev is not None: xt = xt.to(dev)
+        with torch.no_grad(): pred = inner(xt).detach().cpu().numpy()
+        scores = pred.flatten()
     else:
         scores = model.predict(X_values, num_iteration=best_iter)
     signals = sorted(

@@ -4,7 +4,7 @@ import {
   Layers, Star, RefreshCw, Search, Code, Calendar, Layers2,
   History, Archive, Brain, CheckCircle2, Clock, XCircle, X,
   ChevronRight, Play, Cpu, TrendingUp, Download, ChevronDown,
-  ChevronUp, Shield, Zap, Activity, ListFilter,
+  ChevronUp, Shield, Zap, Activity, ListFilter, BarChart3,
 } from 'lucide-react';
 import {
   Button, Card, Tag, Typography, Empty, Spin, message,
@@ -49,6 +49,7 @@ import {
   TimeItem,
   InfoCell,
 } from './modelRegistryPanels';
+import { ModelEvaluationModule } from '../components/backtestCenter/ModelEvaluationModule';
 import {
   buildFeatureLabelMap,
   DEFAULT_FEATURE_CATEGORIES,
@@ -829,6 +830,15 @@ export const ModelRegistryPage: React.FC = () => {
                             onDeleteHistory={handleDeleteHistory}
                           />
                         ),
+                      },
+                      {
+                        key: 'backtest',
+                        label: (
+                          <span className="text-xs font-black uppercase tracking-widest px-1 flex items-center gap-1.5">
+                            <BarChart3 size={11} />回测评估
+                          </span>
+                        ),
+                        children: <ModelEvaluationModule initialModelId={selectedModel.model_id} compact />,
                       },
                     ]}
                   />

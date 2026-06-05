@@ -880,3 +880,167 @@ async def precheck_inference(
         "prediction_trade_date": prediction_trade_date_str,
         "items": checks,
     }
+
+
+# ── 滚动回测（模型预测质量评估） ─────────────────────────────────────────
+
+
+class BacktestRequest(BaseModel):
+    model_id: str = Field(..., description="模型ID（目录名）")
+    start_date: str = Field(..., description="回测起始日期 YYYY-MM-DD")
+    end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
+    horizon: int = Field(default=10, description="预测周期 T+N（天）")
+    sample_interval: int = Field(default=10, description="每隔 N 个交易日采样一次")
+    model_config = {"protected_namespaces": ()}
+
+
+@router.post("/backtest", summary="滚动回测评估模型预测质量")
+async def run_model_backtest(
+    request: BacktestRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """
+    对指定模型在历史日期范围内进行滚动回测。
+    每隔 sample_interval 个交易日执行一次推理，对比预测分数与实际 mom_ret_{horizon}d，
+    计算 IC、IC_IR、十分位收益、命中率等指标。
+    """
+    import asyncio
+
+    from backend.services.engine.inference.backtest_service import BacktestService
+    from backend.services.engine.inference.data_loader import get_available_dates
+
+    # 1. Resolve model directory
+    model_id = request.model_id
+    model_dir = None
+
+    # Search in user models
+    user_models_root = Path(MODELS_ROOT) / "users"
+    for d in user_models_root.rglob(model_id):
+        if (d / "metadata.json").exists():
+            model_dir = d
+            break
+
+    # Search in production
+    if model_dir is None:
+        prod_dir = Path(MODELS_PRODUCTION)
+        for d in prod_dir.rglob(model_id):
+            if (d / "metadata.json").exists():
+                model_dir = d
+                break
+
+    if model_dir is None:
+        raise HTTPException(status_code=404, detail=f"模型 {model_id} 未找到")
+
+    # 2. Get available trading dates in range
+    data_dir = os.path.join(os.getcwd(), "db", "feature_snapshots")
+    available_dates = get_available_dates(
+        data_dir=data_dir,
+        start_date=request.start_date,
+        end_date=request.end_date,
+    )
+
+    if not available_dates:
+        raise HTTPException(
+            status_code=400,
+            detail=f"日期范围 {request.start_date} ~ {request.end_date} 内无可用数据",
+        )
+
+    # 3. Sample dates
+    interval = max(1, request.sample_interval)
+    sampled_dates = available_dates[::interval]
+
+    # Ensure last date is included
+    if available_dates[-1] not in sampled_dates:
+        sampled_dates.append(available_dates[-1])
+
+    if len(sampled_dates) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail=f"采样后日期不足（仅 {len(sampled_dates)} 天），请扩大日期范围或减小采样间隔",
+        )
+
+    # 4. Run backtest
+    try:
+        backtest_service = BacktestService()
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: backtest_service.run_backtest(
+                model_id=model_id,
+                dates=sampled_dates,
+                horizon=request.horizon,
+                model_dir=model_dir,
+                data_dir=data_dir,
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"回测执行失败: {e}")
+
+    return result
+
+
+@router.get("/backtest/trading-dates", summary="获取可用回测日期列表")
+async def get_backtest_trading_dates(
+    start: str = Query(..., description="起始日期 YYYY-MM-DD"),
+    end: str = Query(..., description="结束日期 YYYY-MM-DD"),
+    current_user: dict = Depends(require_admin),
+):
+    """返回指定日期范围内的所有可用交易日。"""
+    from backend.services.engine.inference.data_loader import get_available_dates
+
+    data_dir = os.path.join(os.getcwd(), "db", "feature_snapshots")
+    dates = get_available_dates(data_dir=data_dir, start_date=start, end_date=end)
+    return {"status": "success", "dates": dates, "count": len(dates)}
+
+
+@router.get("/list-for-backtest", summary="获取可用于回测的模型列表")
+async def list_models_for_backtest(
+    current_user: dict = Depends(require_admin),
+):
+    """列出所有已训练完成的模型（含 user 和 system 模型），用于回测选择。"""
+    models = []
+
+    # User models
+    user_root = Path(MODELS_ROOT) / "users"
+    if user_root.exists():
+        for meta_file in user_root.rglob("metadata.json"):
+            model_dir = meta_file.parent
+            try:
+                with open(meta_file, encoding="utf-8") as f:
+                    meta = json.load(f)
+                model_id = model_dir.name
+                models.append({
+                    "model_id": model_id,
+                    "model_dir": str(model_dir),
+                    "framework": meta.get("framework", "unknown"),
+                    "feature_count": len(meta.get("feature_columns") or meta.get("features", [])),
+                    "target_horizon_days": meta.get("target_horizon_days", 1),
+                    "metrics": meta.get("metrics", {}),
+                    "type": "user",
+                })
+            except Exception:
+                continue
+
+    # Production models
+    prod_root = Path(MODELS_PRODUCTION)
+    if prod_root.exists():
+        for meta_file in prod_root.rglob("metadata.json"):
+            model_dir = meta_file.parent
+            model_id = model_dir.name
+            if any(m["model_id"] == model_id for m in models):
+                continue
+            try:
+                with open(meta_file, encoding="utf-8") as f:
+                    meta = json.load(f)
+                models.append({
+                    "model_id": model_id,
+                    "model_dir": str(model_dir),
+                    "framework": meta.get("framework", "unknown"),
+                    "feature_count": len(meta.get("feature_columns") or meta.get("features", [])),
+                    "target_horizon_days": meta.get("target_horizon_days", 1),
+                    "metrics": meta.get("metrics", {}),
+                    "type": "production",
+                })
+            except Exception:
+                continue
+
+    return {"status": "success", "models": models, "count": len(models)}

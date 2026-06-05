@@ -60,6 +60,10 @@ class InferenceService:
                 )
 
             df = self.data_adapter.convert_realtime_data(data)
+            # 排除 ST / *ST / 退市股
+            if "is_st" in df.columns:
+                import pandas as _pd
+                df = df[_pd.to_numeric(df["is_st"], errors="coerce") != 1]
             feature_columns = self._resolve_feature_columns(model, metadata)
             features = self.data_adapter.prepare_features(df, feature_columns)
 

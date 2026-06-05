@@ -17,6 +17,7 @@ import { StrategyComparisonModule } from '../components/backtestCenter/StrategyC
 import { ParameterOptimizationModule } from '../components/backtestCenter/ParameterOptimizationModule';
 import { StrategyManagementModule } from '../components/backtestCenter/StrategyManagementModule';
 import { EnhancedAdvancedAnalysisModule } from '../components/backtestCenter/EnhancedAdvancedAnalysisModule';
+import { ModelEvaluationModule } from '../components/backtestCenter/ModelEvaluationModule';
 import { useBacktestCenterStore, ModuleId } from '../stores/backtestCenterStore';
 import { Bell } from 'lucide-react';
 import { PAGE_LAYOUT } from '../config/pageLayout';
@@ -29,7 +30,7 @@ export const NewBacktestCenterPage: React.FC = () => {
   useEffect(() => {
     const validModules: ModuleId[] = [
       'quick-backtest', 'expert-mode', 'backtest-history',
-      'strategy-compare', 'parameter-optimize', 'strategy-management', 'advanced-analysis'
+      'strategy-compare', 'parameter-optimize', 'strategy-management', 'advanced-analysis', 'model-evaluation'
     ];
     if (!validModules.includes(activeModule)) {
       setActiveModule('quick-backtest');
@@ -53,6 +54,8 @@ export const NewBacktestCenterPage: React.FC = () => {
         return <StrategyManagementModule />;
       case 'advanced-analysis':
         return <EnhancedAdvancedAnalysisModule />;
+      case 'model-evaluation':
+        return <ModelEvaluationModule />;
       default:
         return <QlibQuickBacktest />;
     }
@@ -68,6 +71,7 @@ export const NewBacktestCenterPage: React.FC = () => {
       'parameter-optimize': '参数优化',
       'strategy-management': '策略管理',
       'advanced-analysis': '高级分析',
+      'model-evaluation': '模型评估',
     };
     return ['回测中心', moduleNames[activeModule]];
   };
