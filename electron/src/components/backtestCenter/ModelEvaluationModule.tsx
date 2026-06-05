@@ -10,10 +10,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Select, DatePicker, Button, Space, Spin, message,
-  Row, Col, Statistic, Table, Typography, Divider, Empty,
+  Row, Col, Statistic, Table, Typography, Divider, Empty, Popconfirm,
 } from 'antd';
 import {
-  BarChart3, TrendingUp, Activity, Target, Zap,
+  BarChart3, TrendingUp, Activity, Target, Zap, Trash2, RotateCcw,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import ReactECharts from 'echarts-for-react';
@@ -73,14 +73,27 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
     dayjs().subtract(1, 'day'),
   ]);
   const [horizon, setHorizon] = useState<number>(10);
-  const [sampleInterval, setSampleInterval] = useState<number>(10);
+  const [sampleInterval, setSampleInterval] = useState<number>(3);
   const [loading, setLoading] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string>('');
 
   useEffect(() => {
     loadModels();
   }, []);
+
+  // Load history when model changes
+  useEffect(() => {
+    if (selectedModelId) {
+      loadHistory(selectedModelId);
+    } else {
+      setHistory([]);
+      setResult(null);
+    }
+  }, [selectedModelId]);
 
   const loadModels = async () => {
     setModelsLoading(true);
@@ -91,6 +104,46 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
       message.error('加载模型列表失败: ' + (e.message || '未知错误'));
     } finally {
       setModelsLoading(false);
+    }
+  };
+
+  const loadHistory = async (modelId: string) => {
+    setHistoryLoading(true);
+    try {
+      const records = await modelTrainingService.getBacktestHistory(modelId);
+      setHistory(records);
+      // Auto-load latest result
+      if (records.length > 0 && !result) {
+        loadDetail(modelId, records[0].run_id);
+      }
+    } catch (e: any) {
+      // Silent fail for history
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const loadDetail = async (modelId: string, runId: string) => {
+    try {
+      const detail = await modelTrainingService.getBacktestDetail(modelId, runId);
+      setResult(detail);
+      setActiveRunId(runId);
+    } catch (e: any) {
+      message.error('加载回测详情失败');
+    }
+  };
+
+  const deleteHistoryItem = async (runId: string) => {
+    try {
+      await modelTrainingService.deleteBacktestHistory(selectedModelId, runId);
+      setHistory(prev => prev.filter(h => h.run_id !== runId));
+      if (activeRunId === runId) {
+        setResult(null);
+        setActiveRunId('');
+      }
+      message.success('已删除');
+    } catch (e: any) {
+      message.error('删除失败');
     }
   };
 
@@ -111,7 +164,10 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
       });
       if (resp.status === 'success') {
         setResult(resp);
+        setActiveRunId(resp.run_id || '');
         message.success(`回测完成，共 ${resp.metrics.n_dates} 个交易日`);
+        // Reload history
+        loadHistory(selectedModelId);
       } else {
         message.error(resp.error || '回测失败');
       }
@@ -455,8 +511,76 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
         </>
       )}
 
+      {/* 回测历史 */}
+      {selectedModelId && history.length > 0 && (
+        <Card title="回测历史" className="shadow-sm" size="small"
+          extra={<Text className="text-xs text-gray-400">共 {history.length} 条记录</Text>}
+        >
+          <Table
+            dataSource={history}
+            rowKey="run_id"
+            size="small"
+            pagination={false}
+            scroll={{ x: 600 }}
+            rowClassName={(record) => record.run_id === activeRunId ? 'bg-blue-50' : ''}
+            onRow={(record) => ({
+              onClick: () => loadDetail(selectedModelId, record.run_id),
+              style: { cursor: 'pointer' },
+            })}
+            columns={[
+              {
+                title: '时间', dataIndex: 'created_at', key: 'created_at', width: 160,
+                render: (v: string) => v ? dayjs(v).format('MM-DD HH:mm') : '-',
+              },
+              {
+                title: '日期范围', key: 'range', width: 200,
+                render: (_: any, r: any) => r.date_range?.length === 2
+                  ? `${r.date_range[0]} ~ ${r.date_range[1]}` : '-',
+              },
+              { title: '天数', dataIndex: 'n_dates', key: 'n_dates', width: 60 },
+              {
+                title: 'IC均值', key: 'ic', width: 90,
+                render: (_: any, r: any) => {
+                  const ic = r.metrics?.ic_mean;
+                  return ic != null ? (
+                    <span style={{ color: ic > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>
+                      {ic.toFixed(4)}
+                    </span>
+                  ) : '-';
+                },
+              },
+              {
+                title: 'IC_IR', key: 'icir', width: 70,
+                render: (_: any, r: any) => r.metrics?.ic_ir?.toFixed(2) ?? '-',
+              },
+              {
+                title: '命中率', key: 'hit', width: 70,
+                render: (_: any, r: any) => {
+                  const hr = r.metrics?.hit_rate;
+                  return hr != null ? `${(hr * 100).toFixed(0)}%` : '-';
+                },
+              },
+              {
+                title: 'T+10', key: 'horizon', width: 50,
+                render: (_: any, r: any) => `T+${r.horizon || 10}`,
+              },
+              {
+                title: '', key: 'actions', width: 40,
+                render: (_: any, r: any) => (
+                  <Popconfirm title="确定删除？" onConfirm={(e) => { e?.stopPropagation(); deleteHistoryItem(r.run_id); }}>
+                    <Button type="text" size="small" danger icon={<Trash2 className="w-3 h-3" />}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </Popconfirm>
+                ),
+              },
+            ]}
+          />
+        </Card>
+      )}
+
       {/* 空状态 */}
-      {!loading && !result && (
+      {!loading && !result && history.length === 0 && (
         <Card className="shadow-sm">
           <Empty
             description="选择模型和日期范围，点击「开始回测」评估模型预测质量"

@@ -598,6 +598,22 @@ class ModelTrainingService {
     });
     return (resp.data as any)?.dates ?? [];
   }
+
+  async getBacktestHistory(modelId: string, limit = 20): Promise<any[]> {
+    const resp = await this.client.get(`/admin/models/backtest/history/${modelId}`, {
+      params: { limit },
+    });
+    return (resp.data as any)?.records ?? [];
+  }
+
+  async getBacktestDetail(modelId: string, runId: string): Promise<any> {
+    const resp = await this.client.get(`/admin/models/backtest/history/${modelId}/${runId}`);
+    return resp.data;
+  }
+
+  async deleteBacktestHistory(modelId: string, runId: string): Promise<void> {
+    await this.client.delete(`/admin/models/backtest/history/${modelId}/${runId}`);
+  }
 }
 
 export const modelTrainingService = new ModelTrainingService();

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,9 @@ from scipy.stats import spearmanr
 
 from .config import PRODUCTION_MODELS_DIR
 from .data_loader import get_available_dates, load_date_data, preprocess
+
+# History storage directory
+_HISTORY_DIR = Path("/app/db/backtest_history")
 from .model_loader import ModelLoader
 
 logger = logging.getLogger(__name__)
@@ -170,15 +175,27 @@ class BacktestService:
         except Exception:
             metrics["decile_rank_ic"] = 0.0
 
-        return {
+        output = {
             "status": "success",
+            "run_id": uuid.uuid4().hex[:12],
             "model_id": model_id,
             "horizon": horizon,
+            "created_at": datetime.now().isoformat(),
+            "date_range": [dates[0], dates[-1]] if dates else [],
+            "sample_interval": len(dates),
             "metrics": metrics,
             "avg_decile_returns": avg_decile_returns,
             "per_day": results,
             "errors": errors,
         }
+
+        # Auto-save to history
+        try:
+            self.save_history(model_id, output)
+        except Exception as e:
+            logger.warning("保存回测历史失败: %s", e)
+
+        return output
 
     def _evaluate_single_date(
         self,
@@ -309,3 +326,84 @@ class BacktestService:
         except Exception as e:
             logger.error("Prediction failed: %s", e)
             return None
+
+    # ── History persistence ──
+
+    def save_history(self, model_id: str, result: dict[str, Any]) -> None:
+        """Save a backtest result to history."""
+        history_dir = _HISTORY_DIR / model_id
+        history_dir.mkdir(parents=True, exist_ok=True)
+
+        run_id = result.get("run_id", uuid.uuid4().hex[:12])
+        ts = result.get("created_at", datetime.now().isoformat())[:19].replace(":", "-")
+        filename = f"{ts}_{run_id}.json"
+        filepath = history_dir / filename
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+        logger.info("回测历史已保存: %s", filepath)
+
+        # Cleanup: keep only latest 50 records per model
+        self._cleanup_history(model_id, max_records=50)
+
+    def list_history(self, model_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """List backtest history for a model, newest first."""
+        history_dir = _HISTORY_DIR / model_id
+        if not history_dir.exists():
+            return []
+
+        files = sorted(history_dir.glob("*.json"), reverse=True)
+        records = []
+        for f in files[:limit]:
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                # Return summary (without per_day details for list view)
+                records.append({
+                    "run_id": data.get("run_id", ""),
+                    "model_id": data.get("model_id", model_id),
+                    "horizon": data.get("horizon", 10),
+                    "created_at": data.get("created_at", ""),
+                    "date_range": data.get("date_range", []),
+                    "metrics": data.get("metrics", {}),
+                    "avg_decile_returns": data.get("avg_decile_returns", {}),
+                    "n_dates": data.get("metrics", {}).get("n_dates", 0),
+                })
+            except Exception as e:
+                logger.warning("读取回测历史失败 %s: %s", f.name, e)
+        return records
+
+    def get_history_detail(self, model_id: str, run_id: str) -> dict[str, Any] | None:
+        """Get full detail of a specific backtest run."""
+        history_dir = _HISTORY_DIR / model_id
+        if not history_dir.exists():
+            return None
+
+        for f in history_dir.glob(f"*{run_id}*.json"):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    return json.load(fh)
+            except Exception:
+                continue
+        return None
+
+    def delete_history(self, model_id: str, run_id: str) -> bool:
+        """Delete a specific backtest history record."""
+        history_dir = _HISTORY_DIR / model_id
+        if not history_dir.exists():
+            return False
+        for f in history_dir.glob(f"*{run_id}*.json"):
+            f.unlink()
+            return True
+        return False
+
+    @staticmethod
+    def _cleanup_history(model_id: str, max_records: int = 50) -> None:
+        """Keep only the latest N history records per model."""
+        history_dir = _HISTORY_DIR / model_id
+        if not history_dir.exists():
+            return
+        files = sorted(history_dir.glob("*.json"), reverse=True)
+        for f in files[max_records:]:
+            f.unlink()

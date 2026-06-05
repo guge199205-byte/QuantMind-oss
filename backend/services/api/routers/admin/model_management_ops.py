@@ -1044,3 +1044,46 @@ async def list_models_for_backtest(
                 continue
 
     return {"status": "success", "models": models, "count": len(models)}
+
+
+@router.get("/backtest/history/{model_id}", summary="获取模型回测历史")
+async def get_backtest_history(
+    model_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: dict = Depends(require_admin),
+):
+    """返回指定模型的回测历史记录列表（最新在前）。"""
+    from backend.services.engine.inference.backtest_service import BacktestService
+    svc = BacktestService()
+    records = svc.list_history(model_id, limit=limit)
+    return {"status": "success", "records": records, "count": len(records)}
+
+
+@router.get("/backtest/history/{model_id}/{run_id}", summary="获取回测详情")
+async def get_backtest_detail(
+    model_id: str,
+    run_id: str,
+    current_user: dict = Depends(require_admin),
+):
+    """返回指定回测运行的完整详情（含逐日数据）。"""
+    from backend.services.engine.inference.backtest_service import BacktestService
+    svc = BacktestService()
+    detail = svc.get_history_detail(model_id, run_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"回测记录 {run_id} 未找到")
+    return detail
+
+
+@router.delete("/backtest/history/{model_id}/{run_id}", summary="删除回测记录")
+async def delete_backtest_history(
+    model_id: str,
+    run_id: str,
+    current_user: dict = Depends(require_admin),
+):
+    """删除指定回测记录。"""
+    from backend.services.engine.inference.backtest_service import BacktestService
+    svc = BacktestService()
+    deleted = svc.delete_history(model_id, run_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"回测记录 {run_id} 未找到")
+    return {"status": "ok", "deleted": run_id}
