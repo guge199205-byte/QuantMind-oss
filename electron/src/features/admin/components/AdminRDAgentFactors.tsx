@@ -26,6 +26,7 @@ import {
   InputNumber,
   message,
   Row,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -57,6 +58,7 @@ import {
   rdAgentService,
   buildEvolutionMessage,
   FACTOR_TYPE_OPTIONS,
+  MARKET_OPTIONS,
   type FactorStatus,
   type RDAgentFactor,
   type RDAgentStats,
@@ -129,6 +131,7 @@ export const AdminRDAgentFactors: React.FC = () => {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const [market, setMarket] = useState<string>('a_share');
   const [statusFilter, setStatusFilter] = useState<FactorStatus | undefined>(undefined);
   const [taskHighlight, setTaskHighlight] = useState<string | undefined>(undefined);
 
@@ -161,14 +164,14 @@ export const AdminRDAgentFactors: React.FC = () => {
   const reloadStats = useCallback(async () => {
     setLoadingStats(true);
     try {
-      const s = await rdAgentService.getStats();
+      const s = await rdAgentService.getStats(market);
       setStats(s);
     } catch (err: any) {
       message.error(`加载统计失败: ${err?.message || err}`);
     } finally {
       setLoadingStats(false);
     }
-  }, []);
+  }, [market]);
 
   const reloadFactors = useCallback(async () => {
     setLoadingFactors(true);
@@ -176,6 +179,7 @@ export const AdminRDAgentFactors: React.FC = () => {
       const list = await rdAgentService.listFactors({
         status: statusFilter,
         limit: 100,
+        market,
       });
       setFactors(list);
     } catch (err: any) {
@@ -183,19 +187,19 @@ export const AdminRDAgentFactors: React.FC = () => {
     } finally {
       setLoadingFactors(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, market]);
 
   const reloadTasks = useCallback(async () => {
     setLoadingTasks(true);
     try {
-      const list = await rdAgentService.listTasks();
+      const list = await rdAgentService.listTasks(market);
       setTasks(list);
     } catch {
       // 静默 — 未登录或暂未实现都不打扰
     } finally {
       setLoadingTasks(false);
     }
-  }, []);
+  }, [market]);
 
   // 首次加载
   useEffect(() => {
@@ -229,8 +233,8 @@ export const AdminRDAgentFactors: React.FC = () => {
   const onSubmit = async (values: { factor_type: string; loop_n: number; description?: string }) => {
     setSubmitting(true);
     try {
-      const msg = buildEvolutionMessage(values);
-      const r = await rdAgentService.triggerEvolution(msg);
+      const msg = buildEvolutionMessage({ ...values, market });
+      const r = await rdAgentService.triggerEvolution(msg, market);
       if (r.intent !== 'factor_evolution') {
         message.warning(`意图识别为 ${r.intent}，未触发因子演化，回复：${r.answer || ''}`);
         return;
@@ -339,6 +343,16 @@ export const AdminRDAgentFactors: React.FC = () => {
       ),
     },
     {
+      title: '市场',
+      key: 'market',
+      width: 80,
+      render: (_: any, row: RDAgentFactor) => {
+        const m = parseMeta(row).market;
+        const opt = MARKET_OPTIONS.find(o => o.value === m);
+        return opt ? <Tag color={opt.color} className="text-[10px] m-0">{opt.cn}</Tag> : <span className="text-slate-300 text-xs">—</span>;
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -411,7 +425,19 @@ export const AdminRDAgentFactors: React.FC = () => {
             基于 LLM 的自动化因子演化引擎 — 一键触发、实时进度、自动落库、可视化回测
           </Text>
         </div>
-        <Space>
+        <Space size="middle">
+          <Segmented
+            value={market}
+            onChange={(val) => setMarket(val as string)}
+            options={MARKET_OPTIONS.map(m => ({
+              value: m.value,
+              label: (
+                <Space size={4}>
+                  <span>{m.cn}</span>
+                </Space>
+              ),
+            }))}
+          />
           <Button icon={<ReloadOutlined />} onClick={() => { void reloadStats(); void reloadFactors(); void reloadTasks(); }}>
             刷新
           </Button>
@@ -436,7 +462,15 @@ export const AdminRDAgentFactors: React.FC = () => {
 
       {/* ② 触发演化 */}
       <Card
-        title={<Space><ThunderboltOutlined className="text-amber-500" />触发因子演化</Space>}
+        title={
+          <Space>
+            <ThunderboltOutlined className="text-amber-500" />
+            触发因子演化
+            <Tag color={MARKET_OPTIONS.find(m => m.value === market)?.color || 'default'}>
+              {MARKET_OPTIONS.find(m => m.value === market)?.cn || market}
+            </Tag>
+          </Space>
+        }
         extra={<Text className="text-xs text-slate-400">单轮约 5–15 分钟，后台 Docker 跑 LLM 演化</Text>}
       >
         <Form
@@ -620,7 +654,7 @@ export const AdminRDAgentFactors: React.FC = () => {
           columns={columns as any}
           dataSource={visibleFactors}
           pagination={{ pageSize: 20, showSizeChanger: false }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1300 }}
         />
       </Card>
 
@@ -690,6 +724,13 @@ export const AdminRDAgentFactors: React.FC = () => {
                       {selectedFactor.max_drawdown != null ? `${(selectedFactor.max_drawdown * 100).toFixed(2)}%` : '—'}
                     </Descriptions.Item>
                     <Descriptions.Item label="所属用户">{selectedFactor.user_id || '—'}</Descriptions.Item>
+                    <Descriptions.Item label="市场">
+                      {(() => {
+                        const m = parseMeta(selectedFactor).market;
+                        const opt = MARKET_OPTIONS.find(o => o.value === m);
+                        return opt ? <Tag color={opt.color}>{opt.cn}</Tag> : '—';
+                      })()}
+                    </Descriptions.Item>
                     <Descriptions.Item label="任务 ID">
                       <Text className="text-xs">{parseMeta(selectedFactor).task_id || '—'}</Text>
                     </Descriptions.Item>

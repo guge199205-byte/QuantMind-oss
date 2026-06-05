@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
     Table, Button, message, Space, Tag, Modal, Collapse, Descriptions,
-    Badge, Tooltip, Typography, Spin, Tabs, Progress, Select
+    Badge, Tooltip, Typography, Spin, Tabs, Progress, Select, Segmented
 } from 'antd';
 import {
     ScanOutlined, FolderOpenOutlined,
     CheckCircleOutlined, FileOutlined, ReloadOutlined,
-    ThunderboltOutlined, HistoryOutlined
+    ThunderboltOutlined, HistoryOutlined,
+    GlobalOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +20,26 @@ import { setCurrentTab } from '../../../store/slices/aiStrategySlice';
 
 const { Panel } = Collapse;
 const { Text, Link } = Typography;
+
+const MODEL_MARKET_OPTIONS = [
+    { value: 'all', label: '全部', color: 'default' },
+    { value: 'a_share', label: 'A股', color: 'red' },
+    { value: 'hong_kong', label: '港股', color: 'blue' },
+    { value: 'us_stock', label: '美股', color: 'green' },
+    { value: 'crypto', label: '加密', color: 'purple' },
+];
+
+function extractModelMarket(model: ModelDirectoryInfo): string {
+    const meta = model.metadata || {};
+    const wf = model.workflow_config || {};
+    const qlib = model.qlib_config || {};
+    const raw = String(meta.market || wf.market || qlib.market || '').toLowerCase();
+    if (raw.includes('hk') || raw.includes('hong_kong') || raw.includes('港股')) return 'hong_kong';
+    if (raw.includes('us') || raw.includes('美股')) return 'us_stock';
+    if (raw.includes('crypto') || raw.includes('加密')) return 'crypto';
+    if (raw.includes('cn') || raw.includes('a_share') || raw.includes('a股') || raw.includes('sh') || raw.includes('sz')) return 'a_share';
+    return 'a_share'; // default
+}
 
 // 格式化文件大小
 const fmtSize = (bytes: number) => {
@@ -158,8 +179,14 @@ export const AdminModelManagement: React.FC = () => {
         try {
             const result = await adminService.scanModels();
             setScanResult(result);
-        } catch {
-            message.error('扫描模型目录失败');
+        } catch (err: any) {
+            if (err?._adminReauthHint) {
+                message.error(err._adminReauthHint);
+            } else if (err?.response?.status === 403) {
+                message.error('权限不足，请退出并重新登录以刷新管理员权限');
+            } else {
+                message.error('扫描模型目录失败');
+            }
         } finally {
             setScanning(false);
         }
@@ -194,6 +221,13 @@ export const AdminModelManagement: React.FC = () => {
     const [jobDetail, setJobDetail] = useState<any>(null);
     const [jobDetailLoading, setJobDetailLoading] = useState(false);
     const [activeAdminTab, setActiveAdminTab] = useState('models');
+    const [modelMarketFilter, setModelMarketFilter] = useState<string>('all');
+
+    const filteredModels = useMemo(() => {
+        if (!scanResult?.models) return [];
+        if (modelMarketFilter === 'all') return scanResult.models;
+        return scanResult.models.filter(m => extractModelMarket(m) === modelMarketFilter);
+    }, [scanResult, modelMarketFilter]);
 
     const loadTrainingJobs = useCallback(async (page = 1, status?: string) => {
         setJobsLoading(true);
@@ -239,9 +273,9 @@ export const AdminModelManagement: React.FC = () => {
                 <Space size={4} className="max-w-full">
                     <FolderOpenOutlined className="text-amber-500 shrink-0" />
                     <Tooltip title={id}>
-                        <Text 
-                            strong 
-                            className="text-slate-700 text-xs" 
+                        <Text
+                            strong
+                            className="text-slate-700 text-xs"
                             ellipsis={{ tooltip: false }}
                             style={{ width: record.is_production ? 120 : 180 }}
                         >
@@ -258,6 +292,18 @@ export const AdminModelManagement: React.FC = () => {
                     )}
                 </Space>
             ),
+        },
+        {
+            title: '市场',
+            key: 'market',
+            width: 80,
+            render: (_: any, record: ModelDirectoryInfo) => {
+                const mkt = extractModelMarket(record);
+                const opt = MODEL_MARKET_OPTIONS.find(o => o.value === mkt);
+                return opt && opt.value !== 'all' ? (
+                    <Tag color={opt.color} className="text-[10px] m-0">{opt.label}</Tag>
+                ) : <span className="text-slate-300 text-xs">—</span>;
+            },
         },
         {
             title: '模型类',
@@ -401,10 +447,21 @@ export const AdminModelManagement: React.FC = () => {
 
             {/* 扫描统计 */}
             {scanResult && !scanning && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl text-xs text-slate-500">
-                    <CheckCircleOutlined className="text-green-500" />
-                    共发现 <span className="font-bold text-slate-800">{scanResult.total}</span> 个模型目录
-                    （生产：{scanResult.models.filter(m => m.is_production).length} 个）
+                <div className="flex items-center justify-between px-4 py-2 bg-slate-50 rounded-2xl text-xs text-slate-500">
+                    <Space>
+                        <CheckCircleOutlined className="text-green-500" />
+                        共发现 <span className="font-bold text-slate-800">{scanResult.total}</span> 个模型目录
+                        （生产：{scanResult.models.filter(m => m.is_production).length} 个）
+                        {modelMarketFilter !== 'all' && (
+                            <span>· 当前筛选：<Tag color={MODEL_MARKET_OPTIONS.find(o => o.value === modelMarketFilter)?.color} className="m-0">{MODEL_MARKET_OPTIONS.find(o => o.value === modelMarketFilter)?.label}</Tag> {filteredModels.length} 个</span>
+                        )}
+                    </Space>
+                    <Segmented
+                        size="small"
+                        value={modelMarketFilter}
+                        onChange={(val) => setModelMarketFilter(val as string)}
+                        options={MODEL_MARKET_OPTIONS.map(m => ({ value: m.value, label: m.label }))}
+                    />
                 </div>
             )}
 
@@ -412,7 +469,7 @@ export const AdminModelManagement: React.FC = () => {
             <Spin spinning={scanning} tip="正在扫描模型目录…">
                 <Table
                     columns={columns}
-                    dataSource={scanResult?.models || []}
+                    dataSource={filteredModels}
                     rowKey="model_id"
                     pagination={{ pageSize: 10 }}
                     className="admin-table border-none shadow-sm rounded-3xl overflow-hidden"
@@ -684,6 +741,13 @@ export const AdminModelManagement: React.FC = () => {
                             </Descriptions.Item>
                             <Descriptions.Item label="模型格式">
                                 {detailModel.model_format || '—'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="市场">
+                                {(() => {
+                                    const mkt = extractModelMarket(detailModel);
+                                    const opt = MODEL_MARKET_OPTIONS.find(o => o.value === mkt);
+                                    return opt && opt.value !== 'all' ? <Tag color={opt.color}>{opt.label}</Tag> : '—';
+                                })()}
                             </Descriptions.Item>
                             <Descriptions.Item label="训练目标">
                                 {(() => {

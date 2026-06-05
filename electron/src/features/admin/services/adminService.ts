@@ -70,6 +70,14 @@ class AdminService {
         this.axiosInstance.interceptors.response.use(
             (response) => response,
             async (error) => {
+                // 403 权限不足：提示重新登录以刷新 token
+                if (error?.response?.status === 403) {
+                    const detail = error?.response?.data?.detail || '';
+                    if (detail.includes('admin') || detail.includes('权限')) {
+                        // 标记需要重新登录
+                        error._adminReauthHint = '管理员权限验证失败，请退出并重新登录以刷新权限令牌';
+                    }
+                }
                 return authService.handle401Error(error, this.axiosInstance);
             }
         );

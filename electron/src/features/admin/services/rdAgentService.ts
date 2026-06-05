@@ -49,6 +49,7 @@ export interface RDAgentStats {
   avg_sharpe?: number | null;
   best_ic?: number | null;
   best_sharpe?: number | null;
+  market?: string;
 }
 
 export interface QuantBotTask {
@@ -85,6 +86,7 @@ class RDAgentService {
     user_id?: string;
     status?: FactorStatus;
     limit?: number;
+    market?: string;
   } = {}): Promise<RDAgentFactor[]> {
     const r = await apiClient.get('/alpha-agent/factors', { params });
     const body = unwrap<{ factors: RDAgentFactor[]; total: number }>(r.data);
@@ -106,21 +108,21 @@ class RDAgentService {
     return unwrap(r.data);
   }
 
-  async getStats(): Promise<RDAgentStats> {
-    const r = await apiClient.get('/alpha-agent/stats');
+  async getStats(market?: string): Promise<RDAgentStats> {
+    const r = await apiClient.get('/alpha-agent/stats', { params: market ? { market } : undefined });
     return unwrap<RDAgentStats>(r.data) ?? ({} as RDAgentStats);
   }
 
   // -------------------- 任务 (QuantBot) --------------------
 
-  async triggerEvolution(message: string): Promise<ChatTriggerResponse> {
-    const r = await apiClient.post('/quantbot/chat', { message, history: [] });
+  async triggerEvolution(message: string, market?: string): Promise<ChatTriggerResponse> {
+    const r = await apiClient.post('/quantbot/chat', { message, history: [], market });
     // 该接口直接返回 {intent, task_id, answer}
     return r.data as ChatTriggerResponse;
   }
 
-  async listTasks(): Promise<QuantBotTask[]> {
-    const r = await apiClient.get('/quantbot/tasks');
+  async listTasks(market?: string): Promise<QuantBotTask[]> {
+    const r = await apiClient.get('/quantbot/tasks', { params: market ? { market } : undefined });
     const body = r.data;
     return (body?.tasks as QuantBotTask[]) ?? [];
   }
@@ -145,13 +147,23 @@ export const FACTOR_TYPE_OPTIONS: Array<{ value: string; label: string; cn: stri
   { value: '综合',       label: '综合',       cn: '综合' },
 ];
 
+export const MARKET_OPTIONS: Array<{ value: string; label: string; cn: string; color: string }> = [
+  { value: 'a_share',   label: 'A-Share',  cn: 'A股',   color: 'red' },
+  { value: 'hong_kong', label: 'HK-Stock', cn: '港股',   color: 'blue' },
+  { value: 'us_stock',  label: 'US-Stock', cn: '美股',   color: 'green' },
+  { value: 'crypto',    label: 'Crypto',   cn: '加密货币', color: 'purple' },
+];
+
 export function buildEvolutionMessage(opts: {
   factor_type: string;
   loop_n?: number;
   description?: string;
+  market?: string;
 }): string {
   const ft = FACTOR_TYPE_OPTIONS.find(f => f.value === opts.factor_type)?.cn || opts.factor_type;
   const loop = opts.loop_n ?? 3;
+  const market = MARKET_OPTIONS.find(m => m.value === opts.market)?.cn || '';
+  const marketPart = market ? `，目标市场：${market}` : '';
   const extra = opts.description?.trim() ? `；附加要求：${opts.description.trim()}` : '';
-  return `请帮我挖一批${ft}因子，执行 ${loop} 轮演化循环${extra}`;
+  return `请帮我挖一批${ft}因子${marketPart}，执行 ${loop} 轮演化循环${extra}`;
 }
