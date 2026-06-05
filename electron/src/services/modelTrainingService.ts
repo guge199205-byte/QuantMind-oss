@@ -614,6 +614,17 @@ class ModelTrainingService {
   async deleteBacktestHistory(modelId: string, runId: string): Promise<void> {
     await this.client.delete(`/admin/models/backtest/history/${modelId}/${runId}`);
   }
+
+  async runMultiHorizonBacktest(params: {
+    model_id: string;
+    start_date: string;
+    end_date: string;
+    horizons?: number[];
+    sample_interval?: number;
+  }): Promise<any> {
+    const resp = await this.client.post('/admin/models/backtest/multi-horizon', params, { timeout: 600000 });
+    return resp.data;
+  }
 }
 
 export const modelTrainingService = new ModelTrainingService();

@@ -80,6 +80,8 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string>('');
+  const [multiHorizonResult, setMultiHorizonResult] = useState<any>(null);
+  const [multiHorizonLoading, setMultiHorizonLoading] = useState(false);
 
   useEffect(() => {
     loadModels();
@@ -175,6 +177,34 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
       message.error('回测请求失败: ' + (e.message || '未知错误'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const runMultiHorizonBacktest = async () => {
+    if (!selectedModelId) {
+      message.warning('请选择模型');
+      return;
+    }
+    setMultiHorizonLoading(true);
+    setMultiHorizonResult(null);
+    try {
+      const resp = await modelTrainingService.runMultiHorizonBacktest({
+        model_id: selectedModelId,
+        start_date: dateRange[0].format('YYYY-MM-DD'),
+        end_date: dateRange[1].format('YYYY-MM-DD'),
+        horizons: [1, 5, 10, 20],
+        sample_interval: sampleInterval,
+      });
+      if (resp.status === 'success') {
+        setMultiHorizonResult(resp);
+        message.success('多周期对比回测完成');
+      } else {
+        message.error(resp.error || '多周期回测失败');
+      }
+    } catch (e: any) {
+      message.error('多周期回测请求失败: ' + (e.message || '未知错误'));
+    } finally {
+      setMultiHorizonLoading(false);
     }
   };
 
@@ -341,6 +371,144 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
     },
   ] : [];
 
+  // 累积IC曲线
+  const cumulativeICOption = result?.metrics?.cumulative_ic ? {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: 'rgba(0,0,0,0.1)',
+      textStyle: { color: '#374151' },
+      formatter: (params: any) => {
+        const p = params[0];
+        return `${p.axisValue}<br/>累积IC: ${(p.value as number).toFixed(4)}`;
+      },
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '8%', containLabel: true },
+    xAxis: {
+      type: 'category' as const,
+      data: result.per_day.map(d => d.date),
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+      axisLabel: { color: '#6b7280', rotate: 45, fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value' as const,
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+      axisLabel: { color: '#6b7280' },
+      splitLine: { lineStyle: { color: '#e5e7eb' } },
+    },
+    series: [{
+      name: '累积IC',
+      type: 'line',
+      data: result.metrics.cumulative_ic,
+      smooth: true,
+      lineStyle: { width: 2, color: '#8b5cf6' },
+      itemStyle: { color: '#8b5cf6' },
+      areaStyle: {
+        color: {
+          type: 'linear' as const, x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(139,92,246,0.2)' },
+            { offset: 1, color: 'rgba(139,92,246,0.02)' },
+          ],
+        },
+      },
+    }],
+  } : null;
+
+  // 月度IC分布
+  const monthlyICOption = result?.metrics?.monthly_ic ? (() => {
+    const months = Object.keys(result.metrics.monthly_ic).sort();
+    const values = months.map(m => result.metrics.monthly_ic[m]);
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis' as const,
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        borderColor: 'rgba(0,0,0,0.1)',
+        textStyle: { color: '#374151' },
+        formatter: (params: any) => {
+          const p = params[0];
+          return `${p.axisValue}<br/>月度IC: ${(p.value as number).toFixed(4)}`;
+        },
+      },
+      grid: { left: '3%', right: '4%', bottom: '3%', top: '8%', containLabel: true },
+      xAxis: {
+        type: 'category' as const,
+        data: months,
+        axisLine: { lineStyle: { color: '#d1d5db' } },
+        axisLabel: { color: '#6b7280', rotate: 45, fontSize: 10 },
+      },
+      yAxis: {
+        type: 'value' as const,
+        axisLine: { lineStyle: { color: '#d1d5db' } },
+        axisLabel: { color: '#6b7280' },
+        splitLine: { lineStyle: { color: '#e5e7eb' } },
+      },
+      series: [{
+        name: '月度IC',
+        type: 'bar',
+        data: values,
+        itemStyle: {
+          color: (params: any) => {
+            const val = params.value as number;
+            return val >= 0 ? '#ef4444' : '#22c55e';
+          },
+          borderRadius: [4, 4, 0, 0],
+        },
+      }],
+    };
+  })() : null;
+
+  // 多空净值曲线
+  const lsEquityOption = result?.metrics?.cumulative_ls ? {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: 'rgba(0,0,0,0.1)',
+      textStyle: { color: '#374151' },
+      formatter: (params: any) => {
+        const p = params[0];
+        return `${p.axisValue}<br/>累积多空收益: ${((p.value as number) * 100).toFixed(2)}%`;
+      },
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '8%', containLabel: true },
+    xAxis: {
+      type: 'category' as const,
+      data: result.per_day.map(d => d.date),
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+      axisLabel: { color: '#6b7280', rotate: 45, fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value' as const,
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+      axisLabel: { color: '#6b7280', formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
+      splitLine: { lineStyle: { color: '#e5e7eb' } },
+    },
+    series: [{
+      name: '多空净值',
+      type: 'line',
+      data: result.metrics.cumulative_ls,
+      smooth: true,
+      lineStyle: { width: 2, color: '#f59e0b' },
+      itemStyle: { color: '#f59e0b' },
+      areaStyle: {
+        color: {
+          type: 'linear' as const, x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(245,158,11,0.2)' },
+            { offset: 1, color: 'rgba(245,158,11,0.02)' },
+          ],
+        },
+      },
+      markLine: {
+        silent: true,
+        data: [{ yAxis: 0, lineStyle: { color: '#ef4444', type: 'dashed' as const, width: 1 } }],
+      },
+    }],
+  } : null;
+
   return (
     <div className="space-y-6">
       {/* 配置面板 */}
@@ -410,15 +578,76 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
           >
             开始回测
           </Button>
+          <Button
+            icon={<BarChart3 className="w-4 h-4" />}
+            onClick={runMultiHorizonBacktest}
+            loading={multiHorizonLoading}
+            disabled={!selectedModelId}
+          >
+            多周期对比
+          </Button>
         </div>
       </Card>
 
       {/* 加载中 */}
-      {loading && (
+      {(loading || multiHorizonLoading) && (
         <Card className="shadow-sm">
           <div className="flex items-center justify-center py-12">
-            <Spin size="large" tip="正在执行回测，请稍候..." />
+            <Spin size="large" tip={multiHorizonLoading ? "正在执行多周期对比回测..." : "正在执行回测，请稍候..."} />
           </div>
+        </Card>
+      )}
+
+      {/* 多周期对比回测结果 */}
+      {multiHorizonResult && multiHorizonResult.status === 'success' && (
+        <Card title="多周期对比回测结果" className="shadow-sm"
+          extra={<Text className="text-xs text-gray-400">最佳周期: {multiHorizonResult.best_horizon}</Text>}
+        >
+          <Table
+            dataSource={Object.entries(multiHorizonResult.horizons).map(([key, val]: [string, any]) => ({
+              horizon: key,
+              ...val,
+            }))}
+            rowKey="horizon"
+            size="small"
+            pagination={false}
+            columns={[
+              { title: '预测周期', dataIndex: 'horizon', key: 'horizon', width: 100 },
+              {
+                title: 'IC均值', key: 'ic', width: 100,
+                render: (_: any, r: any) => r.ic_mean != null ? (
+                  <span style={{ color: r.ic_mean > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>
+                    {r.ic_mean.toFixed(4)}
+                  </span>
+                ) : r.error || '-',
+              },
+              {
+                title: 'IC_IR', key: 'icir', width: 80,
+                render: (_: any, r: any) => r.ic_ir?.toFixed(2) ?? '-',
+              },
+              {
+                title: '命中率', key: 'hit', width: 80,
+                render: (_: any, r: any) => r.hit_rate != null ? `${(r.hit_rate * 100).toFixed(0)}%` : '-',
+              },
+              {
+                title: '多空收益', key: 'ls', width: 100,
+                render: (_: any, r: any) => r.long_short_return != null ? (
+                  <span style={{ color: r.long_short_return > 0 ? '#ef4444' : '#22c55e' }}>
+                    {(r.long_short_return * 100).toFixed(2)}%
+                  </span>
+                ) : '-',
+              },
+              {
+                title: 'Sharpe', key: 'sharpe', width: 80,
+                render: (_: any, r: any) => r.sharpe_ls?.toFixed(2) ?? '-',
+              },
+              {
+                title: '换手率', key: 'turnover', width: 80,
+                render: (_: any, r: any) => r.turnover_mean != null ? `${(r.turnover_mean * 100).toFixed(0)}%` : '-',
+              },
+              { title: '天数', dataIndex: 'n_dates', key: 'n_dates', width: 60 },
+            ]}
+          />
         </Card>
       )}
 
@@ -463,6 +692,36 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
             </div>
           </Card>
 
+          {/* 增强指标 */}
+          <Card className="shadow-sm" size="small" title="增强评估指标">
+            <div className="flex flex-wrap gap-6">
+              <Statistic
+                title="年化Sharpe"
+                value={result.metrics.sharpe_ls?.toFixed(2) ?? '-'}
+                valueStyle={{ color: (result.metrics.sharpe_ls ?? 0) > 1 ? '#16a34a' : (result.metrics.sharpe_ls ?? 0) > 0 ? '#ca8a04' : '#dc2626' }}
+              />
+              <Statistic
+                title="最大回撤"
+                value={result.metrics.max_drawdown_ls != null ? `${(result.metrics.max_drawdown_ls * 100).toFixed(2)}%` : '-'}
+                valueStyle={{ color: (result.metrics.max_drawdown_ls ?? 0) < 0.2 ? '#16a34a' : '#dc2626' }}
+              />
+              <Statistic
+                title="换手率"
+                value={result.metrics.turnover_mean != null ? `${(result.metrics.turnover_mean * 100).toFixed(0)}%` : '-'}
+              />
+              <Statistic
+                title="上涨捕捉"
+                value={result.metrics.up_capture?.toFixed(4) ?? '-'}
+                valueStyle={{ color: (result.metrics.up_capture ?? 0) > 0 ? '#ef4444' : '#22c55e' }}
+              />
+              <Statistic
+                title="下跌捕捉"
+                value={result.metrics.down_capture?.toFixed(4) ?? '-'}
+                valueStyle={{ color: (result.metrics.down_capture ?? 0) > 0 ? '#ef4444' : '#22c55e' }}
+              />
+            </div>
+          </Card>
+
           {/* 图表 */}
           <Row gutter={16}>
             <Col span={14}>
@@ -476,6 +735,34 @@ export const ModelEvaluationModule: React.FC<ModelEvaluationModuleProps> = ({ in
               <Card title="十分位平均收益" className="shadow-sm" size="small">
                 {decileChartOption && (
                   <ReactECharts option={decileChartOption} style={{ height: 300 }} />
+                )}
+              </Card>
+            </Col>
+          </Row>
+
+          {/* 增强图表 */}
+          <Row gutter={16}>
+            <Col span={12}>
+              <Card title="累积IC曲线" className="shadow-sm" size="small">
+                {cumulativeICOption && (
+                  <ReactECharts option={cumulativeICOption} style={{ height: 280 }} />
+                )}
+              </Card>
+            </Col>
+            <Col span={12}>
+              <Card title="多空净值曲线" className="shadow-sm" size="small">
+                {lsEquityOption && (
+                  <ReactECharts option={lsEquityOption} style={{ height: 280 }} />
+                )}
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={24}>
+              <Card title="月度IC分布" className="shadow-sm" size="small">
+                {monthlyICOption && (
+                  <ReactECharts option={monthlyICOption} style={{ height: 250 }} />
                 )}
               </Card>
             </Col>

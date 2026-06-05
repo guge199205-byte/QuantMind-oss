@@ -279,20 +279,39 @@ export const DEFAULT_FEATURE_CATEGORIES: FeatureCategory[] = [
 ];
 
 export const PRESET_DEFAULT_FEATURES = [
+  // OHLCV + 复权
   'open', 'high', 'low', 'close', 'volume', 'factor',
-  'mom_ret_1d', 'mom_ret_5d', 'mom_ret_10d', 'mom_ret_20d',
-  'mom_ma_gap_5', 'mom_ma_gap_20', 'mom_macd_hist', 'mom_rsi_14',
-  'mom_kdj_k', 'mom_breakout_20d',
-  'vol_std_20', 'vol_atr_14', 'vol_parkinson_20', 'vol_gk_20',
-  'vol_rs_20', 'vol_downside_20', 'vol_realized_rv', 'vol_jump_zadj',
-  'liq_volume', 'liq_amount', 'liq_turnover_os',
-  'liq_volume_ma_20', 'liq_volume_ratio_5', 'liq_amount_ma_20', 'liq_amount_ratio_5',
+  // 动量 (16)
+  'mom_ret_1d', 'mom_ret_3d', 'mom_ret_5d', 'mom_ret_10d', 'mom_ret_20d', 'mom_ret_60d',
+  'mom_ma_gap_5', 'mom_ma_gap_10', 'mom_ma_gap_20', 'mom_ma_gap_60',
+  'mom_macd_dif', 'mom_macd_dea', 'mom_macd_hist',
+  'mom_rsi_14', 'mom_kdj_k', 'mom_breakout_20d',
+  // 波动率 (16)
+  'vol_std_5', 'vol_std_10', 'vol_std_20', 'vol_std_60',
+  'vol_atr_14', 'vol_atr_20', 'vol_parkinson_10', 'vol_parkinson_20',
+  'vol_gk_10', 'vol_gk_20', 'vol_rs_10', 'vol_rs_20',
+  'vol_realized_rv', 'vol_realized_rrv',
+  'vol_downside_20', 'vol_upside_20',
+  // 流动性 (18)
+  'liq_volume', 'liq_amount', 'liq_turnover_os', 'liq_turnover_tl',
+  'liq_volume_ma_5', 'liq_volume_ma_10', 'liq_volume_ma_20',
+  'liq_volume_ratio_5', 'liq_volume_ratio_20',
+  'liq_amount_ma_5', 'liq_amount_ma_10', 'liq_amount_ma_20',
+  'liq_amount_ratio_5', 'liq_amount_ratio_20',
   'liq_mfi_14', 'liq_amihud_20', 'liq_amihud_60', 'liq_accdist_20',
+  // 资金流 (8)
   'flow_net_amount', 'flow_net_amount_ratio', 'flow_large_net_amount',
+  'flow_net_order_ratio', 'flow_pressure_index',
   'flow_vpin', 'flow_vpin_ma_5', 'flow_vpin_ma_20',
-  'style_ln_mv_total', 'style_ln_mv_float', 'style_beta_20', 'style_beta_60',
-  'style_idio_vol_20', 'style_residual_ret_20',
+  // 风格因子 (10)
+  'style_ln_mv_total', 'style_ln_mv_float', 'style_bp', 'style_ep_ttm',
+  'style_beta_20', 'style_beta_60', 'style_beta_120',
+  'style_idio_vol_20', 'style_idio_vol_60', 'style_residual_ret_20',
+  // 行业 (4)
   'ind_ret_1d', 'ind_ret_20d', 'ind_strength_20', 'ind_momentum_rank_20',
+  // 价格形态 (7)
+  'ma_gap_20', 'ma_gap_5', 'price_position_20', 'price_position_60',
+  'dist_to_high_20', 'dist_to_low_20', 'pv_corr_20',
 ];
 
 export const TRAINING_BASE_FEATURES = [

@@ -978,6 +978,87 @@ async def run_model_backtest(
     return result
 
 
+class MultiHorizonBacktestRequest(BaseModel):
+    model_id: str = Field(..., description="模型ID（目录名）")
+    start_date: str = Field(..., description="回测起始日期 YYYY-MM-DD")
+    end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
+    horizons: list[int] = Field(default=[1, 5, 10, 20], description="预测周期列表")
+    sample_interval: int = Field(default=3, description="每隔 N 个交易日采样一次")
+    model_config = {"protected_namespaces": ()}
+
+
+@router.post("/backtest/multi-horizon", summary="多周期对比回测")
+async def run_multi_horizon_backtest(
+    request: MultiHorizonBacktestRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """对同一模型在多个预测周期（T+1, T+5, T+10, T+20）上进行回测比较。"""
+    import asyncio
+
+    from backend.services.engine.inference.backtest_service import BacktestService
+    from backend.services.engine.inference.data_loader import get_available_dates
+
+    model_id = request.model_id
+    model_dir = None
+
+    user_models_root = Path(MODELS_ROOT) / "users"
+    for d in user_models_root.rglob(model_id):
+        if (d / "metadata.json").exists():
+            model_dir = d
+            break
+
+    if model_dir is None:
+        prod_dir = Path(MODELS_PRODUCTION)
+        for d in prod_dir.rglob(model_id):
+            if (d / "metadata.json").exists():
+                model_dir = d
+                break
+
+    if model_dir is None:
+        raise HTTPException(status_code=404, detail=f"模型 {model_id} 未找到")
+
+    data_dir = os.path.join(os.getcwd(), "db", "feature_snapshots")
+    available_dates = get_available_dates(
+        data_dir=data_dir,
+        start_date=request.start_date,
+        end_date=request.end_date,
+    )
+
+    if not available_dates:
+        raise HTTPException(
+            status_code=400,
+            detail=f"日期范围 {request.start_date} ~ {request.end_date} 内无可用数据",
+        )
+
+    interval = max(1, request.sample_interval)
+    sampled_dates = available_dates[::interval]
+    if available_dates[-1] not in sampled_dates:
+        sampled_dates.append(available_dates[-1])
+
+    if len(sampled_dates) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail=f"采样后日期不足（仅 {len(sampled_dates)} 天）",
+        )
+
+    try:
+        backtest_service = BacktestService()
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: backtest_service.run_multi_horizon_backtest(
+                model_id=model_id,
+                dates=sampled_dates,
+                horizons=request.horizons,
+                model_dir=model_dir,
+                data_dir=data_dir,
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"多周期回测失败: {e}")
+
+    return result
+
+
 @router.get("/backtest/trading-dates", summary="获取可用回测日期列表")
 async def get_backtest_trading_dates(
     start: str = Query(..., description="起始日期 YYYY-MM-DD"),
