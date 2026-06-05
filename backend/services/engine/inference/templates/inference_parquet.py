@@ -29,6 +29,8 @@ import os
 import sys
 from pathlib import Path
 
+import pickle
+
 import numpy as np
 import pandas as pd
 
@@ -41,6 +43,11 @@ try:
     import xgboost as xgb
 except ImportError:
     xgb = None
+
+try:
+    from catboost import CatBoost
+except ImportError:
+    CatBoost = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,7 +103,7 @@ def load_model(model_dir: Path, meta: dict):
 
     # 如果 metadata 没指定，按扩展名搜索
     if not model_path or not model_path.exists():
-        for ext in ("*.xgb", "*.lgb", "*.txt", "*.bin"):
+        for ext in ("*.xgb", "*.lgb", "*.cbm", "*.pkl", "*.txt", "*.bin"):
             candidates = list(model_dir.glob(ext))
             if candidates:
                 model_path = candidates[0]
@@ -116,7 +123,19 @@ def load_model(model_dir: Path, meta: dict):
         booster = xgb.Booster()
         booster.load_model(str(model_path))
         return ("xgb", booster)
+    elif suffix == ".cbm":
+        if CatBoost is None:
+            logger.error("模型为 CatBoost 格式，但 catboost 未安装")
+            sys.exit(1)
+        model = CatBoost()
+        model.load_model(str(model_path), format="cbm")
+        return ("catboost", model)
+    elif suffix == ".pkl":
+        with open(model_path, "rb") as f:
+            model = pickle.load(f)
+        return ("sklearn", model)
     else:
+        # .lgb / .txt → LightGBM
         if lgb is None:
             logger.error("模型为 LightGBM 格式，但 lightgbm 未安装")
             sys.exit(1)
@@ -296,14 +315,22 @@ def main():
         print(msg, file=sys.stderr)
         sys.exit(2)
 
-    # 5. 推理（LightGBM 和 XGBoost 使用不同的 predict 接口）
+    # 5. 推理（不同框架使用不同的 predict 接口）
     best_iter = meta.get("best_iteration")
     X_values = X_df.values.astype(np.float32)
 
     if model_type == "xgb":
         dmat = xgb.DMatrix(X_values)
         scores = model.predict(dmat, iteration_range=(0, best_iter) if best_iter else None)
+    elif model_type == "catboost":
+        scores = model.predict(X_values)
+    elif model_type == "sklearn":
+        if hasattr(model, "predict_proba"):
+            scores = model.predict_proba(X_values)[:, 1]
+        else:
+            scores = model.predict(X_values)
     else:
+        # LightGBM
         scores = model.predict(X_values, num_iteration=best_iter)
 
     logger.info("推理完成，生成 %d 条信号", len(scores))

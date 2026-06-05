@@ -1468,6 +1468,7 @@ exit code：
 from __future__ import annotations
 import argparse, json, logging, os, sys
 from pathlib import Path
+import pickle
 import numpy as np
 import pandas as pd
 
@@ -1479,6 +1480,10 @@ try:
     import xgboost as xgb
 except ImportError:
     xgb = None
+try:
+    from catboost import CatBoost
+except ImportError:
+    CatBoost = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", stream=sys.stderr)
 logger = logging.getLogger("inference_parquet")
@@ -1503,7 +1508,7 @@ def load_model(model_dir, meta):
     model_file = meta.get("model_file", "")
     model_path = Path(model_dir) / model_file if model_file else None
     if not model_path or not model_path.exists():
-        for ext in ("*.xgb", "*.lgb", "*.txt", "*.bin"):
+        for ext in ("*.xgb", "*.lgb", "*.cbm", "*.pkl", "*.txt", "*.bin"):
             candidates = list(Path(model_dir).glob(ext))
             if candidates:
                 model_path = candidates[0]; break
@@ -1514,6 +1519,12 @@ def load_model(model_dir, meta):
     if suffix == ".xgb":
         if xgb is None: logger.error("XGBoost 未安装"); sys.exit(1)
         booster = xgb.Booster(); booster.load_model(str(model_path)); return ("xgb", booster)
+    elif suffix == ".cbm":
+        if CatBoost is None: logger.error("CatBoost 未安装"); sys.exit(1)
+        m = CatBoost(); m.load_model(str(model_path), format="cbm"); return ("catboost", m)
+    elif suffix == ".pkl":
+        with open(model_path, "rb") as f: m = pickle.load(f)
+        return ("sklearn", m)
     else:
         if lgb is None: logger.error("LightGBM 未安装"); sys.exit(1)
         return ("lgb", lgb.Booster(model_file=str(model_path)))
@@ -1571,6 +1582,10 @@ def main():
     if model_type == "xgb":
         dmat = xgb.DMatrix(X_values)
         scores = model.predict(dmat, iteration_range=(0, best_iter) if best_iter else None)
+    elif model_type == "catboost":
+        scores = model.predict(X_values)
+    elif model_type == "sklearn":
+        scores = model.predict_proba(X_values)[:, 1] if hasattr(model, "predict_proba") else model.predict(X_values)
     else:
         scores = model.predict(X_values, num_iteration=best_iter)
     signals = sorted(
