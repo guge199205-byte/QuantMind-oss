@@ -844,7 +844,7 @@ def _train_dl(
         })
 
     n_epochs    = int(dl_params.get("dl_n_epochs", 200))
-    batch_size  = int(dl_params.get("dl_batch_size", 2000))
+    batch_size  = int(dl_params.get("dl_batch_size", 8000))
     lr          = float(dl_params.get("dl_lr", 0.001))
     step_len    = int(dl_params.get("dl_step_len", 20))
     early_stop  = int(dl_params.get("early_stopping_rounds", 20))
@@ -966,7 +966,7 @@ def _predict_dl(
     df_X: pd.DataFrame,
     features: list[str],
     dl_metadata: dict[str, Any],
-    batch_size: int = 2000,
+    batch_size: int = 8000,
 ) -> np.ndarray:
     """加载训练好的 DL 模型并预测。"""
     import importlib

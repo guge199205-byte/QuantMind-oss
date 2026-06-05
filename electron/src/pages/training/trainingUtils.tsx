@@ -421,7 +421,7 @@ export const DEFAULT_PARAMS: TrainingParams = {
   dl_num_layers: 2,
   dl_dropout: 0.3,
   dl_n_epochs: 200,
-  dl_batch_size: 2000,
+  dl_batch_size: 8000,
   dl_lr: 0.001,
   dl_step_len: 20,
 };
