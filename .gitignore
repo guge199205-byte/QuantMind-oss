@@ -161,7 +161,6 @@ db/db.zip
 /data/
 /db/
 /models/
-/rd-agent/
 /mlruns/
 /results/
 /results_v*/
