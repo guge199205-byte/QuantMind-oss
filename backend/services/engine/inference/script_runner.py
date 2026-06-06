@@ -1540,6 +1540,18 @@ class InferenceScriptRunner:
                     :signal_side, :expected_price, :universe_tag,
                     :confidence_level, NOW(), NOW()
                 )
+                ON CONFLICT (tenant_id, user_id, run_id, symbol)
+                DO UPDATE SET
+                    model_id = EXCLUDED.model_id,
+                    data_trade_date = EXCLUDED.data_trade_date,
+                    prediction_trade_date = EXCLUDED.prediction_trade_date,
+                    fusion_score = EXCLUDED.fusion_score,
+                    score_rank = EXCLUDED.score_rank,
+                    signal_side = EXCLUDED.signal_side,
+                    expected_price = EXCLUDED.expected_price,
+                    universe_tag = EXCLUDED.universe_tag,
+                    confidence_level = EXCLUDED.confidence_level,
+                    updated_at = NOW()
             """)
             for idx, (sym, score) in enumerate(zip(symbols, scores, strict=True)):
                 signal_side = signal_sides[idx]
