@@ -383,7 +383,7 @@ class RedisLongShortTopkStrategy(DynamicRiskMixin, WeightStrategyBase, RedisLogg
                 if exchange.check_stock_suspended(sid, t_start, t_end):
                     skipped_trade += 1
                     continue
-                if direction == Order.BUY and exchange.check_stock_limit(sid, t_start, t_end, direction=direction):
+                if exchange.check_stock_limit(sid, t_start, t_end, direction=direction):
                     skipped_trade += 1
                     continue
             except Exception:

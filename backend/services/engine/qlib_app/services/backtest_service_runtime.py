@@ -518,16 +518,28 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                     end_time=request.end_date,
                 )
 
+                # Load $change for limit-up/limit-down detection
+                try:
+                    change_df = D.features(
+                        D.instruments(request.universe),
+                        ["$change"],
+                        start_time=request.start_date,
+                        end_time=request.end_date,
+                    )
+                except Exception:
+                    change_df = None
+
                 cfg = VectorizedBacktestConfig(
                     initial_capital=request.initial_capital,
                     commission=comm + tax + tf,
                     slippage=request.impact_cost_coefficient,
                     topk=request.strategy_params.topk,
+                    sell_cost=max(0, tax),
                 )
 
                 v_engine = VectorizedBacktestEngine(cfg)
                 v_res = await asyncio.to_thread(
-                    v_engine.run_backtest, signals=signal_data, prices=price_df
+                    v_engine.run_backtest, signals=signal_data, prices=price_df, changes=change_df
                 )
 
                 if not v_res.success:

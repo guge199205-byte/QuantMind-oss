@@ -839,7 +839,8 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
                         SELECT COUNT(*) AS rows,
                                COUNT(DISTINCT symbol) AS symbols,
                                MIN(trade_date) AS start_date,
-                               MAX(trade_date) AS end_date
+                               MAX(trade_date) AS end_date,
+                               pg_total_relation_size('{tbl}') AS table_bytes
                         FROM {tbl}
                     """))
                     row = result.mappings().first()
@@ -849,6 +850,7 @@ async def list_alpha_agent_markets(current_user: dict = Depends(require_admin)):
                             "symbols": int(row["symbols"]),
                             "start_date": str(row["start_date"]),
                             "end_date": str(row["end_date"]),
+                            "file_size_mb": round(int(row["table_bytes"] or 0) / 1024 / 1024, 1),
                         }
             except Exception:
                 pass
