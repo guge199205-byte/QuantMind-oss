@@ -133,17 +133,133 @@ def _macd(close: pd.Series) -> tuple:
     return dif, dea, hist
 
 
+# All feature columns added by _compute_features_core.
+# Used to add NaN columns when all rows are suspended.
+FEATURE_COLS = [
+    # 动量
+    "mom_ret_1d", "mom_ret_5d", "mom_ret_10d", "mom_ret_20d",
+    "mom_ma_gap_5", "mom_ma_gap_20", "mom_macd_hist", "mom_rsi_14", "mom_kdj_k",
+    "mom_breakout_20d",
+    # 波动率
+    "vol_std_20", "vol_atr_14", "vol_parkinson_20", "vol_gk_20", "vol_rs_20",
+    "vol_downside_20", "vol_realized_rv", "vol_jump_zadj",
+    # 流动性
+    "liq_volume", "liq_amount", "liq_turnover_os", "liq_volume_ma_20",
+    "liq_volume_ratio_5", "liq_amount_ma_20", "liq_amount_ratio_5",
+    "liq_mfi_14", "liq_amihud_20", "liq_amihud_60", "liq_accdist_20",
+    # 资金流
+    "flow_net_amount", "flow_net_amount_ratio", "flow_large_net_amount",
+    "flow_vpin", "flow_vpin_ma_5", "flow_vpin_ma_20",
+    # 风格
+    "style_ln_mv_total", "style_ln_mv_float", "style_beta_20", "style_beta_60",
+    "style_idio_vol_20", "style_residual_ret_20",
+    # 行业
+    "ind_ret_1d", "ind_ret_20d", "ind_strength_20", "ind_momentum_rank_20",
+    # 新增动量
+    "mom_ret_3d", "mom_ret_60d", "mom_ret_120d",
+    "mom_ma_gap_10", "mom_ma_gap_60", "mom_ma_gap_120",
+    "mom_ema_gap_12", "mom_ema_gap_26", "mom_roc_12",
+    # 新增波动率
+    "vol_std_10", "vol_atr_20", "vol_true_range", "vol_parkinson_10",
+    "vol_gk_10", "vol_rs_10", "vol_upside_20", "vol_realized_rrv",
+    "vol_realized_rskew", "vol_realized_rkurt", "vol_jump_rjv_ratio", "vol_jump_sjv_ratio",
+    # 新增流动性
+    "liq_turnover_tl", "liq_volume_ma_5", "liq_volume_ma_10",
+    "liq_volume_ratio_20", "liq_amount_ma_5", "liq_amount_ma_10",
+    "liq_amount_ratio_20", "liq_obv_20", "liq_obv_60",
+    # 新增资金流
+    "flow_vpin_delta_5", "flow_net_order_count", "flow_net_order_ratio", "flow_pressure_index",
+    # 新增风格
+    "style_beta_120", "style_idio_vol_60", "style_bp", "style_ep_ttm",
+    # 辅助
+    "factor", "pctchange",
+    # DB 基本面 (numeric only)
+    "pe_ttm", "pb", "roe", "bp", "ep_ttm", "ln_mv_total", "float_mv", "total_mv",
+    # 指数成分 / 概念
+    "idx_all", "idx_hs300", "idx_zz1000", "idx_chinext", "idx_margin",
+    "concept_ai", "concept_chip", "concept_new_energy", "concept_pv",
+    "concept_military", "concept_medical", "concept_fintech",
+    "concept_consumption", "concept_state_owned", "concept_lithium",
+    # DB 技术指标
+    "return_1d", "return_5d", "return_20d", "ma5", "ma20", "ma60",
+    "rsi_14", "rsi_6", "kdj_k", "kdj_d", "kdj_j",
+    "macd_hist", "macd_dif", "macd_dea",
+    "ma_gap_5", "ma_gap_20",
+    "vol_std_5", "vol_std_60", "vol_atr_14",
+    "volume_ratio_5", "volume_ratio_20", "volume_ma_5", "volume_ma_3", "amount_ma_5",
+    "turnover_rate", "beta_20",
+    "mom_macd_dif", "mom_macd_dea", "mom_rsi_6", "mom_kdj_d", "mom_kdj_j",
+    # Alpha158 K线
+    "kline_kmid", "kline_klen", "kline_kmid2", "kline_kup", "kline_kup2",
+    "kline_klow", "kline_klow2", "kline_ksft", "kline_ksft2",
+    # Alpha158 价格相对
+    "prel_open0", "prel_high0", "prel_low0", "prel_vwap0",
+    # 价格位置
+    "price_position_20", "price_position_60",
+    "dist_to_high_20", "dist_to_low_20", "ret_rank_20",
+    # 波动率调整动量
+    "mom_sharpe_5", "mom_sharpe_20", "mom_sharpe_60", "mom_risk_adj_20",
+    # 量价配合
+    "pv_corr_20", "pv_corr_10", "up_volume_ratio_20", "pv_divergence_20",
+    # 趋势质量
+    "trend_r2_20", "trend_slope_20", "consecutive_updown_5",
+    # 时序滞后
+    "ret_1d_lag1", "ret_1d_lag2",
+    # 分类列 (keep as-is, no NaN fill needed)
+    # "industry", "is_st", "listing_market",
+]
+
+
+def _add_nan_features(g: pd.DataFrame) -> pd.DataFrame:
+    """Add all feature columns as NaN (for fully-suspended stocks)."""
+    missing = [c for c in FEATURE_COLS if c not in g.columns]
+    if missing:
+        nan_df = pd.DataFrame(np.nan, index=g.index, columns=missing)
+        g = pd.concat([g, nan_df], axis=1)
+    # Ensure is_st is int (not string) to avoid mixed-type parquet errors
+    if "is_st" in g.columns:
+        g["is_st"] = pd.to_numeric(g["is_st"], errors="coerce").fillna(0).astype(int)
+    return g
+
+
 def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
     """为单只股票计算全部特征。输入需按 trade_date 排序。"""
     g = g.sort_values("trade_date").copy()
+
+    # 过滤停牌/零价格行：close<=0 或 volume=0 视为停牌，不参与特征计算
+    suspended = (g["close"] <= 0) | (g["volume"] == 0)
+    if suspended.any():
+        # 停牌行的特征保持 NaN，只对有效行计算
+        valid = g[~suspended].copy()
+        if len(valid) < 2:
+            return _add_nan_features(g)  # 数据太少，特征全部填 NaN
+        feat = _compute_features_core(valid)
+        result = g.copy()
+        # Add missing feature columns in one batch to avoid fragmentation
+        missing = [c for c in feat.columns if c not in result.columns]
+        if missing:
+            nan_df = pd.DataFrame(np.nan, index=result.index, columns=missing)
+            result = pd.concat([result, nan_df], axis=1)
+        for col in feat.columns:
+            result.loc[feat.index, col] = feat[col].values
+        return result
+
+    return _compute_features_core(g)
+
+
+def _compute_features_core(g: pd.DataFrame) -> pd.DataFrame:
+    """实际特征计算逻辑（假设输入数据无停牌）。"""
     c = g["close"]
     h = g["high"]
     lo = g["low"]
     v = g["volume"]
     amt = g["amount"]
-    ret = c.pct_change()
+    ret = c.pct_change().clip(lower=-1.0, upper=10.0)  # 限制收益率范围，防止 inf
     ln_c = np.log(c.clip(lower=1e-8))
     log_ret = ln_c.diff()
+    # 替换 inf 为 NaN
+    ret = ret.replace([np.inf, -np.inf], np.nan)
+    log_ret = log_ret.replace([np.inf, -np.inf], np.nan)
 
     # ═══ 原有 51 个特征 ═══
 
@@ -328,19 +444,19 @@ def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
 
     # 技术指标（DB 已计算的，优先用 DB 值，NULL 用 OHLCV 重算）
     if "return_1d" in g.columns:
-        g["return_1d"] = pd.to_numeric(g["return_1d"], errors="coerce").fillna(ret)
+        g["return_1d"] = pd.to_numeric(g["return_1d"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(ret)
     else:
         g["return_1d"] = ret
 
     if "return_5d" in g.columns:
-        g["return_5d"] = pd.to_numeric(g["return_5d"], errors="coerce").fillna(c.pct_change(5))
+        g["return_5d"] = pd.to_numeric(g["return_5d"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(c.pct_change(5).clip(lower=-1.0, upper=10.0).replace([np.inf, -np.inf], np.nan))
     else:
-        g["return_5d"] = c.pct_change(5)
+        g["return_5d"] = c.pct_change(5).clip(lower=-1.0, upper=10.0).replace([np.inf, -np.inf], np.nan)
 
     if "return_20d" in g.columns:
-        g["return_20d"] = pd.to_numeric(g["return_20d"], errors="coerce").fillna(c.pct_change(20))
+        g["return_20d"] = pd.to_numeric(g["return_20d"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(c.pct_change(20).clip(lower=-1.0, upper=10.0).replace([np.inf, -np.inf], np.nan))
     else:
-        g["return_20d"] = c.pct_change(20)
+        g["return_20d"] = c.pct_change(20).clip(lower=-1.0, upper=10.0).replace([np.inf, -np.inf], np.nan)
 
     # 移动平均
     if "ma5" not in g.columns or g["ma5"].isna().all():
@@ -478,7 +594,7 @@ def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
     ret_1d = c.pct_change()
     ret_min_20 = ret_1d.rolling(20, min_periods=5).min()
     ret_max_20 = ret_1d.rolling(20, min_periods=5).max()
-    g["ret_rank_20"] = (ret_1d - ret_min_20) / (ret_max_20 - ret_min_20).clip(lower=1e-8)
+    g["ret_rank_20"] = ((ret_1d - ret_min_20) / (ret_max_20 - ret_min_20).clip(lower=1e-8)).replace([np.inf, -np.inf], np.nan)
 
     # ═══ 第二梯队: 波动率调整动量 (4 个) ═══
     # Sharpe型动量 = 收益 / 波动率
@@ -491,14 +607,14 @@ def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
 
     # 风险调整后的相对强度
     ret_20 = c.pct_change(20)
-    g["mom_risk_adj_20"] = (ret_20 - ret_20.rolling(20, min_periods=5).mean()) / ret_std_20.clip(lower=1e-6)
+    g["mom_risk_adj_20"] = ((ret_20 - ret_20.rolling(20, min_periods=5).mean()) / ret_std_20.clip(lower=1e-6)).replace([np.inf, -np.inf], np.nan)
 
     # ═══ 第三梯队: 量价配合度 (4 个) ═══
     log_vol = np.log(v.clip(lower=1))
 
     # 量价相关性 (正=量价齐升)
-    g["pv_corr_20"] = ret_1d.rolling(20, min_periods=10).corr(log_vol)
-    g["pv_corr_10"] = ret_1d.rolling(10, min_periods=5).corr(log_vol)
+    g["pv_corr_20"] = ret_1d.rolling(20, min_periods=10).corr(log_vol).clip(-1, 1).fillna(0)
+    g["pv_corr_10"] = ret_1d.rolling(10, min_periods=5).corr(log_vol).clip(-1, 1).fillna(0)
 
     # 放量上涨占比 (20日里上涨日成交量占总量比)
     up_vol = pd.Series(np.where(ret_1d > 0, v, 0), index=g.index)
@@ -516,7 +632,7 @@ def compute_features_for_group(g: pd.DataFrame) -> pd.DataFrame:
     # ═══ 第四梯队: 趋势质量因子 (3 个) ═══
     # 20日趋势R² — 向量化: R² = corr(price, time_index)²
     time_idx = pd.Series(np.arange(len(c), dtype=float), index=c.index)
-    g["trend_r2_20"] = c.rolling(20, min_periods=10).corr(time_idx) ** 2
+    g["trend_r2_20"] = (c.rolling(20, min_periods=10).corr(time_idx) ** 2).clip(upper=1).fillna(0)
 
     # 20日趋势斜率 — 向量化: slope = corr * std(price) / std(t) / mean(price)
     c_std_20 = c.rolling(20, min_periods=10).std()

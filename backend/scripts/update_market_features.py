@@ -189,17 +189,24 @@ def compute_market_features(df: pd.DataFrame, market: str) -> pd.DataFrame:
 
     all_feat = pd.concat(results, ignore_index=True)
 
+    # 确保分类列类型一致（避免 parquet 写入时 mixed type 报错）
+    if "is_st" in all_feat.columns:
+        all_feat["is_st"] = pd.to_numeric(all_feat["is_st"], errors="coerce").fillna(0).astype(int)
+
     # 清理 A 股特有列（保留但全为 0 的列可以删掉以减小文件）
     drop_cols = [
-        "industry", "is_st", "listing_market",
+        "industry", "listing_market",
         "idx_all", "idx_hs300", "idx_zz1000", "idx_chinext", "idx_margin",
         "concept_ai", "concept_chip", "concept_new_energy", "concept_pv",
         "concept_military", "concept_medical", "concept_fintech",
         "concept_consumption", "concept_state_owned", "concept_lithium",
     ]
     for col in drop_cols:
-        if col in all_feat.columns and (all_feat[col] == 0).all():
-            all_feat = all_feat.drop(columns=[col])
+        if col in all_feat.columns:
+            # Convert to numeric before comparison to avoid mixed-type issues
+            numeric_col = pd.to_numeric(all_feat[col], errors="coerce").fillna(0)
+            if (numeric_col == 0).all():
+                all_feat = all_feat.drop(columns=[col])
 
     return all_feat
 
