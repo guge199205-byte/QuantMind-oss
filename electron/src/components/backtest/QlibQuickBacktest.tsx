@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  Play, RefreshCw, BarChart3, Settings2, Info, AlertCircle, Copy, Check, ExternalLink, CalendarRange
+  Play, RefreshCw, BarChart3, Settings2, Info, AlertCircle, Copy, Check, ExternalLink, CalendarRange, Cpu
 } from 'lucide-react';
 
 import type { BacktestConfig } from '../../services/backtestService';
@@ -24,6 +24,7 @@ import { blendBacktestProgress, getBacktestStageMessage } from './progressUtils'
 import { getDefaultStrategyParams, sanitizeStrategyParams } from '../../shared/qlib/strategyParams';
 import { getStoredTailTradeMode, setStoredTailTradeMode, getTailTradeDealPrice, getTailTradeSignalLagDays, ALLOW_FEATURE_SIGNAL_FALLBACK } from '../../shared/qlib/tailTradeMode';
 import { strategyManagementService } from '../../services/strategyManagementService';
+import { modelTrainingService, UserModelRecord } from '../../services/modelTrainingService';
 import { useAppSelector } from '../../store';
 import { selectCurrentMarket } from '../../store/slices/uiSlice';
 import { getMarketConfig } from '../../config/marketConfig';
@@ -96,6 +97,11 @@ export const QlibQuickBacktest: React.FC = () => {
   const [dataMinDate, setDataMinDate] = useState<string | null>(null);
   const [dataMaxDate, setDataMaxDate] = useState<string | null>(null);
 
+  // 模型选择
+  const [models, setModels] = useState<UserModelRecord[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+
   // 策略参数
   const [strategyType, setStrategyType] = useState<string>(DEFAULT_TEMPLATE_ID);
   const [strategyParams, setStrategyParams] = useState<QlibStrategyParams>(
@@ -145,6 +151,92 @@ export const QlibQuickBacktest: React.FC = () => {
     };
     fetchDataRange();
   }, []);
+
+  // 加载用户模型列表
+  useEffect(() => {
+    const loadModels = async () => {
+      setModelsLoading(true);
+      try {
+        const [userResp, sysModels] = await Promise.all([
+          modelTrainingService.listUserModels(true),
+          modelTrainingService.listSystemModels(),
+        ]);
+        const sysItems: UserModelRecord[] = (sysModels ?? []).map((sm) => {
+          const raw = sm as unknown as Record<string, any>;
+          return {
+            tenant_id: 'system',
+            user_id: 'system',
+            model_id: sm.model_id,
+            source_run_id: '',
+            status: 'active',
+            storage_path: '',
+            model_file: '',
+            metadata_json: {
+              display_name: sm.display_name,
+              description: sm.description,
+              framework: sm.framework,
+              model_type: sm.model_type,
+              feature_count: sm.feature_count,
+              market: raw.market,
+              target_horizon_days: raw.target_horizon_days,
+              train_start: raw.train_start,
+              train_end: raw.train_end,
+              test_start: raw.test_start,
+              test_end: raw.test_end,
+              label_formula: raw.label_formula,
+              target_mode: raw.target_mode,
+              best_iteration: raw.best_iteration,
+            },
+            metrics_json: sm.performance_metrics ?? {},
+            is_default: false,
+            created_at: sm.created_at,
+          };
+        });
+        const allModels = [...sysItems, ...(userResp.items ?? [])];
+        setModels(allModels);
+        // 默认选中 default 模型
+        const def = allModels.find(m => m.is_default);
+        if (def) setSelectedModelId(def.model_id);
+        else if (allModels.length > 0) setSelectedModelId(allModels[0].model_id);
+      } catch {
+        // silent
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+    loadModels();
+  }, []);
+
+  // 按当前市场过滤模型
+  const filteredModels = useMemo(() => {
+    return models.filter((m) => {
+      const meta = (m.metadata_json || {}) as Record<string, any>;
+      const raw = String(meta.market || '').toUpperCase();
+      const ctx = meta.context;
+      const ctxMarket = String((ctx && typeof ctx === 'object' ? ctx.market : '') || '').toUpperCase();
+      const mkt = raw || ctxMarket;
+      if (!mkt) return true; // 无市场标记的模型始终显示
+      // 当前市场映射
+      const cur = currentMarket.toUpperCase();
+      if (cur === 'CN') return mkt.includes('CN') || mkt.includes('A_SHARE') || mkt.includes('A股');
+      if (cur === 'HK') return mkt.includes('HK') || mkt.includes('HONG_KONG') || mkt.includes('港股');
+      if (cur === 'US') return mkt.includes('US') || mkt.includes('美股');
+      if (cur === 'CRYPTO') return mkt.includes('CRYPTO') || mkt.includes('加密');
+      return true;
+    });
+  }, [models, currentMarket]);
+
+  // 当过滤列表变化时，确保选中模型仍在列表中
+  useEffect(() => {
+    if (filteredModels.length === 0) {
+      setSelectedModelId('');
+      return;
+    }
+    if (!filteredModels.find(m => m.model_id === selectedModelId)) {
+      const def = filteredModels.find(m => m.is_default);
+      setSelectedModelId(def ? def.model_id : filteredModels[0].model_id);
+    }
+  }, [filteredModels, selectedModelId]);
 
   // 市场切换时重置基准和股票池
   useEffect(() => {
@@ -279,6 +371,7 @@ export const QlibQuickBacktest: React.FC = () => {
         benchmark_symbol: benchmark,
         strategy_code: overrideCode || strategyInfo?.code || '',
         strategy_id: strategyInfo?.id,
+        model_id: selectedModelId || undefined,
         seed: seed.trim() === '' ? undefined : Number(seed),
         commission: 0.00025,
         deal_price: getTailTradeDealPrice(tailTradeEnabled),
@@ -405,6 +498,214 @@ export const QlibQuickBacktest: React.FC = () => {
                 默认使用标准 Top-K 选股模板；前端显式参数优先，后端会自动做补全与兼容修复，适合快速验证截面信号的盈利表现。
               </div>
             </div>
+          </div>
+
+          {/* 模型选择 + 详情 */}
+          <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-5">
+            <h3 className="flex items-center gap-2 font-bold text-gray-800 text-base">
+              <Cpu className="w-4 h-4 text-gray-400" /> 选择模型
+            </h3>
+            <p className="text-xs text-gray-500 -mt-1">
+              选择训练好的 ML 模型，其预测分数将作为策略信号（signal=&lt;PRED&gt;）
+            </p>
+            <select
+              value={selectedModelId}
+              onChange={(e) => setSelectedModelId(e.target.value)}
+              disabled={modelsLoading}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
+            >
+              {modelsLoading && <option value="">加载中...</option>}
+              {!modelsLoading && filteredModels.length === 0 && <option value="">暂无可用模型</option>}
+              {filteredModels.map((m) => {
+                const meta = (m.metadata_json || {}) as Record<string, any>;
+                const name = String(meta.display_name || m.model_id);
+                const fw = String(meta.framework || '');
+                const fc = meta.feature_count ? `${meta.feature_count}D` : '';
+                const mkt = String(meta.market || '');
+                return (
+                  <option key={m.model_id} value={m.model_id}>
+                    {name}{fw ? ` (${fw}` : ''}{fc ? ` ${fc}` : ''}{mkt ? ` ${mkt}` : ''}{fw ? ')' : ''}
+                    {m.is_default ? ' ★' : ''}
+                  </option>
+                );
+              })}
+            </select>
+
+            {/* 模型详情卡片 */}
+            {selectedModelId && (() => {
+              const sel = filteredModels.find(m => m.model_id === selectedModelId);
+              if (!sel) return null;
+              const meta = (sel.metadata_json || {}) as Record<string, any>;
+              const metrics = (sel.metrics_json || {}) as Record<string, any>;
+              const name = String(meta.display_name || sel.model_id);
+              const fw = String(meta.framework || '-');
+              const fc = meta.feature_count ?? '-';
+              const mkt = String(meta.market || '');
+              const mktUpper = mkt.toUpperCase();
+              const mktLabel = mktUpper.includes('HK') ? '港股' : mktUpper.includes('US') ? '美股' : mktUpper.includes('CRYPTO') ? '加密' : 'A股';
+              const horizon = meta.target_horizon_days ?? meta.horizon_days ?? '-';
+              const trainStart = meta.train_start || meta.training_window?.split?.(' to ')?.[0] || '';
+              const trainEnd = meta.train_end || meta.training_window?.split?.(' to ')?.[1] || '';
+              const labelFormula = meta.label_formula || meta.label || '';
+
+              // 从 metrics 中提取指标（兼容 mean_ic / auc / rmse 多种格式）
+              const getPhase = (phase: string) => {
+                const p = metrics[phase];
+                if (p && typeof p === 'object') return p;
+                return null;
+              };
+              const getIC = (phase: string) => {
+                const p = getPhase(phase);
+                if (p) return p.mean_ic ?? p.ic ?? null;
+                return metrics[`${phase}_ic`] ?? null;
+              };
+              const getAUC = (phase: string) => {
+                const p = getPhase(phase);
+                if (p) return p.auc ?? null;
+                return metrics[`${phase}_auc`] ?? null;
+              };
+              const getICIR = (phase: string) => {
+                const p = getPhase(phase);
+                if (p) return p.icir ?? p.rank_icir ?? null;
+                return metrics[`${phase}_rank_icir`] ?? null;
+              };
+              const getRMSE = (phase: string) => {
+                const p = getPhase(phase);
+                if (p) return p.rmse ?? null;
+                return null;
+              };
+
+              const hasIC = getIC('train') != null || getIC('valid') != null || getIC('val') != null || getIC('test') != null;
+              const trainIC = getIC('train');
+              const valIC = getIC('valid') || getIC('val');
+              const testIC = getIC('test');
+              const valICIR = getICIR('valid') || getICIR('val');
+
+              const trainAUC = getAUC('train');
+              const valAUC = getAUC('valid') || getAUC('val');
+              const testAUC = getAUC('test');
+
+              const trainRMSE = getRMSE('train');
+              const valRMSE = getRMSE('valid') || getRMSE('val');
+              const testRMSE = getRMSE('test');
+
+              const fmt4 = (v: number | null) => v != null ? v.toFixed(4) : '-';
+              const fmt2 = (v: number | null) => v != null ? v.toFixed(2) : '-';
+
+              return (
+                <div className="mt-2 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs space-y-2.5">
+                  {/* 头部：名称 + 标签 */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-700 text-sm">{name}</span>
+                    <div className="flex gap-1.5">
+                      {sel.is_default && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-bold text-[9px]">DEFAULT</span>
+                      )}
+                      {mkt && (
+                        <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-bold text-[9px]">{mktLabel}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 基础信息网格 */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <div className="text-[10px] text-slate-400">框架</div>
+                      <div className="font-mono font-bold text-slate-600">{fw}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400">特征维度</div>
+                      <div className="font-mono font-bold text-slate-600">{fc}D</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400">预测周期</div>
+                      <div className="font-mono font-bold text-slate-600">{horizon !== '-' ? `T+${horizon}` : '-'}</div>
+                    </div>
+                  </div>
+
+                  {/* 训练区间 */}
+                  {(trainStart || trainEnd) && (
+                    <div>
+                      <div className="text-[10px] text-slate-400">训练区间</div>
+                      <div className="font-mono text-slate-600">{trainStart} ~ {trainEnd}</div>
+                    </div>
+                  )}
+
+                  {/* 标签公式 */}
+                  {labelFormula && (
+                    <div>
+                      <div className="text-[10px] text-slate-400">标签公式</div>
+                      <div className="font-mono text-slate-600 break-all text-[10px]">{labelFormula}</div>
+                    </div>
+                  )}
+
+                  {/* 性能指标 — IC 模式 */}
+                  {hasIC && (
+                    <div>
+                      <div className="text-[10px] text-slate-400 mb-1.5">模型 IC 指标</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="text-center p-1.5 rounded-lg bg-white border border-slate-100">
+                          <div className="text-[9px] text-slate-400 font-bold">TRAIN</div>
+                          <div className="font-mono font-bold text-slate-700">{fmt4(trainIC)}</div>
+                        </div>
+                        <div className="text-center p-1.5 rounded-lg bg-white border border-slate-100">
+                          <div className="text-[9px] text-slate-400 font-bold">VALID</div>
+                          <div className="font-mono font-bold text-slate-700">{fmt4(valIC)}</div>
+                        </div>
+                        <div className="text-center p-1.5 rounded-lg bg-white border border-slate-100">
+                          <div className="text-[9px] text-slate-400 font-bold">TEST</div>
+                          <div className="font-mono font-bold text-slate-700">{fmt4(testIC)}</div>
+                        </div>
+                      </div>
+                      {valICIR != null && (
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400">ICIR (Valid)</span>
+                          <span className={`font-mono font-bold ${Number(valICIR) > 0.5 ? 'text-green-600' : Number(valICIR) > 0 ? 'text-yellow-600' : 'text-red-500'}`}>
+                            {Number(valICIR).toFixed(2)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 性能指标 — AUC/RMSE 模式（分类模型） */}
+                  {!hasIC && (trainAUC != null || valAUC != null || testAUC != null) && (
+                    <div>
+                      <div className="text-[10px] text-slate-400 mb-1.5">模型指标</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="text-center p-1.5 rounded-lg bg-white border border-slate-100">
+                          <div className="text-[9px] text-slate-400 font-bold">TRAIN</div>
+                          <div className="font-mono font-bold text-slate-700">
+                            {trainAUC != null ? `AUC ${trainAUC.toFixed(4)}` : '-'}
+                          </div>
+                          {trainRMSE != null && (
+                            <div className="text-[9px] text-slate-400 font-mono">RMSE {trainRMSE.toFixed(4)}</div>
+                          )}
+                        </div>
+                        <div className="text-center p-1.5 rounded-lg bg-white border border-slate-100">
+                          <div className="text-[9px] text-slate-400 font-bold">VALID</div>
+                          <div className="font-mono font-bold text-slate-700">
+                            {valAUC != null ? `AUC ${valAUC.toFixed(4)}` : '-'}
+                          </div>
+                          {valRMSE != null && (
+                            <div className="text-[9px] text-slate-400 font-mono">RMSE {valRMSE.toFixed(4)}</div>
+                          )}
+                        </div>
+                        <div className="text-center p-1.5 rounded-lg bg-white border border-slate-100">
+                          <div className="text-[9px] text-slate-400 font-bold">TEST</div>
+                          <div className="font-mono font-bold text-slate-700">
+                            {testAUC != null ? `AUC ${testAUC.toFixed(4)}` : '-'}
+                          </div>
+                          {testRMSE != null && (
+                            <div className="text-[9px] text-slate-400 font-mono">RMSE {testRMSE.toFixed(4)}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <StrategyPicker

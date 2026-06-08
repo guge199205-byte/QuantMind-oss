@@ -27,8 +27,7 @@ export type ModuleId =
   | 'strategy-compare'
   | 'parameter-optimize'
   | 'strategy-management'
-  | 'advanced-analysis'
-  | 'model-evaluation';
+  | 'advanced-analysis';
 
 export interface BacktestConfig {
   strategy_code: string;

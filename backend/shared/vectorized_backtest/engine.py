@@ -13,6 +13,7 @@ class VectorizedBacktestConfig:
     commission: float = 0.001
     slippage: float = 0.0001
     topk: int = 50
+    sell_cost: float = 0.0  # stamp duty + sell commission (sell-only cost)
 
 @dataclass
 class VectorizedBacktestResult:
@@ -31,15 +32,34 @@ class VectorizedBacktestEngine:
         self.config = config
         self.logger = logger
 
+    @staticmethod
+    def _get_limit_threshold_vec(stock_ids: pd.Index) -> pd.Series:
+        """Return per-stock limit thresholds based on stock code."""
+        thresholds = pd.Series(0.095, index=stock_ids)
+        for sid in stock_ids:
+            code = sid.split(".")[0] if "." in str(sid) else str(sid)
+            pure = code.upper()
+            for pfx in ("SH", "SZ", "BJ"):
+                if pure.startswith(pfx):
+                    pure = pure[len(pfx):]
+                    break
+            if pure.startswith("68") or pure.startswith("30"):
+                thresholds[sid] = 0.195  # ChiNext / STAR ±20%
+            elif pure.startswith("8") or pure.startswith("4"):
+                thresholds[sid] = 0.295  # Beijing ±30%
+        return thresholds
+
     def run_backtest(
         self,
         signals: pd.DataFrame,
         prices: pd.DataFrame,
+        changes: pd.DataFrame | None = None,
     ) -> VectorizedBacktestResult:
         """
         Pure pandas/numpy vectorized backtest.
         signals: MultiIndex (datetime, instrument) [score]
         prices: MultiIndex (datetime, instrument) [$close]
+        changes: MultiIndex (datetime, instrument) [$change] — daily return for limit detection
         """
         try:
             self.logger.info("Starting true vectorized backtest")
@@ -55,26 +75,49 @@ class VectorizedBacktestEngine:
             if len(sig_wide) < 2:
                 raise ValueError("vectorized backtest requires at least two aligned signal/price dates after lagging")
 
-            # 2. Daily returns (next day return)
+            # 2. Build tradability mask: filter limit-up (can't buy) and suspended stocks
+            if changes is not None and not changes.empty:
+                change_wide = changes["$change"].unstack(level="instrument").reindex_like(sig_wide)
+            else:
+                change_wide = pd.DataFrame(np.nan, index=sig_wide.index, columns=sig_wide.columns)
+
+            thresholds = self._get_limit_threshold_vec(sig_wide.columns)
+
+            # Limit-up mask: True = stock is at limit-up (can't buy)
+            limit_up = change_wide.ge(thresholds, axis=1).fillna(False)
+            # Suspended mask: True = stock has no close price (suspended)
+            suspended = price_wide.isna()
+
+            # Tradable mask: False = should NOT be bought
+            tradable = ~limit_up & ~suspended
+
+            # Apply tradability: zero out scores for untradable stocks
+            sig_wide = sig_wide.where(tradable, other=-np.inf)
+
+            # 3. Daily returns (next day return)
             # Ret_{t+1} = (P_{t+1} / P_{t}) - 1
             asset_returns = price_wide.pct_change().shift(-1)
 
-            # 3. Target Weights (TopK equal weight)
-            # Rank scores cross-sectionally
+            # 4. Target Weights (TopK equal weight)
+            # Rank scores cross-sectionally (untradable stocks ranked last)
             ranks = sig_wide.rank(axis=1, ascending=False, method="first")
             weights = (ranks <= self.config.topk).astype(float)
+
+            # Zero out weights for untradable stocks (safety double-check)
+            weights = weights.where(tradable, other=0.0)
 
             # Normalize weights
             weight_sums = weights.sum(axis=1)
             weights = weights.div(weight_sums.where(weight_sums > 0, 1), axis=0)
 
-            # 4. Calculate Portfolio Returns
-            # Dot product of weight array and return array
+            # 5. Calculate Portfolio Returns
             portfolio_daily_returns = (weights * asset_returns).sum(axis=1).fillna(0)
 
-            # Add transaction costs (~ turnover * commission_rate)
+            # 6. Transaction costs (buy-side + sell-side asymmetry)
             weight_diff = weights.diff().abs().sum(axis=1)
-            turnover_cost = weight_diff * (self.config.commission + self.config.slippage)
+            # Buying costs: commission + slippage; Selling costs: commission + slippage + stamp duty
+            avg_cost = self.config.commission + self.config.slippage + self.config.sell_cost * 0.5
+            turnover_cost = weight_diff * avg_cost
             portfolio_daily_returns = portfolio_daily_returns - turnover_cost.fillna(0)
 
             # 5. Equity Curve

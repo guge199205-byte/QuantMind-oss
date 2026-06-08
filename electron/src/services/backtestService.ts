@@ -35,6 +35,7 @@ export interface BacktestConfig {
   qlib_provider_uri?: string;
   qlib_region?: string;
   strategy_type?: string;
+  model_id?: string;
   seed?: number;
   deal_price?: 'open' | 'close';
   is_third_party?: boolean;
@@ -759,6 +760,10 @@ class BacktestService {
       qlib_provider_uri: config.qlib_provider_uri,
       qlib_region: config.qlib_region,
     };
+
+    if (config.model_id?.trim()) {
+      payload.model_id = config.model_id;
+    }
 
     if (config.signal_lag_days != null) {
       payload.signal_lag_days = config.signal_lag_days;
