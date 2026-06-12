@@ -148,7 +148,9 @@ def run_backtest(
                     ctx.log(f"on_bar error {sym} @ {today.date()}: {e}", level="warning")
 
         orders = ctx._drain_orders()
-        ctx._drain_risk_rules()  # Day-2: rules recorded but not enforced yet
+        rules = ctx._drain_risk_rules()
+        if rules:
+            broker.register_risk_rules(rules)
         broker.process_day(today, orders)
 
         pct = 15.0 + (i + 1) * 75.0 / max(n_days, 1)

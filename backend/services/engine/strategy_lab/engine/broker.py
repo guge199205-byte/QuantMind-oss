@@ -73,6 +73,12 @@ class SimpleBroker:
         self._equity_curve: list[EquityPoint] = []
         self._positions_snap: list[PositionSnapshot] = []
         self._initial_cash = float(cash)
+        # Active risk rules per-symbol (registered via ctx.set_stop_loss/...)
+        self._stop_loss: dict[str, float] = {}
+        self._take_profit: dict[str, float] = {}
+        self._max_hold_days: dict[str, int] = {}
+        self._account_stop_loss: float | None = None
+        self._account_halted: bool = False
 
     # ------------------------------------------------------------------
     # Pricing helpers
@@ -314,6 +320,91 @@ class SimpleBroker:
                     resolved.append(("sell", o.symbol, qty, price, o.reason, dict(o.detail)))
         return resolved
 
+    # ------------------------------------------------------------------
+    # Risk rules
+    # ------------------------------------------------------------------
+    def register_risk_rules(self, rules: list[Any]) -> None:
+        """Absorb RiskRule objects drained from ctx for the day.
+
+        Stores them on the broker; auto-sells trigger at the start of the
+        next ``process_day`` call before user orders.
+        """
+        for rule in rules:
+            kind = getattr(rule, "kind", None)
+            sym = getattr(rule, "symbol", None)
+            value = getattr(rule, "value", None)
+            if kind == "stop_loss" and sym is not None:
+                self._stop_loss[sym] = float(value)
+            elif kind == "take_profit" and sym is not None:
+                self._take_profit[sym] = float(value)
+            elif kind == "max_holding_days" and sym is not None:
+                self._max_hold_days[sym] = int(value)
+            elif kind == "account_stop_loss":
+                self._account_stop_loss = float(value)
+
+    def _enforce_risk(self, today: pd.Timestamp) -> list[tuple[str, str, int, float, str, dict[str, Any]]]:
+        """Return forced-sell orders for any holding that breached a rule.
+
+        Sells use today's close as the trigger price; subject to T+1 (sellable_qty).
+        """
+        if self._account_halted:
+            return []
+        forced: list[tuple[str, str, int, float, str, dict[str, Any]]] = []
+
+        # Account-level stop loss check first
+        if self._account_stop_loss is not None and self._initial_cash > 0:
+            equity = self._equity_now(today)
+            ret = equity / self._initial_cash - 1
+            if ret <= self._account_stop_loss:
+                self._account_halted = True
+                for sym, h in list(self._holdings.items()):
+                    sellable = h.sellable_qty(today)
+                    if sellable <= 0:
+                        continue
+                    price = self._close(sym, today)
+                    if price is None:
+                        continue
+                    forced.append(
+                        ("sell", sym, sellable, price, "account_stop_loss",
+                         {"account_ret": ret, "threshold": self._account_stop_loss})
+                    )
+                return forced
+
+        for sym, h in list(self._holdings.items()):
+            sellable = h.sellable_qty(today)
+            if sellable <= 0:
+                continue
+            price = self._close(sym, today)
+            if price is None or h.total_qty <= 0:
+                continue
+            avg_cost = h.total_cost / h.total_qty if h.total_qty > 0 else 0.0
+            if avg_cost <= 0:
+                continue
+            ret = price / avg_cost - 1
+
+            sl = self._stop_loss.get(sym)
+            tp = self._take_profit.get(sym)
+            mhd = self._max_hold_days.get(sym)
+
+            if sl is not None and ret <= sl:
+                forced.append(
+                    ("sell", sym, sellable, price, "stop_loss",
+                     {"ret": ret, "threshold": sl, "avg_cost": avg_cost})
+                )
+                continue
+            if tp is not None and ret >= tp:
+                forced.append(
+                    ("sell", sym, sellable, price, "take_profit",
+                     {"ret": ret, "threshold": tp, "avg_cost": avg_cost})
+                )
+                continue
+            if mhd is not None and h.holding_days >= mhd:
+                forced.append(
+                    ("sell", sym, sellable, price, "max_holding_days",
+                     {"holding_days": h.holding_days, "threshold": mhd})
+                )
+        return forced
+
     def process_day(
         self,
         today: pd.Timestamp,
@@ -323,14 +414,32 @@ class SimpleBroker:
         for h in self._holdings.values():
             h.holding_days += 1
 
-        resolved = self._resolve_orders(orders, today)
-        # Sells before buys to free up cash
-        for side, sym, qty, price, reason, detail in resolved:
+        # 1) Enforce risk rules first (forced sells take precedence over user orders)
+        forced = self._enforce_risk(today)
+        for side, sym, qty, price, reason, detail in forced:
             if side == "sell":
                 self._execute_sell(sym, qty, price, today, reason, detail)
-        for side, sym, qty, price, reason, detail in resolved:
-            if side == "buy":
-                self._execute_buy(sym, qty, price, today, reason, detail)
+        # If a holding was fully closed by risk, drop its rules
+        for sym in list(self._stop_loss.keys()):
+            if sym not in self._holdings:
+                self._stop_loss.pop(sym, None)
+        for sym in list(self._take_profit.keys()):
+            if sym not in self._holdings:
+                self._take_profit.pop(sym, None)
+        for sym in list(self._max_hold_days.keys()):
+            if sym not in self._holdings:
+                self._max_hold_days.pop(sym, None)
+
+        # 2) Resolve and execute user orders (skip if account-halted)
+        if not self._account_halted:
+            resolved = self._resolve_orders(orders, today)
+            # Sells before buys to free up cash
+            for side, sym, qty, price, reason, detail in resolved:
+                if side == "sell":
+                    self._execute_sell(sym, qty, price, today, reason, detail)
+            for side, sym, qty, price, reason, detail in resolved:
+                if side == "buy":
+                    self._execute_buy(sym, qty, price, today, reason, detail)
 
         # Mark-to-market
         for h in self._holdings.values():

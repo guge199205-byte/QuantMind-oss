@@ -85,4 +85,46 @@ def on_bar(ctx, bar):
         ctx.sell(bar.symbol, all=True, reason=f"break10-low={low10:.2f}")
 `,
   },
+  {
+    id: 'fib-v3',
+    title: 'A/B 斐波那契 v3',
+    description: '22日高低点 → 0.618(S1)/1.236(R1) → 触发 S1 入场，止损-10%/止盈+15%。',
+    code: `# Strategy Lab: A/B 斐波那契 v3
+# 思路：用 22 日 (≈一个月交易日) 的最高/最低构造支撑(S)与压力(R)
+# - S1 = high22 * 0.786  (回撤至 0.214 处)
+# - R1 = high22 * 1.236  (向上 0.236 突破)
+# 触发条件：当日收盘距 S1 < 3% 时买入 5%，并设置 ±10/+15% 风控
+# 注意：该例使用 set_stop_loss / set_take_profit，broker 会在
+#       每日开盘前自动检查并强制平仓。
+
+def setup(ctx):
+    ctx.universe = ["sh600519"]              # 贵州茅台单股测试
+    ctx.start    = "2024-01-02"
+    ctx.end      = "2024-06-30"
+    ctx.cash     = 1_000_000
+    ctx.benchmark = "SH000300"
+
+def on_bar(ctx, bar):
+    sym = bar.symbol
+    closes = ctx.history(symbol=sym, n=22, field="close")
+    if len(closes) < 22:
+        return
+    lows = ctx.history(symbol=sym, n=22, field="low")
+    high22 = float(closes.max())
+    low22  = float(lows.min()) if len(lows) else high22 * 0.5
+    s1 = high22 * 0.786
+    r1 = high22 * 1.236
+
+    pos = ctx.position(sym)
+    near_s1 = abs(bar.close - s1) / s1 < 0.03
+    if pos.qty == 0 and near_s1:
+        ctx.buy(
+            sym, weight=0.50,
+            reason="fib_v3:S1_hit",
+            detail={"close": bar.close, "s1": s1, "r1": r1, "low22": low22},
+        )
+        ctx.set_stop_loss(sym, -0.10)
+        ctx.set_take_profit(sym, 0.15)
+`,
+  },
 ];

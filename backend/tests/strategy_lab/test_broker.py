@@ -206,3 +206,128 @@ def test_unknown_symbol_priced_none_skips_order():
     b.process_day(today, [OrderIntent(symbol="UNKNOWN", side="buy", weight=0.5)])
     assert b._holdings == {}
     assert b.trades == []
+
+
+# ----------------------------------------------------------------------
+# Risk-rule enforcement (Day 5)
+# ----------------------------------------------------------------------
+
+def _decline_provider() -> InMemoryProvider:
+    """Stock A drops by 5% per day starting from 100."""
+    idx = pd.date_range("2025-01-02", periods=10, freq="B")
+    closes = [100 * (0.95 ** i) for i in range(10)]
+    df = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.001 for c in closes],
+            "low": [c * 0.999 for c in closes],
+            "close": closes,
+            "volume": [100000.0] * 10,
+            "adj_close": closes,
+        },
+        index=idx,
+    )
+    return InMemoryProvider({"A": df})
+
+
+def _rise_provider() -> InMemoryProvider:
+    """Stock A rises by 5% per day starting from 100."""
+    idx = pd.date_range("2025-01-02", periods=10, freq="B")
+    closes = [100 * (1.05 ** i) for i in range(10)]
+    df = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.001 for c in closes],
+            "low": [c * 0.999 for c in closes],
+            "close": closes,
+            "volume": [100000.0] * 10,
+            "adj_close": closes,
+        },
+        index=idx,
+    )
+    return InMemoryProvider({"A": df})
+
+
+def test_stop_loss_triggers_forced_sell():
+    from backend.services.engine.strategy_lab.sdk.context import RiskRule
+    ctx = _setup_ctx()
+    p = _decline_provider()
+    b = SimpleBroker(ctx=ctx, provider=p, cash=1_000_000)
+    cal = pd.date_range("2025-01-02", periods=6, freq="B")
+    # Buy on day 1
+    b.process_day(cal[0], [OrderIntent(symbol="A", side="buy", weight=0.5)])
+    # Register stop loss at -10%
+    b.register_risk_rules([RiskRule(symbol="A", kind="stop_loss", value=-0.10)])
+    # Walk forward — at some point price drop > 10% should trigger
+    triggered_idx = None
+    for i in range(1, len(cal)):
+        b.process_day(cal[i], [])
+        if any(t.reason == "stop_loss" for t in b.trades):
+            triggered_idx = i
+            break
+    assert triggered_idx is not None, "stop_loss should fire on declining price"
+    sells = [t for t in b.trades if t.reason == "stop_loss"]
+    assert len(sells) == 1
+    assert sells[0].direction == "SELL"
+
+
+def test_take_profit_triggers_forced_sell():
+    from backend.services.engine.strategy_lab.sdk.context import RiskRule
+    ctx = _setup_ctx()
+    p = _rise_provider()
+    b = SimpleBroker(ctx=ctx, provider=p, cash=1_000_000)
+    cal = pd.date_range("2025-01-02", periods=6, freq="B")
+    b.process_day(cal[0], [OrderIntent(symbol="A", side="buy", weight=0.5)])
+    b.register_risk_rules([RiskRule(symbol="A", kind="take_profit", value=0.15)])
+    triggered = False
+    for i in range(1, len(cal)):
+        b.process_day(cal[i], [])
+        if any(t.reason == "take_profit" for t in b.trades):
+            triggered = True
+            break
+    assert triggered, "take_profit should fire after a 15% rise"
+
+
+def test_max_holding_days_enforces_exit():
+    from backend.services.engine.strategy_lab.sdk.context import RiskRule
+    ctx = _setup_ctx()
+    p = _provider(close=100.0)
+    b = SimpleBroker(ctx=ctx, provider=p, cash=1_000_000)
+    cal = pd.date_range("2025-01-02", periods=4, freq="B")
+    b.process_day(cal[0], [OrderIntent(symbol="A", side="buy", weight=0.5)])
+    b.register_risk_rules([RiskRule(symbol="A", kind="max_holding_days", value=2)])
+    # Days 1, 2, 3 — at day 3 holding_days >= 2 → forced sell
+    for i in range(1, len(cal)):
+        b.process_day(cal[i], [])
+    sells = [t for t in b.trades if t.reason == "max_holding_days"]
+    assert len(sells) == 1
+
+
+def test_account_stop_loss_halts_trading():
+    from backend.services.engine.strategy_lab.sdk.context import RiskRule
+    ctx = _setup_ctx()
+    p = _decline_provider()
+    b = SimpleBroker(ctx=ctx, provider=p, cash=1_000_000)
+    cal = pd.date_range("2025-01-02", periods=10, freq="B")
+    b.process_day(cal[0], [OrderIntent(symbol="A", side="buy", weight=0.95)])
+    b.register_risk_rules([RiskRule(symbol=None, kind="account_stop_loss", value=-0.20)])
+    for i in range(1, len(cal)):
+        b.process_day(cal[i], [OrderIntent(symbol="A", side="buy", weight=0.95)])
+    halted_sells = [t for t in b.trades if t.reason == "account_stop_loss"]
+    assert len(halted_sells) >= 1
+    # After halt, no new buys
+    later_buys = [t for t in b.trades if t.direction == "BUY" and t.reason == "account_stop_loss"]
+    assert len(later_buys) == 0
+
+
+def test_no_risk_rule_no_forced_sell():
+    ctx = _setup_ctx()
+    p = _decline_provider()
+    b = SimpleBroker(ctx=ctx, provider=p, cash=1_000_000)
+    cal = pd.date_range("2025-01-02", periods=6, freq="B")
+    b.process_day(cal[0], [OrderIntent(symbol="A", side="buy", weight=0.5)])
+    for i in range(1, len(cal)):
+        b.process_day(cal[i], [])
+    # No risk rule = no forced sell even if price drops a lot
+    forced = [t for t in b.trades if t.reason in {"stop_loss", "take_profit", "max_holding_days"}]
+    assert forced == []
