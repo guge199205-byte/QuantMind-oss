@@ -180,3 +180,9 @@ db/db.zip
 /dexter-finance/
 /openbb-cn/
 docker/torch_wheels/
+
+# Graphify output
+graphify-out/
+.graphifyignore
+.graphifyignore_backup
+.graphifyignore_codeonly
