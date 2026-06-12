@@ -429,6 +429,24 @@ async def list_all_stocks(
                 })
             items.append(row)
 
+        # 数据库存在 symbol 双格式数据（如 SZ000001 和 000001.SZ），
+        # _convert_symbol 会将两者都映射为 000001.SZ，产生重复条目。
+        # 去重：保留第一条有 marketCap 的记录；若均无 marketCap 保留第一条。
+        if enrich:
+            seen: dict[str, int] = {}
+            deduped: list[dict[str, Any]] = []
+            for it in items:
+                s = it["symbol"]
+                prev_idx = seen.get(s)
+                if prev_idx is None:
+                    seen[s] = len(deduped)
+                    deduped.append(it)
+                else:
+                    prev = deduped[prev_idx]
+                    if prev.get("marketCap") is None and it.get("marketCap") is not None:
+                        deduped[prev_idx] = it
+            items = deduped
+
         _ALL_CACHE[cache_key] = items
         _ALL_CACHE[f"ts_{cache_key}"] = now
 
