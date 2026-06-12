@@ -1084,23 +1084,31 @@ class InferenceScriptRunner:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_signal_sides(scores: list[float], buy_pct: float = 0.20, sell_pct: float = 0.20) -> list[str]:
-        """百分位排名信号逻辑：用当天分数分布自适应生成信号。
+    def _resolve_signal_sides(
+        scores: list[float],
+        buy_pct: float = 0.20,
+        sell_pct: float = 0.20,
+        min_buy_score: float = 0.0,
+        max_sell_score: float = 0.0,
+    ) -> list[str]:
+        """百分位排名信号逻辑：用当天分数分布自适应生成信号，并加绝对方向闸门。
 
-        逻辑：按分数排名，取 top/bottom 百分位。
-        - Top buy_pct → BUY（最强预测上涨的一批）
-        - Bottom sell_pct → SELL（最强预测下跌的一批）
-        - 中间 → HOLD
+        逻辑：按分数排名，取 top/bottom 百分位；并要求方向一致。
+        - Top buy_pct 且 score > min_buy_score → BUY
+        - Bottom sell_pct 且 score < max_sell_score → SELL
+        - 其余 → HOLD
 
-        为什么比硬编码阈值好？
-        - 自动适应市场状态：牛市整体分数高，熊市整体分数低
-        - 不依赖绝对阈值，避免过拟合
-        - 信号数量可控，不会全买或全卖
+        加绝对闸门的原因：
+        - 模型预测整体偏负的日子（普跌行情），仅靠百分位会把"跌得相对少"的股票标 BUY，
+          但实际预测值仍是负，前端展示"建议做多"是误导。
+        - 反之，整体偏正的日子，"涨得相对少"也不应该标 SELL。
 
         Args:
             scores: 当日所有股票的预测分数
             buy_pct: 买入信号百分位（默认 top 20%）
             sell_pct: 卖出信号百分位（默认 bottom 20%）
+            min_buy_score: BUY 要求 score 不低于此（默认 0.0，即必须正向预测）
+            max_sell_score: SELL 要求 score 不高于此（默认 0.0，即必须负向预测）
         """
         import numpy as np
 
@@ -1114,12 +1122,12 @@ class InferenceScriptRunner:
         buy_threshold = np.percentile(arr, (1 - buy_pct) * 100)
         sell_threshold = np.percentile(arr, sell_pct * 100)
 
-        # 生成信号
+        # 生成信号（百分位 + 方向双重约束）
         sides = []
         for s in scores:
-            if s >= buy_threshold:
+            if s >= buy_threshold and s > min_buy_score:
                 sides.append("BUY")
-            elif s <= sell_threshold:
+            elif s <= sell_threshold and s < max_sell_score:
                 sides.append("SELL")
             else:
                 sides.append("HOLD")
@@ -1129,9 +1137,11 @@ class InferenceScriptRunner:
         sell_count = sides.count("SELL")
         hold_count = sides.count("HOLD")
         logger.info(
-            f"[SignalLogic] 百分位信号: BUY={buy_count}({buy_count/n*100:.1f}%), "
+            f"[SignalLogic] 百分位+方向信号: BUY={buy_count}({buy_count/n*100:.1f}%), "
             f"SELL={sell_count}({sell_count/n*100:.1f}%), HOLD={hold_count}({hold_count/n*100:.1f}%), "
-            f"buy_threshold={buy_threshold:.4f}, sell_threshold={sell_threshold:.4f}"
+            f"buy_threshold={buy_threshold:.4f} (min_buy={min_buy_score}), "
+            f"sell_threshold={sell_threshold:.4f} (max_sell={max_sell_score}), "
+            f"score_range=[{arr.min():.4f}, {arr.max():.4f}], mean={arr.mean():.4f}"
         )
 
         return sides
@@ -1416,11 +1426,11 @@ class InferenceScriptRunner:
             # ── Step 2: 批量写入信号评分（含 signal_side 和 expected_price）──────────
             import redis as redis_lib
 
-            redis_host = os.getenv("REMOTE_QUOTE_REDIS_HOST", "quantmind-market-redis")
+            redis_host = os.getenv("REMOTE_QUOTE_REDIS_HOST", "redis")
             redis_port = int(os.getenv("REMOTE_QUOTE_REDIS_PORT", "6379"))
             redis_password = os.getenv(
-                "REMOTE_QUOTE_REDIS_PASSWORD", "quantmind_market_2026"
-            )
+                "REMOTE_QUOTE_REDIS_PASSWORD", ""
+            ) or None
             try:
                 quote_redis = redis_lib.Redis(
                     host=redis_host,
