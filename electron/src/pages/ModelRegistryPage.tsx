@@ -50,6 +50,7 @@ import {
   InfoCell,
 } from './modelRegistryPanels';
 import { ModelEvaluationModule } from '../components/backtestCenter/ModelEvaluationModule';
+import { ScoreDistributionPanel } from '../components/inference/ScoreDistributionPanel';
 import {
   buildFeatureLabelMap,
   DEFAULT_FEATURE_CATEGORIES,
@@ -1172,6 +1173,9 @@ export const ModelRegistryPage: React.FC = () => {
                   ]}
                 />
               </div>
+            )}
+            {rankingResult.summary?.score_distribution && (
+              <ScoreDistributionPanel dist={rankingResult.summary.score_distribution} />
             )}
             <Input
               prefix={<Search size={13} className="text-slate-300" />}

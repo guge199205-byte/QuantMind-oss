@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
     Table, Button, message, Space, Tag, Modal, Collapse, Descriptions,
     Badge, Tooltip, Typography, Spin, Tabs, Progress, Select, Segmented
@@ -167,26 +167,27 @@ export const AdminModelManagement: React.FC = () => {
     const dispatch = useDispatch();
     const [scanResult, setScanResult] = useState<ModelScanResult | null>(null);
     const [scanning, setScanning] = useState(false);
+    const [scanError, setScanError] = useState<string | null>(null);
     const [detailModel, setDetailModel] = useState<ModelDirectoryInfo | null>(null);
     const [detailVisible, setDetailVisible] = useState(false);
 
-    useEffect(() => {
-        handleScan();
-    }, []);
+    // 不再 mount 时自动扫描；改为用户主动点击"扫描模型"按钮
+    // 后端已加 5 分钟 Redis 缓存，命中时秒级返回
 
-    const handleScan = async () => {
+    const handleScan = async (refresh = false) => {
         setScanning(true);
+        setScanError(null);
         try {
-            const result = await adminService.scanModels();
+            const result = await adminService.scanModels(refresh);
             setScanResult(result);
         } catch (err: any) {
-            if (err?._adminReauthHint) {
-                message.error(err._adminReauthHint);
-            } else if (err?.response?.status === 403) {
-                message.error('权限不足，请退出并重新登录以刷新管理员权限');
-            } else {
-                message.error('扫描模型目录失败');
-            }
+            const errMsg = err?._adminReauthHint
+                || (err?.response?.status === 403 ? '权限不足，请退出并重新登录以刷新管理员权限' : null)
+                || err?.response?.data?.detail
+                || err?.message
+                || '扫描模型目录失败';
+            setScanError(errMsg);
+            message.error(errMsg);
         } finally {
             setScanning(false);
         }
@@ -204,7 +205,7 @@ export const AdminModelManagement: React.FC = () => {
     };
 
     const handleQuickRescan = async () => {
-        await handleScan();
+        await handleScan(true);
     };
 
     // ── 训练任务 Tab 状态 ──────────────────────────────────────────────────
@@ -433,17 +434,44 @@ export const AdminModelManagement: React.FC = () => {
                     </p>
                 </div>
                 <Space size="middle">
+                    {scanResult && (
+                        <Button
+                            icon={<ReloadOutlined />}
+                            loading={scanning}
+                            className="rounded-xl h-10 px-4 font-bold"
+                            onClick={() => handleScan(true)}
+                            title="跳过 5 分钟缓存，强制重新扫描磁盘"
+                        >
+                            强制刷新
+                        </Button>
+                    )}
                     <Button
                         type="primary"
                         icon={<ScanOutlined />}
                         loading={scanning}
                         className="rounded-xl h-10 px-6 bg-slate-900 border-none font-bold shadow-lg shadow-slate-200"
-                        onClick={handleScan}
+                        onClick={() => handleScan(false)}
                     >
-                        {scanning ? '扫描中…' : '重新扫描'}
+                        {scanning ? '扫描中…' : scanResult ? '重新扫描' : '开始扫描'}
                     </Button>
                 </Space>
             </div>
+
+            {/* 错误提示 */}
+            {scanError && !scanning && (
+                <div className="px-4 py-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs text-rose-700">
+                    <strong className="font-bold">扫描失败：</strong>{scanError}
+                </div>
+            )}
+
+            {/* 首次未扫描提示 */}
+            {!scanResult && !scanning && !scanError && (
+                <div className="px-4 py-8 bg-slate-50 rounded-2xl text-center text-slate-500">
+                    <ScanOutlined className="text-3xl text-slate-300 mb-2" />
+                    <p className="text-sm">点击右上角 <strong className="text-slate-700">"开始扫描"</strong> 加载模型目录</p>
+                    <p className="text-xs text-slate-400 mt-1">扫描结果会缓存 5 分钟，重复点击不会再次读盘</p>
+                </div>
+            )}
 
             {/* 扫描统计 */}
             {scanResult && !scanning && (
@@ -452,6 +480,9 @@ export const AdminModelManagement: React.FC = () => {
                         <CheckCircleOutlined className="text-green-500" />
                         共发现 <span className="font-bold text-slate-800">{scanResult.total}</span> 个模型目录
                         （生产：{scanResult.models.filter(m => m.is_production).length} 个）
+                        {scanResult.from_cache && (
+                            <Tag color="blue" className="text-[10px] m-0">缓存命中</Tag>
+                        )}
                         {modelMarketFilter !== 'all' && (
                             <span>· 当前筛选：<Tag color={MODEL_MARKET_OPTIONS.find(o => o.value === modelMarketFilter)?.color} className="m-0">{MODEL_MARKET_OPTIONS.find(o => o.value === modelMarketFilter)?.label}</Tag> {filteredModels.length} 个</span>
                         )}

@@ -123,8 +123,9 @@ export const ModelTrainingPage: React.FC = () => {
     let active = true;
     const loadCatalog = async () => {
       setFeatureCatalogLoading(true);
+      // 1) 字典 schema 先快路径加载（不带 coverage，毫秒级响应）
       try {
-        const catalog = await modelTrainingService.getFeatureCatalog(currentMarket);
+        const catalog = await modelTrainingService.getFeatureCatalog(currentMarket, false);
         if (!active) return;
         const dynamicCats = toDynamicCategories(catalog);
         setFeatureCategories(dynamicCats);
@@ -134,22 +135,30 @@ export const ModelTrainingPage: React.FC = () => {
         const marketDefaults = getDefaultFeaturesForMarket(currentMarket);
         const validDefaults = marketDefaults.filter(f => availableKeys.has(f));
         setSelectedFeatures(validDefaults.length > 0 ? validDefaults : marketDefaults);
+      } catch (error) {
+        if (active) message.warning('特征字典加载失败，已回退到内置字段');
+      } finally {
+        if (active) setFeatureCatalogLoading(false);
+      }
 
-        if (catalog.data_coverage) {
-          setDataCoverage(catalog.data_coverage);
+      // 2) 覆盖统计独立异步请求 —— 失败不影响 schema 渲染
+      try {
+        const catalogWithCoverage = await modelTrainingService.getFeatureCatalog(currentMarket, true);
+        if (!active) return;
+
+        if (catalogWithCoverage.data_coverage) {
+          setDataCoverage(catalogWithCoverage.data_coverage);
         }
 
-        if (catalog.data_coverage?.suggested_periods && !catalogSuggestionAppliedRef.current) {
-          const suggested = parseSuggestedTimePeriods(catalog.data_coverage.suggested_periods);
+        if (catalogWithCoverage.data_coverage?.suggested_periods && !catalogSuggestionAppliedRef.current) {
+          const suggested = parseSuggestedTimePeriods(catalogWithCoverage.data_coverage.suggested_periods);
           if (suggested) {
             setTimePeriods(suggested);
             catalogSuggestionAppliedRef.current = true;
           }
         }
-      } catch (error) {
-        if (active) message.warning('特征字典加载失败，已回退到内置字段');
-      } finally {
-        if (active) setFeatureCatalogLoading(false);
+      } catch {
+        // coverage 失败不影响特征字典渲染
       }
     };
     loadCatalog();

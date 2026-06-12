@@ -61,44 +61,109 @@ class OfficialDataUpdateRequest(BaseModel):
 
 @router.get("/scan", summary="扫描本地模型目录")
 async def scan_model_directories(
+    refresh: bool = Query(False, description="是否强制重新扫描（绕过 Redis 缓存）"),
     current_user: dict = Depends(require_admin),
 ):
     """
     自动扫描 models/ 下所有有效模型目录，聚合 metadata.json、
     workflow_config.yaml、best_params.yaml 等元数据文件，返回结构化列表。
-    使用线程池避免阻塞事件循环。
+    有 15 秒硬超时保护，超时返回已扫描的部分结果。
     """
-    import concurrent.futures
+    import asyncio
+    import time as _time_module
 
+    CACHE_KEY = "qm:admin:models:scan:v1"
+    CACHE_TTL = 300  # 5 分钟
+
+    # 1. 命中 Redis 缓存（除非 ?refresh=true）
+    redis = None
+    try:
+        redis = get_redis_sentinel_client()
+    except Exception:
+        redis = None
+
+    if not refresh and redis is not None:
+        try:
+            cached = redis.get(CACHE_KEY)
+            if cached:
+                payload = json.loads(cached)
+                payload["from_cache"] = True
+                return payload
+        except Exception:
+            pass
+
+    # 2. 实际扫描（线程池避免阻塞事件循环）
     try:
         dirs = _find_model_directories(MODELS_ROOT)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"扫描目录失败: {e}") from e
 
+    def _sanitize(obj):
+        """Replace NaN/Inf with None so FastAPI can JSON-serialize."""
+        import math
+        if isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        if isinstance(obj, dict):
+            return {k: _sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_sanitize(v) for v in obj]
+        if isinstance(obj, tuple):
+            return [_sanitize(v) for v in obj]
+        return obj
+
     def _scan_all():
         results = []
         for d in dirs:
             try:
-                results.append(_scan_model_directory(d))
+                results.append(_sanitize(_scan_model_directory(d)))
             except Exception as e:
                 results.append({"model_id": Path(d).name, "dir_path": d, "error": str(e)})
         return results
 
-    loop = __import__("asyncio").get_event_loop()
-    results = await loop.run_in_executor(None, _scan_all)
+    loop = asyncio.get_event_loop()
 
-    return {"total": len(results), "models": results}
+    # 15 秒硬超时：即使 OSS/生产环境磁盘慢，也保证不 hang
+    try:
+        results = await asyncio.wait_for(
+            loop.run_in_executor(None, _scan_all),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="模型目录扫描超时（>15s），请检查磁盘 I/O 或 models/ 目录下是否有大量超大文件",
+        )
+
+    payload = {
+        "total": len(results),
+        "models": results,
+        "from_cache": False,
+        "cached_at": int(_time_module.time()),
+    }
+
+    # 3. 写入 Redis 缓存
+    if redis is not None:
+        try:
+            redis.setex(CACHE_KEY, CACHE_TTL, json.dumps(payload, default=str))
+        except Exception:
+            pass
+
+    return payload
 
 
 @router.get("/feature-catalog", summary="获取模型训练特征字典（动态）")
 async def get_model_feature_catalog(
     market: str | None = None,
+    include_coverage: bool = Query(False, description="是否附带 parquet 数据覆盖统计（默认 false，加速首屏）"),
     current_user: dict = Depends(require_admin),
 ):
     """
     返回训练页第一步所需的特征分类与字段列表：
     - 优先读取 PostgreSQL 特征注册表
     - 若注册表未初始化，回退到 config/features/*.json
+    - data_coverage（parquet 行数/日期范围）默认不附带，需 ?include_coverage=true
     """
     _ = current_user
     try:
@@ -106,16 +171,17 @@ async def get_model_feature_catalog(
     except Exception:
         catalog = None
 
-    if catalog:
+    if not catalog:
+        catalog = _load_feature_catalog_from_file()
+
+    if not catalog:
+        raise HTTPException(
+            status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）"
+        )
+
+    if include_coverage:
         return _enrich_feature_catalog_with_data_coverage(catalog, market=market)
-
-    fallback = _load_feature_catalog_from_file()
-    if fallback:
-        return _enrich_feature_catalog_with_data_coverage(fallback, market=market)
-
-    raise HTTPException(
-        status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）"
-    )
+    return catalog
 
 
 @router.put("/feature-catalog", summary="更新特征字典（保存到 JSON 文件）")

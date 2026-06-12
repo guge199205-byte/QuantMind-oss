@@ -28,6 +28,7 @@ from backend.services.engine.inference.router_service import InferenceRouterServ
 from backend.services.engine.inference.script_runner import InferenceScriptRunner
 from backend.shared.auth import get_internal_call_secret
 from backend.shared.database_manager_v2 import get_session
+from backend.shared.inference_stats import compute_score_distribution
 from backend.shared.redis_sentinel_client import get_redis_sentinel_client
 from backend.shared.trading_calendar import calendar_service
 try:
@@ -422,6 +423,20 @@ async def get_prediction_run_detail(
                 summary[dt_key] = summary[dt_key].isoformat()
         if summary.get("trade_date") is not None:
             summary["trade_date"] = str(summary["trade_date"])
+
+        # 分数分布统计（全量 fusion_score，不受分页影响）
+        dist_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+        score_rows = (
+            await session.execute(
+                text(
+                    f"SELECT fusion_score FROM engine_signal_scores "
+                    f"WHERE {where_sql} AND fusion_score IS NOT NULL"
+                ),
+                dist_params,
+            )
+        ).all()
+        scores = [float(r[0]) for r in score_rows]
+        summary["score_distribution"] = compute_score_distribution(scores)
 
         detail_rows = (
             (

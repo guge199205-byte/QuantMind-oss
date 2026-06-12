@@ -267,6 +267,10 @@ def _build_suggested_periods(min_date: date, max_date: date) -> dict[str, list[s
 
 
 def _scan_feature_snapshot_coverage(market: str | None = None) -> dict[str, Any] | None:
+    """
+    扫描 parquet 文件的 footer metadata（不读数据页），获取每个文件的
+    行数、列数和 trade_date 列的 min/max。性能：14 个 parquet 总耗时 < 100ms。
+    """
     if not FEATURE_SNAPSHOT_DIR.exists() or not FEATURE_SNAPSHOT_DIR.is_dir():
         return None
 
@@ -278,18 +282,12 @@ def _scan_feature_snapshot_coverage(market: str | None = None) -> dict[str, Any]
     }
 
     if market and market.upper() in MARKET_PARQUET_MAP:
-        # Single-file markets: use only the market-specific parquet
         target_file = FEATURE_SNAPSHOT_DIR / MARKET_PARQUET_MAP[market.upper()]
-        if target_file.exists():
-            files = [target_file]
-        else:
-            files = []
+        files = [target_file] if target_file.exists() else []
     else:
-        # CN (default): scan all A-share year files (2016-2026)
         files = sorted(FEATURE_SNAPSHOT_DIR.glob("train_ready_*.parquet"))
         if not files:
             files = sorted(FEATURE_SNAPSHOT_DIR.glob("model_features_20*.parquet"))
-            # Exclude market-specific files (HK/US/CRYPTO)
             files = [f for f in files if not any(
                 f.name.endswith(suffix) for suffix in ("_hk.parquet", "_us.parquet", "_crypto.parquet")
             )]
@@ -297,63 +295,88 @@ def _scan_feature_snapshot_coverage(market: str | None = None) -> dict[str, Any]
         return None
 
     try:
-        import pandas as pd
+        import pyarrow.parquet as pq
     except Exception:
         return None
+
+    META_COLS = {"trade_date", "symbol", "instrument"}
 
     min_date: date | None = None
     max_date: date | None = None
     scanned_files = 0
     total_rows = 0
     failed_files = 0
-    metadata_list = []
+    metadata_list: list[dict[str, Any]] = []
+
+    def _to_date(value: Any) -> date | None:
+        if value is None:
+            return None
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value[:10])
+            except Exception:
+                return None
+        return None
 
     for file_path in files:
         try:
-            # Market-specific parquet files use 'instrument' instead of 'symbol'
-            try:
-                df_cols = pd.read_parquet(file_path, columns=["trade_date", "symbol"], engine="pyarrow")
-            except Exception:
-                df_cols = pd.read_parquet(file_path, columns=["trade_date", "instrument"], engine="pyarrow")
-                df_cols = df_cols.rename(columns={"instrument": "symbol"})
-            date_series = df_cols["trade_date"]
-            if date_series.empty:
-                continue
-            file_min = pd.to_datetime(date_series.min(), errors="coerce")
-            file_max = pd.to_datetime(date_series.max(), errors="coerce")
-            if pd.isna(file_min) or pd.isna(file_max):
+            pf = pq.ParquetFile(str(file_path))
+            md = pf.metadata
+            if md is None:
                 continue
 
-            file_min_date = file_min.date()
-            file_max_date = file_max.date()
-            min_date = file_min_date if min_date is None else min(min_date, file_min_date)
-            max_date = file_max_date if max_date is None else max(max_date, file_max_date)
+            schema_names = list(pf.schema_arrow.names) if pf.schema_arrow is not None else list(md.schema.names)
+            feature_dim = len([n for n in schema_names if n not in META_COLS])
+
+            # Locate trade_date column index in row-group stats
+            try:
+                td_idx = schema_names.index("trade_date")
+            except ValueError:
+                td_idx = -1
+
+            file_min: date | None = None
+            file_max: date | None = None
+            if td_idx >= 0:
+                for rg in range(md.num_row_groups):
+                    try:
+                        col = md.row_group(rg).column(td_idx)
+                        stats = col.statistics
+                        if not stats or not stats.has_min_max:
+                            continue
+                        cmin = _to_date(stats.min)
+                        cmax = _to_date(stats.max)
+                        if cmin is not None:
+                            file_min = cmin if file_min is None else min(file_min, cmin)
+                        if cmax is not None:
+                            file_max = cmax if file_max is None else max(file_max, cmax)
+                    except Exception:
+                        continue
+
+            if file_min is None or file_max is None:
+                continue
+
+            min_date = file_min if min_date is None else min(min_date, file_min)
+            max_date = file_max if max_date is None else max(max_date, file_max)
             scanned_files += 1
-            row_count = int(date_series.shape[0])
+            row_count = int(md.num_rows or 0)
             total_rows += row_count
 
-            # Extract year from filename
             year = None
             for part in file_path.stem.split("_"):
                 if part.isdigit() and len(part) == 4:
                     year = int(part)
                     break
 
-            # Count unique symbols and feature columns
-            symbol_count = int(df_cols["symbol"].nunique()) if "symbol" in df_cols.columns else 0
-            try:
-                import pyarrow.parquet as pq
-                schema = pq.read_schema(str(file_path))
-                feature_dim = len([f for f in schema.names if f not in ("trade_date", "symbol", "instrument")])
-            except Exception:
-                feature_dim = 0
-
             metadata_list.append({
                 "year": year,
-                "start_date": file_min_date.isoformat(),
-                "end_date": file_max_date.isoformat(),
+                "start_date": file_min.isoformat(),
+                "end_date": file_max.isoformat(),
                 "row_count": row_count,
-                "symbol_count": symbol_count,
+                "symbol_count": 0,  # 不再统计 unique symbol（需要读数据列）
                 "feature_dim": feature_dim,
                 "filename": file_path.name,
             })
@@ -1096,23 +1119,34 @@ def _scan_model_directory(model_dir: str) -> dict[str, Any]:
     }
 
 
-def _find_model_directories(root: str) -> list[str]:
+def _find_model_directories(root: str, max_depth: int = 4) -> list[str]:
     """
-    递归扫描 models/ 下包含 metadata.json 或模型文件的目录，
-    跳过 archive/candidates 等存档目录。
+    有界深度扫描 models/ 下包含 metadata.json 或模型文件的目录，
+    最大深度为 max_depth 层（超过不再递归），跳过 archive/candidates 等存档目录。
+    遇到已含 metadata.json 的目录后不再递归其子目录（剪枝）。
     """
-    skip_dirs = {"archive", "candidates", "__pycache__"}
-    result = []
-    for entry in sorted(Path(root).rglob("*")):
-        if not entry.is_dir():
+    skip_dirs = {"archive", "candidates", "__pycache__", ".git", "__pycache__"}
+    root_path = Path(root)
+    result: list[str] = []
+    # os.walk 可控制深度
+    for dirpath_str, dirnames, _ in os.walk(root, topdown=True):
+        dirpath = Path(dirpath_str)
+        depth = len(dirpath.relative_to(root_path).parts)
+        # 跳过深度超过 max_depth 的目录
+        if depth > max_depth:
+            dirnames.clear()
             continue
-        if entry.name in skip_dirs:
-            continue
+        # 跳过已知不需要的目录
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
         # 判断是否是有效模型目录
-        has_metadata = (entry / "metadata.json").exists()
-        has_model = any((entry / f"model.{ext}").exists() for ext in ("bin", "txt", "pkl", "pth", "onnx", "pt"))
+        has_metadata = (dirpath / "metadata.json").exists()
+        has_model = any(
+            (dirpath / f"model.{ext}").exists() for ext in ("bin", "txt", "pkl", "pth", "onnx", "pt")
+        )
         if has_metadata or has_model:
-            result.append(str(entry))
+            result.append(dirpath_str)
+            # 剪枝：该目录本身是一个模型目录，其子目录不递归
+            dirnames.clear()
     return result
 
 

@@ -87,6 +87,33 @@ export interface InferenceRunRecord {
   error_message?: string;
   request_json?: Record<string, unknown>;
   result_json?: Record<string, unknown>;
+  score_distribution?: ScoreDistribution;
+}
+
+export interface ScoreDistributionBucket {
+  x0: number;
+  x1: number;
+  count: number;
+}
+
+export interface ScoreDistribution {
+  count: number;
+  positive_count: number;
+  positive_pct: number;
+  negative_count: number;
+  negative_pct: number;
+  zero_count: number;
+  zero_pct: number;
+  mean: number;
+  median: number;
+  stdev: number;
+  p10: number;
+  p25: number;
+  p75: number;
+  p90: number;
+  min: number;
+  max: number;
+  histogram: ScoreDistributionBucket[];
 }
 
 export interface InferencePrecheckItem {
@@ -251,9 +278,10 @@ class ModelTrainingService {
     );
   }
 
-  async getFeatureCatalog(market?: string): Promise<AdminModelFeatureCatalog> {
+  async getFeatureCatalog(market?: string, includeCoverage = false): Promise<AdminModelFeatureCatalog> {
     const params: Record<string, string> = {};
     if (market) params.market = market;
+    if (includeCoverage) params.include_coverage = 'true';
     const resp = await this.client.get<AdminModelFeatureCatalog>('/models/feature-catalog', { params });
     return resp.data;
   }
@@ -429,6 +457,7 @@ class ModelTrainingService {
       error_message: raw?.error_message ? String(raw.error_message) : undefined,
       request_json: raw?.request_json && typeof raw.request_json === 'object' ? raw.request_json : undefined,
       result_json: raw?.result_json && typeof raw.result_json === 'object' ? raw.result_json : undefined,
+      score_distribution: raw?.score_distribution && typeof raw.score_distribution === 'object' ? raw.score_distribution as ScoreDistribution : undefined,
     };
   }
 

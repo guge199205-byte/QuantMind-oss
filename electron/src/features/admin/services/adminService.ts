@@ -162,8 +162,12 @@ class AdminService {
         return resp.data;
     }
 
-    async scanModels(): Promise<ModelScanResult> {
-        const resp = await this.axiosInstance.get<ModelScanResult>('/admin/models/scan', { timeout: 120000 });
+    async scanModels(refresh = false): Promise<ModelScanResult> {
+        const resp = await this.axiosInstance.get<ModelScanResult>('/admin/models/scan', {
+            params: { refresh },
+            timeout: 30000,
+            _skipAuthRefresh: true,
+        } as any);
         return resp.data;
     }
 

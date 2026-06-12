@@ -28,6 +28,7 @@ from backend.services.engine.inference.router_service import InferenceRouterServ
 from backend.services.engine.inference.script_runner import InferenceScriptRunner
 from backend.services.engine.services.model_inference_persistence import model_inference_persistence
 from backend.shared.database_manager_v2 import get_session
+from backend.shared.inference_stats import compute_score_distribution
 from backend.shared.model_registry import model_registry_service
 from backend.shared.redis_sentinel_client import get_redis_sentinel_client
 from backend.shared.trading_calendar import calendar_service
@@ -316,6 +317,7 @@ async def list_system_models(
 @router.get("/feature-catalog", summary="获取模型训练特征字典（用户态）")
 async def get_model_feature_catalog(
     market: str | None = None,
+    include_coverage: bool = Query(False, description="是否附带 parquet 数据覆盖统计（默认 false，加速首屏）"),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     _ = current_user
@@ -324,14 +326,15 @@ async def get_model_feature_catalog(
     except Exception:
         catalog = None
 
-    if catalog:
+    if not catalog:
+        catalog = _load_feature_catalog_from_file()
+
+    if not catalog:
+        raise HTTPException(status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）")
+
+    if include_coverage:
         return _enrich_feature_catalog_with_data_coverage(catalog, market=market)
-
-    fallback = _load_feature_catalog_from_file()
-    if fallback:
-        return _enrich_feature_catalog_with_data_coverage(fallback, market=market)
-
-    raise HTTPException(status_code=404, detail="未找到可用的特征字典（DB/文件均不可用）")
+    return catalog
 
 
 @router.get("/qlib-data-range", summary="获取 Qlib 数据日期范围")
@@ -1197,6 +1200,7 @@ async def get_model_inference_run_detail(
     fusion_scores = [float(item["fusion_score"]) for item in signals if item.get("fusion_score") is not None]
     summary["min_fusion_score"] = min(fusion_scores) if fusion_scores else None
     summary["max_fusion_score"] = max(fusion_scores) if fusion_scores else None
+    summary["score_distribution"] = compute_score_distribution(fusion_scores)
     summary["first_created_at"] = signals[0].get("created_at") if signals else None
     summary["last_created_at"] = signals[-1].get("created_at") if signals else None
     if run.get("status") == "completed" and not signals:

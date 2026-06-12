@@ -58,6 +58,8 @@ export interface ModelDirectoryInfo {
 export interface ModelScanResult {
     total: number;
     models: ModelDirectoryInfo[];
+    from_cache?: boolean;
+    cached_at?: number;
 }
 
 export interface InferencePrecheckItem {

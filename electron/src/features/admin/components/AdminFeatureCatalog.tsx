@@ -56,6 +56,7 @@ function generateFeatureId(): string {
 export const AdminFeatureCatalog: React.FC = () => {
   const [catalog, setCatalog] = useState<AdminModelFeatureCatalog | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export const AdminFeatureCatalog: React.FC = () => {
 
   const loadCatalog = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await adminService.getModelFeatureCatalog();
       setCatalog(data);
@@ -79,8 +81,10 @@ export const AdminFeatureCatalog: React.FC = () => {
         setSelectedCatId(data.categories[0].id);
       }
       setDirty(false);
-    } catch {
-      message.error('加载特征字典失败');
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || '加载特征字典失败';
+      setLoadError(msg);
+      message.error(msg);
     } finally {
       setLoading(false);
     }
@@ -315,8 +319,41 @@ export const AdminFeatureCatalog: React.FC = () => {
 
   // ─── 渲染 ──────────────────────────────────────────────────────────────────
 
+  if (loading && !catalog) {
+    return <Card loading className="m-8"><div style={{ height: 200 }} /></Card>;
+  }
+  if (loadError && !catalog) {
+    return (
+      <Card className="m-8">
+        <Empty
+          description={
+            <div className="space-y-2">
+              <div className="text-rose-600 font-bold">加载失败</div>
+              <div className="text-xs text-slate-500 break-all">{loadError}</div>
+              <Button type="primary" onClick={loadCatalog} className="mt-2" icon={<ReloadOutlined />}>
+                重试
+              </Button>
+            </div>
+          }
+        />
+      </Card>
+    );
+  }
   if (!catalog) {
-    return <Card loading={loading} className="m-8"><Empty description="加载中..." /></Card>;
+    return (
+      <Card className="m-8">
+        <Empty
+          description={
+            <div className="space-y-2">
+              <div className="text-slate-600">特征字典为空</div>
+              <Button onClick={loadCatalog} className="mt-2" icon={<ReloadOutlined />}>
+                重新加载
+              </Button>
+            </div>
+          }
+        />
+      </Card>
+    );
   }
 
   const totalFeatures = catalog.categories.reduce((sum, c) => sum + c.features.length, 0);
