@@ -10,7 +10,6 @@ from .users import router as users_router
 from .alpha_factor_pipeline import router as alpha_factor_pipeline_router
 from .trading_agents import router as trading_agents_router
 from .daily_analysis import router as daily_analysis_router
-from .go_stock import router as go_stock_router
 from .dsa import router as dsa_router
 
 admin_router = APIRouter()
@@ -43,9 +42,6 @@ admin_router.include_router(
 )
 admin_router.include_router(
     daily_analysis_router, prefix="/daily-analysis", tags=["Admin-DailyAnalysis"]
-)
-admin_router.include_router(
-    go_stock_router, prefix="/go-stock", tags=["Admin-GoStock"]
 )
 admin_router.include_router(
     dsa_router, prefix="/dsa", tags=["Admin-DSA"]

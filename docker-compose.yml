@@ -128,7 +128,6 @@ services:
       - PORTFOLIO_SERVICE_URL=http://127.0.0.1:8002
       - USER_SERVICE_URL=http://127.0.0.1:8002
       - REAL_TRADING_SERVICE_URL=http://127.0.0.1:8002
-      - GO_STOCK_SERVICE_URL=http://quantmind-go-stock:18080
       - DSA_SERVICE_URL=http://quantmind-dsa:8005
 
       # 调试配置
@@ -498,30 +497,6 @@ services:
     networks:
       - quantmind-net
 
-  # 5d. go-stock (A股/港股/美股行情数据 API)
-  go-stock:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.go-stock
-    container_name: quantmind-go-stock
-    shm_size: '256mb'
-    ports:
-      - "${GO_STOCK_PORT:-18080}:18080"
-    environment:
-      - TZ=Asia/Shanghai
-      - GO_STOCK_API_PORT=18080
-    volumes:
-      - go-stock-data:/app/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:18080/api/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-    networks:
-      - quantmind-net
-
   # 6. Huntly (财经资讯/RSS/Twitter 聚合订阅源)
   # 提供新闻流 + 可结构化的财务事件源
   # 前端通过 QuantMind News 代理访问 (零 401 风险)
@@ -656,4 +631,3 @@ volumes:
   qwenpaw-shared:
   dsa-data:
   dsa-logs:
-  go-stock-data:
