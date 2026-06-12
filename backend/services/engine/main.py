@@ -396,6 +396,14 @@ try:
 except ImportError as e:
     logger.error(f"❌ Failed to load QuantBot router: {e}")
 
+try:
+    from backend.services.engine.strategy_lab.routers import router as strategy_lab_router
+
+    app.include_router(strategy_lab_router, prefix="/api/v1", tags=["Strategy Lab"])
+    logger.info("✅ Strategy Lab router loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to load Strategy Lab router: {e}")
+
 
 @app.get("/health")
 async def health_check():
