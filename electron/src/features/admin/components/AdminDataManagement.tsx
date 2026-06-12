@@ -57,7 +57,7 @@ export const AdminDataManagement: React.FC = () => {
     const loadDataStatus = async (refresh = false, market?: string) => {
         setLoading(true);
         try {
-            const resp = await adminService.getDataStatus(refresh, market || 'a_share');
+            const resp = await adminService.getDataStatus(refresh, market || selectedMarket);
             setData(resp);
             if (refresh) {
                 message.success(resp.message || '后台扫描任务已启动，请稍后刷新查看最新状态');
@@ -86,7 +86,7 @@ export const AdminDataManagement: React.FC = () => {
 
     useEffect(() => {
         if (!initialRefreshRef.current) {
-            loadDataStatus(true);
+            loadDataStatus(true, selectedMarket);
             loadSyncStatus();
             initialRefreshRef.current = true;
         }
@@ -174,7 +174,7 @@ export const AdminDataManagement: React.FC = () => {
             setParquetResult(resp);
             if (resp.success) {
                 message.success(rebuild ? '特征快照已全量重建' : '特征快照已更新');
-                await loadDataStatus(false);
+                await loadDataStatus(false, selectedMarket);
             } else {
                 message.error('特征更新失败，请查看执行日志');
             }
@@ -236,7 +236,7 @@ export const AdminDataManagement: React.FC = () => {
             setSyncResult(resp);
             if (resp.success) {
                 message.success('数据全自动增量同步已启动');
-                await loadDataStatus(true);
+                await loadDataStatus(true, selectedMarket);
             } else {
                 message.error(resp.error || '同步任务执行异常');
             }
@@ -347,7 +347,7 @@ export const AdminDataManagement: React.FC = () => {
                             setSyncTaskProgress('');
                             setSyncStepProgress(null);
                             await loadSyncStatus();
-                            await loadDataStatus(false);
+                            await loadDataStatus(false, selectedMarket);
                         } else if (d.status === 'FAILURE') {
                             clearInterval(pollInterval);
                             const errMsg = d.error && d.error !== `engine.tasks.daily_data_sync`
@@ -415,7 +415,7 @@ export const AdminDataManagement: React.FC = () => {
                         icon={<ThunderboltOutlined />}
                         className="rounded-2xl h-11 px-8 bg-indigo-600 border-none font-bold shadow-lg shadow-indigo-100"
                         loading={loading}
-                        onClick={() => loadDataStatus(true)}
+                        onClick={() => loadDataStatus(true, selectedMarket)}
                     >
                         强制深度扫描
                     </Button>
@@ -423,7 +423,7 @@ export const AdminDataManagement: React.FC = () => {
                         icon={<ReloadOutlined />}
                         className="rounded-2xl h-11 px-8 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
                         loading={loading}
-                        onClick={() => loadDataStatus(false)}
+                        onClick={() => loadDataStatus(false, selectedMarket)}
                     >
                         刷新
                     </Button>
@@ -788,13 +788,33 @@ export const AdminDataManagement: React.FC = () => {
                         ) : (
                             <div className="space-y-10">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-y-8">
-                                    {[
-                                        { label: '总行数', value: snapshots.total_rows?.toLocaleString(), color: 'text-indigo-600' },
-                                        { label: '扫描成功', value: snapshots.scanned_files, color: 'text-emerald-500' },
-                                        { label: '扫描失败', value: snapshots.failed_files, color: 'text-rose-500' },
-                                        { label: '数据完整性', value: snapshots.error ? '异常' : '正常', color: snapshots.error ? 'text-rose-500' : 'text-emerald-500' }
-                                    ].map((item, i) => (
-                                        <div key={i} className="flex flex-col">
+                                    {(() => {
+                                        const integrityStatus = snapshots.integrity_status as ('ok' | 'warning' | 'error' | undefined);
+                                        const integrityIssues = (snapshots.integrity_issues as string[] | undefined) || [];
+                                        const hasError = snapshots.error || integrityStatus === 'error';
+                                        const integrityLabel = hasError
+                                            ? '异常'
+                                            : integrityStatus === 'warning'
+                                                ? `警告 (${integrityIssues.length})`
+                                                : '正常';
+                                        const integrityColor = hasError
+                                            ? 'text-rose-500'
+                                            : integrityStatus === 'warning'
+                                                ? 'text-amber-500'
+                                                : 'text-emerald-500';
+                                        return [
+                                            { label: '总行数', value: snapshots.total_rows?.toLocaleString(), color: 'text-indigo-600' },
+                                            { label: '扫描成功', value: snapshots.scanned_files, color: 'text-emerald-500' },
+                                            { label: '扫描失败', value: snapshots.failed_files, color: 'text-rose-500' },
+                                            {
+                                                label: '数据完整性',
+                                                value: integrityLabel,
+                                                color: integrityColor,
+                                                title: integrityIssues.length ? integrityIssues.join('；') : undefined,
+                                            },
+                                        ];
+                                    })().map((item, i) => (
+                                        <div key={i} className="flex flex-col" title={(item as any).title}>
                                             <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</Text>
                                             <Text className={`font-black text-xl tracking-tighter ${item.color}`}>{item.value ?? '—'}</Text>
                                         </div>

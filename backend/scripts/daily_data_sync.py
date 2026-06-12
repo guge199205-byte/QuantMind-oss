@@ -71,6 +71,25 @@ INVESTMENT_DATA_DIR = Path(
     os.getenv("QM_INVESTMENT_DATA_DIR", "/data/third_party/investment_data")
 )
 
+# Default partition start date for stock_daily_latest backfills.
+# 历史回测可通过 --start-date YYYY-MM-DD 或 env QM_SYNC_PARTITION_START 覆盖。
+_DEFAULT_PARTITION_START = date(2026, 1, 1)
+
+
+def _resolve_partition_start() -> date:
+    """从环境变量解析 partition_start，回退到默认 2026-01-01。"""
+    env_val = os.getenv("QM_SYNC_PARTITION_START")
+    if env_val:
+        try:
+            return date.fromisoformat(env_val)
+        except ValueError:
+            log.warning(
+                "Invalid QM_SYNC_PARTITION_START=%s, falling back to %s",
+                env_val,
+                _DEFAULT_PARTITION_START.isoformat(),
+            )
+    return _DEFAULT_PARTITION_START
+
 DB_HOST = os.getenv("DB_HOST", os.getenv("DB_MASTER_HOST", "127.0.0.1"))
 DB_PORT = int(os.getenv("DB_PORT", os.getenv("DB_MASTER_PORT", "5432")))
 DB_NAME = os.getenv("DB_NAME", "quantmind")
@@ -994,6 +1013,7 @@ def _ensure_future_partitions(engine, months_ahead: int = 3):
     """Create monthly partitions for stock_daily_latest if they don't exist."""
     from datetime import date
     from dateutil.relativedelta import relativedelta
+    from sqlalchemy import text as sql_text
 
     today = date.today()
     with engine.begin() as conn:
@@ -1030,8 +1050,25 @@ def run_sync(
     update_qlib: bool = True,
     calibrate: bool = True,
     calibrate_days: int = 90,
+    partition_start: Optional[date] = None,
 ) -> dict:
-    """执行统一数据同步。"""
+    """执行统一数据同步。
+
+    本入口仅支持 A 股 (market='A' 或 'CN')。其他市场请使用：
+      - REST: POST /admin/data-platform/sync-alpha-agent-market
+      - CLI: python backend/scripts/update_market_features.py --market <market>
+    """
+    if market.upper() not in ("A", "CN"):
+        raise ValueError(
+            f"daily_data_sync.run_sync 仅支持 A/CN 市场，传入 market={market!r}。"
+            " 对 HK/US/Crypto 市场请使用 /admin/data-platform/sync-alpha-agent-market "
+            "或 python backend/scripts/update_market_features.py --market <market>。"
+        )
+
+    if partition_start is None:
+        partition_start = _resolve_partition_start()
+    log.info("Using partition_start=%s", partition_start.isoformat())
+
     result = {
         "market": market,
         "mode": "incremental" if incremental else "full",
@@ -1117,7 +1154,6 @@ def run_sync(
                 pct = 12 + int(18 * (idx + 1) / len(need_sync_symbols))
                 _update_sync_progress("data_sync", f"investment_data {idx+1}/{len(need_sync_symbols)}", pct=pct, current=idx+1, total=len(need_sync_symbols))
             pg_max = pg_latest.get(sym)
-            partition_start = date(2026, 1, 1)
             need_start = None
             if pg_max is None:
                 need_start = partition_start
@@ -1160,7 +1196,6 @@ def run_sync(
 
         pg_max = pg_latest.get(sym)
         need_start: Optional[date] = None
-        partition_start = date(2026, 1, 1)
 
         if incremental:
             if pg_max is None:
@@ -1470,7 +1505,12 @@ def get_sync_status() -> dict:
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="QuantMind 统一日常数据同步")
-    parser.add_argument("--market", default="A", help="市场 (A/HK/US)")
+    parser.add_argument(
+        "--market",
+        default="A",
+        choices=["A", "CN"],
+        help="市场 (仅支持 A/CN。HK/US/Crypto 请用 update_market_features.py)",
+    )
     parser.add_argument("--incremental", action="store_true", default=True,
                         help="增量模式（只补缺失天数）")
     parser.add_argument("--full", action="store_true", help="全量模式（重写）")
@@ -1482,6 +1522,11 @@ def main():
                         help="仅更新 investment_data（下载最新 qlib_bin）")
     parser.add_argument("--calibrate-only", action="store_true", help="仅校准指标")
     parser.add_argument("--status", action="store_true", help="显示同步状态")
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        help="partition 起始日期 YYYY-MM-DD（默认 2026-01-01，可用 env QM_SYNC_PARTITION_START）",
+    )
     args = parser.parse_args()
 
     if args.status:
@@ -1504,6 +1549,14 @@ def main():
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
     incremental = not args.full
 
+    partition_start_arg: Optional[date] = None
+    if args.start_date:
+        try:
+            partition_start_arg = date.fromisoformat(args.start_date)
+        except ValueError:
+            log.error("Invalid --start-date=%s (expect YYYY-MM-DD)", args.start_date)
+            return 2
+
     result = run_sync(
         market=args.market,
         symbols=symbols,
@@ -1511,6 +1564,7 @@ def main():
         update_qlib=not args.no_qlib_bin,
         calibrate=not args.no_calibrate,
         calibrate_days=args.calibrate_days,
+        partition_start=partition_start_arg,
     )
 
     log.info("=" * 60)

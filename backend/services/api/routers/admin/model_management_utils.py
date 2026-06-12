@@ -491,24 +491,168 @@ def _scan_feature_snapshots_status(
     result["min_date"] = all_min_date
     result["max_date"] = all_max_date
 
-    # 2. 计算建议的训练/验证/测试划分
+    # Fallback: 如果没有 metadata.json，直接扫 model_features_20*.parquet
+    if not metadata_list:
+        _scan_a_share_parquet_fallback(result, target_date)
+    else:
+        # 2. 计算建议的训练/验证/测试划分
+        if all_min_date and all_max_date:
+            try:
+                min_d = date.fromisoformat(all_min_date)
+                max_d = date.fromisoformat(all_max_date)
+                result["suggested_periods"] = _build_suggested_periods(min_d, max_d)
+
+                # 计算简单的覆盖率（基于最新年份数据）
+                if target_date and metadata_list:
+                    latest = metadata_list[0]
+                    if latest["end_date"] >= target_date:
+                        result["latest_date_coverage"]["at_target_count"] = latest["symbol_count"]
+                    else:
+                        result["latest_date_coverage"]["older_count"] = latest["symbol_count"]
+            except Exception:
+                pass
+
+    _attach_integrity_status(result, target_date)
+    return result
+
+
+def _scan_a_share_parquet_fallback(
+    result: dict[str, Any],
+    target_date: str | None,
+) -> None:
+    """A 股 metadata.json 缺失时的 fallback：直接扫 model_features_20*.parquet。"""
+    try:
+        import pandas as pd
+        import pyarrow.parquet as pq
+    except Exception:
+        return
+
+    parquet_files = sorted(FEATURE_SNAPSHOT_DIR.glob("model_features_20*.parquet"))
+    parquet_files = [
+        f for f in parquet_files
+        if not any(f.name.endswith(s) for s in ("_hk.parquet", "_us.parquet", "_crypto.parquet"))
+    ]
+    if not parquet_files:
+        return
+
+    metadata_list: list[dict[str, Any]] = []
+    total_rows = 0
+    all_min_date: str | None = None
+    all_max_date: str | None = None
+    failed = 0
+
+    for fp in parquet_files:
+        try:
+            schema = pq.read_schema(str(fp))
+            feature_dim = len([n for n in schema.names if n not in ("trade_date", "symbol", "instrument")])
+            cols_to_read = [c for c in ("trade_date", "instrument", "symbol") if c in schema.names]
+            df_cols = pd.read_parquet(str(fp), columns=cols_to_read, engine="pyarrow")
+            row_count = len(df_cols)
+            sym_col = "instrument" if "instrument" in df_cols.columns else ("symbol" if "symbol" in df_cols.columns else None)
+            sym_count = int(df_cols[sym_col].nunique()) if sym_col else 0
+
+            d_series = pd.to_datetime(df_cols["trade_date"]) if "trade_date" in df_cols.columns else None
+            s_date = d_series.min().date().isoformat() if d_series is not None and len(d_series) else None
+            e_date = d_series.max().date().isoformat() if d_series is not None and len(d_series) else None
+
+            year_match = fp.stem.replace("model_features_", "")
+            try:
+                m_year = int(year_match)
+            except Exception:
+                m_year = None
+
+            total_rows += row_count
+            if s_date:
+                all_min_date = s_date if all_min_date is None else min(all_min_date, s_date)
+            if e_date:
+                all_max_date = e_date if all_max_date is None else max(all_max_date, e_date)
+
+            metadata_list.append({
+                "year": m_year,
+                "start_date": s_date,
+                "end_date": e_date,
+                "row_count": row_count,
+                "feature_dim": feature_dim,
+                "symbol_count": sym_count,
+                "filename": fp.name,
+            })
+        except Exception:
+            failed += 1
+
+    metadata_list.sort(key=lambda x: x.get("year") or 0, reverse=True)
+    result["file_count"] = len(parquet_files)
+    result["scanned_files"] = len(metadata_list)
+    result["failed_files"] = failed
+    result["total_rows"] = total_rows
+    result["min_date"] = all_min_date
+    result["max_date"] = all_max_date
+    result["metadata_files"] = metadata_list
+    result["fallback_used"] = True
+
     if all_min_date and all_max_date:
         try:
-            min_d = date.fromisoformat(all_min_date)
-            max_d = date.fromisoformat(all_max_date)
-            result["suggested_periods"] = _build_suggested_periods(min_d, max_d)
-
-            # 计算简单的覆盖率（基于最新年份数据）
-            if target_date and metadata_list:
-                latest = metadata_list[0]
-                if latest["end_date"] >= target_date:
-                    result["latest_date_coverage"]["at_target_count"] = latest["symbol_count"]
-                else:
-                    result["latest_date_coverage"]["older_count"] = latest["symbol_count"]
+            result["suggested_periods"] = _build_suggested_periods(
+                date.fromisoformat(all_min_date), date.fromisoformat(all_max_date)
+            )
         except Exception:
             pass
 
-    return result
+    if target_date and metadata_list:
+        latest = metadata_list[0]
+        end_date = latest.get("end_date")
+        if end_date and end_date >= target_date:
+            result["latest_date_coverage"]["at_target_count"] = latest["symbol_count"]
+        elif end_date:
+            result["latest_date_coverage"]["older_count"] = latest["symbol_count"]
+
+
+def _attach_integrity_status(result: dict[str, Any], target_date: str | None) -> None:
+    """根据硬约束判定 integrity_status: ok / warning / error。
+
+    硬约束：
+      1. parquet 文件数 > 0
+      2. 数据末日距 target_date ≤ 3 天（warning），> 7 天 (error)
+      3. 在 target_date 的覆盖股票数 > 0
+    """
+    issues: list[str] = []
+    severity = "ok"
+
+    file_count = result.get("file_count") or 0
+    if file_count == 0:
+        issues.append("parquet 文件数为 0")
+        severity = "error"
+
+    total_rows = result.get("total_rows") or 0
+    if total_rows == 0:
+        issues.append("总行数为 0")
+        severity = "error"
+
+    max_date = result.get("max_date")
+    if target_date and max_date:
+        try:
+            lag = (date.fromisoformat(target_date) - date.fromisoformat(max_date)).days
+            if lag > 7:
+                issues.append(f"数据末日落后 {lag} 天")
+                severity = "error"
+            elif lag > 3:
+                issues.append(f"数据末日落后 {lag} 天")
+                if severity == "ok":
+                    severity = "warning"
+        except Exception:
+            pass
+    elif target_date and not max_date:
+        issues.append("缺少数据末日")
+        severity = "error"
+
+    cov = result.get("latest_date_coverage") or {}
+    at_target = cov.get("at_target_count") or 0
+    if target_date and at_target == 0 and file_count > 0:
+        issues.append("最新交易日覆盖股票数为 0")
+        if severity == "ok":
+            severity = "warning"
+
+    result["integrity_status"] = severity
+    result["integrity_issues"] = issues
 
 
 def _scan_market_feature_parquet(
@@ -578,6 +722,7 @@ def _scan_market_feature_parquet(
     except Exception as e:
         result["error"] = str(e)
 
+    _attach_integrity_status(result, target_date)
     return result
 
 

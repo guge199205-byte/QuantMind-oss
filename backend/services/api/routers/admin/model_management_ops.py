@@ -28,6 +28,7 @@ try:
 except ImportError:
     celery_app = None
 
+from .data_status_scanner import scan_data_status
 from .model_management_utils import (
     FEATURE_SNAPSHOT_DIR,
     MODELS_PRODUCTION,
@@ -180,150 +181,28 @@ async def get_data_status(
     # 2. 如果强制刷新，或者没缓存，则触发后台任务
     if celery_app:
         try:
-            celery_app.send_task("engine.tasks.get_data_status_task")
+            celery_app.send_task(
+                "engine.tasks.get_data_status_task",
+                kwargs={"market": market},
+            )
         except Exception as e:
             print(f"Failed to trigger background task: {e}")
 
     # 3. 实时辅助扫描（作为 fallback 或首次加载的快速反馈）
     try:
-        now_local = datetime.now(ZoneInfo("Asia/Shanghai"))
         tenant_id = str(current_user.get("tenant_id") or "default")
         user_id = str(current_user.get("user_id") or current_user.get("sub") or "admin")
 
-        # 市场 → Qlib 子目录映射
-        market_qlib_dirs = {
-            "a_share": Path(os.getcwd()) / "db" / "qlib_data",
-            "crypto": Path(os.getcwd()) / "db" / "qlib_data" / "crypto_data",
-            "hong_kong": Path(os.getcwd()) / "db" / "qlib_data" / "hk_data",
-            "us_stock": Path(os.getcwd()) / "db" / "qlib_data" / "us_data",
-        }
-
-        # 市场 → 交易日历服务 market 代码
-        calendar_market_map = {
-            "a_share": "SSE",
-            "crypto": "SSE",  # 7x24，用 A 股日历近似
-            "hong_kong": "HKEX",
-            "us_stock": "NYSE",
-        }
-
-        cal_market = calendar_market_map.get(market, "SSE")
-
-        if now_local.time() < datetime.strptime("09:30", "%H:%M").time():
-            trade_date_obj = await calendar_service.prev_trading_day(
-                market=cal_market,
-                trade_date=now_local.date(),
-                tenant_id=tenant_id,
-                user_id=user_id
-            )
-        else:
-            is_td = await calendar_service.is_trading_day(
-                market=cal_market,
-                trade_date=now_local.date(),
-                tenant_id=tenant_id,
-                user_id=user_id
-            )
-            if is_td:
-                trade_date_obj = now_local.date()
-            else:
-                trade_date_obj = await calendar_service.prev_trading_day(
-                    market=cal_market,
-                    trade_date=now_local.date(),
-                    tenant_id=tenant_id,
-                    user_id=user_id
-                )
-        trade_date = trade_date_obj.isoformat()
-
-        # ========== Qlib 数据状态扫描（市场感知） ==========
-        qlib_data_dir = market_qlib_dirs.get(market, market_qlib_dirs["a_share"])
-
-        # 日历文件名：crypto 用 5min.txt，其他用 day.txt
-        calendar_files = []
-        cal_dir = qlib_data_dir / "calendars"
-        if cal_dir.exists():
-            for f in cal_dir.iterdir():
-                if f.suffix == ".txt":
-                    calendar_files.append(f.name)
-
-        cal_file = "5min.txt" if market == "crypto" and (cal_dir / "5min.txt").exists() else "day.txt"
-        calendars_path = qlib_data_dir / "calendars" / cal_file
-        instruments_all_path = qlib_data_dir / "instruments" / "all.txt"
-        features_root = qlib_data_dir / "features"
-
-        qlib_info: dict[str, Any] = {
-            "qlib_dir": str(qlib_data_dir),
-            "exists": qlib_data_dir.exists() and qlib_data_dir.is_dir(),
-            "calendar_total_days": 0,
-            "calendar_start_date": None,
-            "calendar_last_date": None,
-            "calendar_files": calendar_files,
-            "instruments": {"total": 0, "sh": 0, "sz": 0, "bj": 0, "other": 0},
-            "feature_dirs_total": 0,
-            "feature_dirs_sh_sz_bj": 0,
-            "latest_date_coverage": {
-                "target_date": None,
-                "at_target_count": 0,
-                "older_count": 0,
-                "invalid_count": 0,
-            },
-        }
-
-        calendar: list[str] = []
-        if calendars_path.exists():
-            try:
-                calendar = [
-                    x.strip()
-                    for x in calendars_path.read_text(encoding="utf-8").splitlines()
-                    if x.strip()
-                ]
-                if calendar:
-                    qlib_info["calendar_total_days"] = len(calendar)
-                    qlib_info["calendar_start_date"] = calendar[0]
-                    qlib_info["calendar_last_date"] = calendar[-1]
-                    qlib_info["latest_date_coverage"]["target_date"] = calendar[-1]
-            except Exception:
-                pass
-
-        if instruments_all_path.exists():
-            try:
-                for line in instruments_all_path.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    code = line.split()[0].strip().upper()
-                    qlib_info["instruments"]["total"] += 1
-                    if code.startswith("SH"):
-                        qlib_info["instruments"]["sh"] += 1
-                    elif code.startswith("SZ"):
-                        qlib_info["instruments"]["sz"] += 1
-                    elif code.startswith("BJ"):
-                        qlib_info["instruments"]["bj"] += 1
-                    else:
-                        qlib_info["instruments"]["other"] += 1
-            except Exception:
-                pass
-
-        if features_root.exists() and features_root.is_dir():
-            feature_dirs = [p for p in features_root.iterdir() if p.is_dir()]
-            qlib_info["feature_dirs_total"] = len(feature_dirs)
-            qlib_info["sync_partial"] = True
-
-        # ========== Feature Snapshots 状态扫描 ==========
-        feature_snapshots_info = _scan_feature_snapshots_status(
-            target_date=trade_date,
-            topn=20,
+        result = await scan_data_status(
             market=market,
+            tenant_id=tenant_id,
+            user_id=user_id,
         )
-
-        return {
-            "checked_at": now_local.isoformat(),
-            "trade_date": trade_date,
-            "market": market,
-            "qlib_data": qlib_info,
-            "feature_snapshots": feature_snapshots_info,
-            "async_trigger": bool(celery_app),
-            "message": "数据正在后台扫描中，请稍后刷新"
-            if not refresh
-            else "已触发强制刷新任务",
-        }
+        result["async_trigger"] = bool(celery_app)
+        result["message"] = (
+            "数据正在后台扫描中，请稍后刷新" if not refresh else "已触发强制刷新任务"
+        )
+        return result
     except Exception as e:
         import traceback
         error_msg = f"Data status scanning failed: {str(e)}"

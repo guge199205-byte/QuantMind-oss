@@ -629,235 +629,39 @@ def sync_stock_daily_latest_task(
 
 
 @celery_app.task(name="engine.tasks.get_data_status_task")
-def get_data_status_task() -> dict[str, Any]:
+def get_data_status_task(market: str = "a_share") -> dict[str, Any]:
     """
-    Celery 任务：扫描 Qlib 数据目录和数据库状态，并缓存结果。
-    改善 Admin UI 响应速度。
+    Celery 任务：扫描指定市场的 Qlib 数据与 feature snapshot 状态并写入 Redis 缓存。
+
+    与 API 端 `/admin/models/data-status` 共用 `scan_data_status`，
+    避免双方扫描逻辑/缓存 key 漂移。
     """
-    import os
+    import asyncio
     import json
-    import struct
-    from pathlib import Path
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    from sqlalchemy import text
-    import exchange_calendars as xcals
 
-    # 复用 model_management.py 的逻辑，但增加 BJ 标持支持
-    now_local = datetime.now(ZoneInfo("Asia/Shanghai"))
-
-    # 获取目标日期规则
-    cal_xshg = xcals.get_calendar("XSHG")
-    if now_local.time() < datetime.strptime("09:30", "%H:%M").time():
-        trade_date_obj = cal_xshg.previous_session(now_local.date()).date()
-    else:
-        trade_date_obj = now_local.date()
-    trade_date = trade_date_obj.isoformat()
-
-    qlib_data_dir = Path(os.getcwd()) / "db" / "qlib_data"
-    calendars_path = qlib_data_dir / "calendars" / "day.txt"
-    instruments_all_path = qlib_data_dir / "instruments" / "all.txt"
-    features_root = qlib_data_dir / "features"
-
-    qlib_info: dict[str, Any] = {
-        "qlib_dir": str(qlib_data_dir),
-        "exists": qlib_data_dir.exists() and qlib_data_dir.is_dir(),
-        "calendar_total_days": 0,
-        "calendar_start_date": None,
-        "calendar_last_date": None,
-        "instruments": {"total": 0, "sh": 0, "sz": 0, "bj": 0, "other": 0},
-        "feature_dirs_total": 0,
-        "feature_dirs_sh_sz_bj": 0,
-        "latest_date_coverage": {
-            "target_date": None,
-            "at_target_count": 0,
-            "older_count": 0,
-            "invalid_count": 0,
-        },
-        "topn_samples": {
-            "sample_size": 20,
-            "older_samples": [],
-            "invalid_samples": [],
-        },
-    }
-
-    calendar: list[str] = []
-    if calendars_path.exists():
-        try:
-            calendar = [
-                x.strip()
-                for x in calendars_path.read_text(encoding="utf-8").splitlines()
-                if x.strip()
-            ]
-            if calendar:
-                qlib_info["calendar_total_days"] = len(calendar)
-                qlib_info["calendar_start_date"] = calendar[0]
-                qlib_info["calendar_last_date"] = calendar[-1]
-                qlib_info["latest_date_coverage"]["target_date"] = calendar[-1]
-        except Exception as e:
-            qlib_info["calendar_error"] = str(e)
-
-    if instruments_all_path.exists():
-        try:
-            for line in instruments_all_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                code = line.split()[0].strip().upper()
-                qlib_info["instruments"]["total"] += 1
-                if code.startswith("SH"):
-                    qlib_info["instruments"]["sh"] += 1
-                elif code.startswith("SZ"):
-                    qlib_info["instruments"]["sz"] += 1
-                elif code.startswith("BJ"):
-                    qlib_info["instruments"]["bj"] += 1
-                else:
-                    qlib_info["instruments"]["other"] += 1
-        except Exception as e:
-            qlib_info["instruments_error"] = str(e)
-
-    if features_root.exists() and features_root.is_dir() and calendar:
-        feature_dirs = [p for p in features_root.iterdir() if p.is_dir()]
-        qlib_info["feature_dirs_total"] = len(feature_dirs)
-
-        cal_len = len(calendar)
-        target_date = calendar[-1]
-        at_target_count = 0
-        older_count = 0
-        invalid_count = 0
-        sample_size = 20
-        older_samples = []
-        invalid_samples = []
-
-        for inst_dir in feature_dirs:
-            inst = inst_dir.name.upper()
-            # 兼容 SH, SZ, BJ
-            if not inst.startswith(("SH", "SZ", "BJ")):
-                continue
-
-            qlib_info["feature_dirs_sh_sz_bj"] += 1
-            close_bin = inst_dir / "close.day.bin"
-
-            if not close_bin.exists():
-                invalid_count += 1
-                if len(invalid_samples) < sample_size:
-                    invalid_samples.append(
-                        {
-                            "symbol": inst,
-                            "reason": "missing_close_bin",
-                            "file": str(close_bin),
-                        }
-                    )
-                continue
-
-            try:
-                size = close_bin.stat().st_size
-                if size < 8:
-                    invalid_count += 1
-                    if len(invalid_samples) < sample_size:
-                        invalid_samples.append(
-                            {
-                                "symbol": inst,
-                                "reason": "bin_too_small",
-                                "file": str(close_bin),
-                            }
-                        )
-                    continue
-
-                with close_bin.open("rb") as f:
-                    head = f.read(4)
-                if len(head) < 4:
-                    start_idx = None
-                else:
-                    start_idx = int(struct.unpack("<f", head)[0])
-
-                if start_idx is None:
-                    invalid_count += 1
-                    continue
-
-                nrows = (size - 4) // 4
-                end_idx = start_idx + nrows - 1
-                if not (0 <= end_idx < cal_len):
-                    invalid_count += 1
-                    continue
-
-                last_date = calendar[end_idx]
-                if last_date == target_date:
-                    at_target_count += 1
-                else:
-                    older_count += 1
-                    if len(older_samples) < sample_size:
-                        older_samples.append(
-                            {
-                                "symbol": inst,
-                                "last_date": last_date,
-                                "lag_days": max(0, cal_len - 1 - end_idx),
-                            }
-                        )
-            except:
-                invalid_count += 1
-
-        qlib_info["latest_date_coverage"] = {
-            "target_date": target_date,
-            "at_target_count": at_target_count,
-            "older_count": older_count,
-            "invalid_count": invalid_count,
-        }
-        qlib_info["topn_samples"] = {
-            "sample_size": sample_size,
-            "older_samples": sorted(older_samples, key=lambda x: x["last_date"])[
-                :sample_size
-            ],
-            "invalid_samples": invalid_samples[:sample_size],
-        }
-
-    # feature_snapshots 检测（替代 stock_daily_latest）
-    feature_snapshots_info: dict[str, Any] = {
-        "exists": False,
-        "snapshot_dir": str(Path(os.getcwd()) / "db" / "feature_snapshots"),
-        "file_count": 0,
-        "scanned_files": 0,
-        "failed_files": 0,
-        "total_rows": 0,
-        "min_date": None,
-        "max_date": None,
-        "latest_date_coverage": {
-            "target_date": trade_date,
-            "at_target_count": 0,
-            "older_count": 0,
-            "invalid_count": 0,
-        },
-        "topn_samples": {
-            "sample_size": 20,
-            "older_samples": [],
-            "invalid_samples": [],
-        },
-        "suggested_periods": None,
-    }
+    from backend.services.api.routers.admin.data_status_scanner import scan_data_status
 
     try:
-        from backend.services.api.routers.admin.model_management_utils import (
-            _scan_feature_snapshot_coverage,
+        result = asyncio.run(
+            scan_data_status(market=market, tenant_id="default", user_id="admin")
         )
+    except RuntimeError:
+        # 防御性：若当前线程已有 event loop（极少见），新建一个 loop 运行
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(
+                scan_data_status(market=market, tenant_id="default", user_id="admin")
+            )
+        finally:
+            loop.close()
 
-        coverage = _scan_feature_snapshot_coverage()
-        if coverage:
-            feature_snapshots_info.update(coverage)
-        else:
-            feature_snapshots_info["error"] = "No parquet files found"
-    except Exception as e:
-        feature_snapshots_info["error"] = str(e)
-
-    result = {
-        "checked_at": now_local.isoformat(),
-        "trade_date": trade_date,
-        "qlib_data": qlib_info,
-        "feature_snapshots": feature_snapshots_info,
-    }
-
-    # 存入 Redis
     try:
         redis = get_redis_sentinel_client()
-        redis.set("qm:admin:data_status", json.dumps(result), ex=300)  # 5分钟缓存
+        redis.set(
+            f"qm:admin:data_status:{market}",
+            json.dumps(result),
+            ex=300,
+        )
     except Exception as e:
         logger.warning("Failed to cache data status to Redis: %s", e)
 

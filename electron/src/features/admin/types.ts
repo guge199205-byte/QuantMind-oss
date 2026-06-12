@@ -272,6 +272,9 @@ export interface AdminFeatureSnapshotsStatus {
     latest_date_coverage: AdminFeatureSnapshotsLatestCoverage;
     topn_samples?: AdminFeatureSnapshotsTopNSamples;
     suggested_periods?: AdminFeatureSnapshotsSuggestedPeriods;
+    integrity_status?: 'ok' | 'warning' | 'error';
+    integrity_issues?: string[];
+    fallback_used?: boolean;
     error?: string;
 }
 
