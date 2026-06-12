@@ -1084,11 +1084,14 @@ async def get_symbols_features(tid: str, uid: str, symbols: list[str], lite: boo
         if missing_symbols:
             sdl_vals = ", ".join(f"('{s}')" for s in missing_symbols)
             sdl_norm = _norm_symbol_sql("sdl.symbol")
+            # 注意：latest 行可能缺 stock_name / total_mv / pe_ttm（数据源未回填）
+            # 改为分组取每个字段的最近非空值，否则前端市值/PE 全部显示为 "--"
             sdl_sql = f"""
                 WITH miss(raw_symbol) AS (VALUES {sdl_vals}),
-                ranked AS (
+                joined AS (
                     SELECT
                         miss.raw_symbol AS raw_symbol,
+                        sdl.trade_date,
                         sdl.stock_name,
                         sdl.industry,
                         sdl.close,
@@ -1099,14 +1102,40 @@ async def get_symbols_features(tid: str, uid: str, symbols: list[str], lite: boo
                         sdl.float_mv,
                         sdl.pct_change,
                         sdl.turnover_rate,
-                        sdl.amount,
-                        ROW_NUMBER() OVER (PARTITION BY miss.raw_symbol ORDER BY sdl.trade_date DESC) AS rn
+                        sdl.amount
                     FROM miss
                     LEFT JOIN stock_daily_latest sdl ON ({sdl_norm}) = miss.raw_symbol
+                ),
+                latest AS (
+                    SELECT DISTINCT ON (raw_symbol)
+                        raw_symbol, close, pct_change, turnover_rate, amount
+                    FROM joined
+                    ORDER BY raw_symbol, trade_date DESC NULLS LAST
+                ),
+                latest_name AS (
+                    SELECT DISTINCT ON (raw_symbol) raw_symbol, stock_name, industry
+                    FROM joined
+                    WHERE stock_name IS NOT NULL AND stock_name <> ''
+                    ORDER BY raw_symbol, trade_date DESC
+                ),
+                latest_mv AS (
+                    SELECT DISTINCT ON (raw_symbol)
+                        raw_symbol, total_mv, float_mv, pe_ttm, pb, roe
+                    FROM joined
+                    WHERE total_mv IS NOT NULL AND total_mv > 0
+                    ORDER BY raw_symbol, trade_date DESC
                 )
-                SELECT raw_symbol, stock_name, industry, close, pe_ttm, pb, roe,
-                       total_mv, float_mv, pct_change, turnover_rate, amount
-                FROM ranked WHERE rn = 1
+                SELECT
+                    l.raw_symbol,
+                    n.stock_name,
+                    n.industry,
+                    l.close,
+                    mv.pe_ttm, mv.pb, mv.roe,
+                    mv.total_mv, mv.float_mv,
+                    l.pct_change, l.turnover_rate, l.amount
+                FROM latest l
+                LEFT JOIN latest_name n USING (raw_symbol)
+                LEFT JOIN latest_mv   mv USING (raw_symbol)
             """
             sdl_result = await session.execute(text(sdl_sql))
             for r in sdl_result.mappings():

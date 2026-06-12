@@ -204,6 +204,35 @@ async def search_status():
     }
 
 
+@router.get("/index-file")
+async def get_stock_index_file():
+    """返回完整的股票索引 JSON（替代前端的 /data/stocks/stocks_index.json 静态请求）。
+
+    返回结构与 build_stock_index.py 写出的 stocks_index.json 一致：
+    items[*]: {symbol, code, exchange, name, abbr, pinyin}
+    """
+    try:
+        stock_index_store._load_if_needed()
+        items = [
+            {
+                "symbol": it.symbol,
+                "code": it.code,
+                "exchange": it.exchange,
+                "name": it.name,
+                "abbr": it.abbr,
+                "pinyin": it.pinyin,
+            }
+            for it in stock_index_store._items
+        ]
+        return {
+            "generated_at": _now_iso(),
+            "count": len(items),
+            "items": items,
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="股票索引文件未生成，请运行 build_stock_index.py")
+
+
 # ---------------------------------------------------------------------------
 # 全市场标的清单 — 供"加载全市场"按钮使用
 # 直接从 stock_daily_latest* 取最新交易日的所有 distinct symbol，

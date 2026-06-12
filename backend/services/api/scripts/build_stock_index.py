@@ -103,10 +103,13 @@ def main() -> None:
     with engine.begin() as conn:
         if _table_exists(conn, "stocks"):
             sql = text("""
-                SELECT stock_code, stock_name, exchange
+                SELECT
+                  split_part(symbol, '.', 1) AS stock_code,
+                  name AS stock_name,
+                  COALESCE(NULLIF(exchange, ''), split_part(symbol, '.', 2)) AS exchange
                 FROM stocks
-                WHERE COALESCE(status, 1) = 1
-                ORDER BY stock_code
+                WHERE COALESCE(is_active, true) = true
+                ORDER BY symbol
                 """)
         elif _table_exists(conn, "symbols"):
             sql = text("""
