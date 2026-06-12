@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,12 +29,35 @@ from .model_loader import ModelLoader
 logger = logging.getLogger(__name__)
 
 
+def _max_drawdown(cumulative_returns: list[float]) -> float:
+    """Compute max drawdown from a cumulative return series."""
+    if not cumulative_returns:
+        return 0.0
+    peak = cumulative_returns[0]
+    max_dd = 0.0
+    for r in cumulative_returns:
+        peak = max(peak, r)
+        dd = peak - r
+        max_dd = max(max_dd, dd)
+    return float(max_dd)
+
+
+def _group_by_month(results: list[dict]) -> dict[str, float]:
+    """Group IC values by month and compute monthly mean."""
+    monthly: dict[str, list[float]] = defaultdict(list)
+    for r in results:
+        month_key = r["date"][:7]  # "2025-07"
+        monthly[month_key].append(r["ic"])
+    return {k: float(np.mean(v)) for k, v in monthly.items()}
+
+
 class BacktestService:
     """Evaluate model predictive power via rolling historical backtest."""
 
     def __init__(self, production_dir: Path | None = None):
         self.production_dir = production_dir or PRODUCTION_MODELS_DIR
         self.model_loader = ModelLoader(self.production_dir, max_models=3)
+        self._prev_top_symbols: list[str] = []
 
     def resolve_model_dir(self, model_id: str) -> Path:
         """Resolve model directory from model_id."""
@@ -99,6 +123,7 @@ class BacktestService:
 
         results: list[dict[str, Any]] = []
         errors: list[dict[str, str]] = []
+        self._prev_top_symbols = []  # reset for each backtest run
 
         for date_str in dates:
             try:
@@ -174,6 +199,37 @@ class BacktestService:
             metrics["decile_rank_ic"] = float(rank_ic) if not np.isnan(rank_ic) else 0.0
         except Exception:
             metrics["decile_rank_ic"] = 0.0
+
+        # ── Enhanced metrics ──
+
+        # Turnover
+        turnovers = [r.get("top_turnover", 0) for r in results]
+        metrics["turnover_mean"] = float(np.mean(turnovers))
+
+        # Long-short series for Sharpe and drawdown
+        ls_series = [r.get("top_10pct_return", 0) - r.get("bottom_10pct_return", 0) for r in results]
+        ls_arr = np.array(ls_series)
+        ls_mean = float(np.mean(ls_arr))
+        ls_std = float(np.std(ls_arr)) if len(ls_arr) > 1 else 1.0
+        avg_interval = len(dates) / max(len(results), 1)  # approximate trading day interval
+        metrics["sharpe_ls"] = float(ls_mean / ls_std * np.sqrt(252 / max(avg_interval, 1))) if ls_std > 0 else 0.0
+
+        # Cumulative series for charts
+        metrics["cumulative_ic"] = list(np.cumsum(ic_arr))
+        metrics["cumulative_ls"] = list(np.cumsum(ls_arr))
+
+        # Max drawdown of long-short cumulative returns
+        cum_ls = np.cumsum(ls_arr)
+        metrics["max_drawdown_ls"] = _max_drawdown(cum_ls.tolist())
+
+        # Up/Down capture: IC in up vs down market days
+        up_ics = [r["ic"] for r in results if r.get("market_return", 0) > 0.001]
+        down_ics = [r["ic"] for r in results if r.get("market_return", 0) < -0.001]
+        metrics["up_capture"] = float(np.mean(up_ics)) if up_ics else 0.0
+        metrics["down_capture"] = float(np.mean(down_ics)) if down_ics else 0.0
+
+        # Monthly IC breakdown
+        metrics["monthly_ic"] = _group_by_month(results)
 
         output = {
             "status": "success",
@@ -271,6 +327,19 @@ class BacktestService:
         top_n = joined.nlargest(n, "pred")["actual"].mean()
         bottom_n = joined.nsmallest(n, "pred")["actual"].mean()
 
+        # Market return (equal-weight average)
+        market_return = float(joined["actual"].mean())
+
+        # Turnover: % of top decile that changed from previous date
+        curr_top = set(joined.nlargest(n, "pred").index)
+        if self._prev_top_symbols:
+            prev_top = set(self._prev_top_symbols)
+            union = prev_top | curr_top
+            turnover = len(prev_top.symmetric_difference(curr_top)) / max(len(union), 1)
+        else:
+            turnover = 0.0
+        self._prev_top_symbols = list(curr_top)
+
         return {
             "date": date_str,
             "ic": float(ic),
@@ -281,6 +350,56 @@ class BacktestService:
             "pred_mean": float(joined["pred"].mean()),
             "pred_std": float(joined["pred"].std()),
             "actual_mean": float(joined["actual"].mean()),
+            "market_return": market_return,
+            "top_turnover": float(turnover),
+        }
+
+    def run_multi_horizon_backtest(
+        self,
+        model_id: str,
+        dates: list[str],
+        horizons: list[int] | None = None,
+        model_dir: Path | None = None,
+        data_dir: Path | str | None = None,
+    ) -> dict[str, Any]:
+        """Run backtest across multiple prediction horizons and compare."""
+        horizons = horizons or [1, 5, 10, 20]
+        horizon_results: dict[str, dict[str, Any]] = {}
+        for h in horizons:
+            try:
+                result = self.run_backtest(
+                    model_id=model_id,
+                    dates=dates,
+                    horizon=h,
+                    model_dir=model_dir,
+                    data_dir=data_dir,
+                )
+                horizon_results[f"T+{h}"] = {
+                    "ic_mean": result["metrics"]["ic_mean"],
+                    "ic_ir": result["metrics"]["ic_ir"],
+                    "hit_rate": result["metrics"]["hit_rate"],
+                    "long_short_return": result["metrics"]["long_short_return"],
+                    "sharpe_ls": result["metrics"].get("sharpe_ls", 0),
+                    "max_drawdown_ls": result["metrics"].get("max_drawdown_ls", 0),
+                    "turnover_mean": result["metrics"].get("turnover_mean", 0),
+                    "n_dates": result["metrics"]["n_dates"],
+                }
+            except Exception as e:
+                logger.warning("Multi-horizon T+%d failed: %s", h, e)
+                horizon_results[f"T+{h}"] = {"error": str(e)}
+
+        # Find best horizon by IC_IR
+        best = max(
+            ((k, v) for k, v in horizon_results.items() if "ic_ir" in v),
+            key=lambda x: x[1]["ic_ir"],
+            default=(None, None),
+        )
+
+        return {
+            "status": "success",
+            "model_id": model_id,
+            "horizons": horizon_results,
+            "best_horizon": best[0] if best[0] else "N/A",
         }
 
     @staticmethod
