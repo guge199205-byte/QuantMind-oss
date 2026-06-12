@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
-import { Card, Empty, Statistic, Row, Col, Tag, Tabs, Table, Alert, Typography } from 'antd';
-import {
-  AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Line,
-} from 'recharts';
+import { Card, Empty, Tag, Tabs, Table, Alert, Typography } from 'antd';
 import type { StrategyLabRunResult, StrategyLabTradeRecord } from '../types';
+import KpiCards from './KpiCards';
+import EquityChart from './EquityChart';
+import MonthlyReturnsHeatmap from './MonthlyReturnsHeatmap';
 
 const { Paragraph, Text } = Typography;
 
@@ -23,15 +23,17 @@ const fmt = (v: number | null | undefined, digits = 2) => {
 };
 
 export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => {
-  const equityChartData = useMemo(() => {
-    if (!result?.equity?.length) return [];
-    const base = result.equity[0]?.value ?? 1;
-    const benchBase = result.equity[0]?.benchmark ?? null;
-    return result.equity.map((p) => ({
-      date: p.date,
-      strategy: base ? (p.value / base) : 0,
-      benchmark: benchBase && p.benchmark ? p.benchmark / benchBase : null,
-    }));
+  const alpha = useMemo(() => {
+    if (!result?.equity?.length) return null;
+    const last = result.equity[result.equity.length - 1];
+    const first = result.equity[0];
+    if (!first || !last) return null;
+    const stratRet = first.value ? last.value / first.value - 1 : 0;
+    if (first.benchmark === null || first.benchmark === undefined || last.benchmark === null || last.benchmark === undefined) {
+      return null;
+    }
+    const benchRet = first.benchmark ? last.benchmark / first.benchmark - 1 : 0;
+    return stratRet - benchRet;
   }, [result]);
 
   if (loading && !result) {
@@ -74,7 +76,6 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
     );
   }
 
-  const m = result.metrics;
   return (
     <Card
       title={
@@ -92,59 +93,27 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
       }
       bodyStyle={{ paddingTop: 12 }}
     >
-      <Row gutter={12} style={{ marginBottom: 12 }}>
-        <Col span={6}>
-          <Statistic
-            title="累计收益"
-            value={fmtPct(m.cum_return)}
-            valueStyle={{ color: m.cum_return >= 0 ? '#3f8600' : '#cf1322' }}
-          />
-        </Col>
-        <Col span={6}>
-          <Statistic title="年化" value={fmtPct(m.annual_return)} />
-        </Col>
-        <Col span={6}>
-          <Statistic title="夏普" value={fmt(m.sharpe, 2)} />
-        </Col>
-        <Col span={6}>
-          <Statistic
-            title="最大回撤"
-            value={fmtPct(m.max_drawdown)}
-            valueStyle={{ color: '#cf1322' }}
-          />
-        </Col>
-      </Row>
-      <Row gutter={12} style={{ marginBottom: 12 }}>
-        <Col span={6}><Statistic title="胜率" value={fmtPct(m.win_rate)} /></Col>
-        <Col span={6}><Statistic title="交易笔数" value={m.n_trades} /></Col>
-        <Col span={6}><Statistic title="平均仓位" value={fmtPct(m.avg_position, 1)} /></Col>
-        <Col span={6}><Statistic title="数据点" value={result.equity.length} /></Col>
-      </Row>
+      <KpiCards
+        metrics={result.metrics}
+        extras={{
+          alpha,
+          nDataPoints: result.equity.length,
+        }}
+      />
 
       <Tabs
+        defaultActiveKey="equity"
+        style={{ marginTop: 12 }}
         items={[
           {
             key: 'equity',
             label: `净值曲线 (${result.equity.length})`,
-            children: equityChartData.length === 0 ? (
-              <Empty description="无净值数据" />
-            ) : (
-              <div style={{ width: '100%', height: 260 }}>
-                <ResponsiveContainer>
-                  <AreaChart data={equityChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={20} />
-                    <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} tickFormatter={(v: number) => v.toFixed(2)} />
-                    <Tooltip formatter={(v: number) => v.toFixed(4)} />
-                    <Legend />
-                    <Area type="monotone" dataKey="strategy" name="策略" stroke="#1677ff" fill="#1677ff22" />
-                    {equityChartData.some((d) => d.benchmark !== null) && (
-                      <Line type="monotone" dataKey="benchmark" name="基准" stroke="#888" dot={false} />
-                    )}
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ),
+            children: <EquityChart equity={result.equity} height={300} />,
+          },
+          {
+            key: 'monthly',
+            label: '月度热力',
+            children: <MonthlyReturnsHeatmap equity={result.equity} />,
           },
           {
             key: 'trades',
@@ -196,6 +165,28 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
               </pre>
             ),
           },
+          ...(result.warnings.length > 0
+            ? [
+                {
+                  key: 'warnings',
+                  label: `提示 (${result.warnings.length})`,
+                  children: (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="回测引擎产生以下提示"
+                      description={
+                        <ul style={{ margin: 0, paddingLeft: 20 }}>
+                          {result.warnings.map((w, i) => (
+                            <li key={i} style={{ fontSize: 12 }}>{w}</li>
+                          ))}
+                        </ul>
+                      }
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </Card>
