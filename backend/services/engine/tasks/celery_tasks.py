@@ -635,23 +635,33 @@ def get_data_status_task(market: str = "a_share") -> dict[str, Any]:
 
     与 API 端 `/admin/models/data-status` 共用 `scan_data_status`，
     避免双方扫描逻辑/缓存 key 漂移。
+
+    交易日通过 `resolve_trade_date_sync` 同步解析（exchange_calendars），
+    避免在 Celery worker 内通过 asyncio.run() 跑 calendar_service 时与主
+    API 的 asyncpg 池绑定到不同事件循环的冲突。
     """
     import asyncio
     import json
 
-    from backend.services.api.routers.admin.data_status_scanner import scan_data_status
+    from backend.services.api.routers.admin.data_status_scanner import (
+        resolve_trade_date_sync,
+        scan_data_status,
+    )
 
+    trade_date = resolve_trade_date_sync(market)
+
+    coro = scan_data_status(
+        market=market,
+        tenant_id="default",
+        user_id="admin",
+        trade_date=trade_date,
+    )
     try:
-        result = asyncio.run(
-            scan_data_status(market=market, tenant_id="default", user_id="admin")
-        )
+        result = asyncio.run(coro)
     except RuntimeError:
-        # 防御性：若当前线程已有 event loop（极少见），新建一个 loop 运行
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                scan_data_status(market=market, tenant_id="default", user_id="admin")
-            )
+            result = loop.run_until_complete(coro)
         finally:
             loop.close()
 
