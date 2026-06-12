@@ -42,6 +42,7 @@ const AIIDEPage = lazy(() => import('./pages/AIIDEPage'));
 const ModelTrainingPage = lazy(() => import('./pages/ModelTrainingPage'));
 const ModelRegistryPage = lazy(() => import('./pages/ModelRegistryPage'));
 const ResearchPlatformPage = lazy(() => import('./pages/ResearchPlatformPage').then(m => ({ default: m.default || m.ResearchPlatformPage })));
+const StrategyLabPage = lazy(() => import('./features/strategy-lab/pages/StrategyLabPage'));
 const RealTradingPage = lazy(() => import('./pages/trading/RealTradingPage'));
 const AdminPage = lazy(() => import('./features/admin/AdminPage'));
 const AdminDashboard = lazy(() => import('./features/admin/components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
@@ -462,6 +463,14 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <AIIDEPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/strategy-lab"
+                    element={
+                      <ProtectedRoute>
+                        <StrategyLabPage />
                       </ProtectedRoute>
                     }
                   />
