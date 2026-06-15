@@ -786,3 +786,18 @@ def daily_data_sync_task(
             rds.delete(lock_key)
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Strategy Lab daily scan (Day 16)
+# ---------------------------------------------------------------------------
+@celery_app.task(name="engine.tasks.strategy_lab_daily_scan")
+def strategy_lab_daily_scan(lookback_days: int = 7) -> dict[str, Any]:
+    """Run all watched Strategy Lab scripts and persist today's signals."""
+    try:
+        from backend.services.engine.strategy_lab.cron.daily_scan import run_daily_scan
+
+        return run_daily_scan(lookback_days=lookback_days)
+    except Exception as e:
+        logger.exception("[StrategyLabScan] failed")
+        return {"status": "failed", "error": str(e)}

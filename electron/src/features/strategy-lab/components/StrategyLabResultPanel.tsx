@@ -1,15 +1,29 @@
-import React, { useMemo } from 'react';
-import { Card, Empty, Tag, Tabs, Table, Alert, Typography } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Card, Empty, Tag, Tabs, Table, Alert, Typography, Button, Space, message } from 'antd';
 import type { StrategyLabRunResult, StrategyLabTradeRecord } from '../types';
 import KpiCards from './KpiCards';
 import EquityChart from './EquityChart';
 import MonthlyReturnsHeatmap from './MonthlyReturnsHeatmap';
+import StrategyLabKlineView from './StrategyLabKlineView';
+import YearlyStats from './YearlyStats';
+import ScoreCard from './ScoreCard';
+import WhyExplainerModal from './WhyExplainerModal';
+import { humanizeError } from '../utils/humanizeError';
+import { strategyLabService } from '../services/strategyLabService';
 
 const { Paragraph, Text } = Typography;
 
 interface Props {
   result: StrategyLabRunResult | null;
   loading: boolean;
+  /** Optional: original code; if present, enables 转模板 / 4 关卡 actions. */
+  code?: string;
+  /** Day 18: previous successful run, rendered as a dashed overlay on EquityChart. */
+  prevResult?: StrategyLabRunResult | null;
+  onClearPrev?: () => void;
+  /** Day 17: hand-drawn lines synced with the parent page so they survive re-runs. */
+  drawnLines?: Record<string, number>;
+  onDrawnLinesChange?: (next: Record<string, number>) => void;
 }
 
 const fmtPct = (v: number | null | undefined, digits = 2) => {
@@ -22,14 +36,25 @@ const fmt = (v: number | null | undefined, digits = 2) => {
   return v.toFixed(digits);
 };
 
-export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => {
+export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading, code, prevResult, onClearPrev, drawnLines, onDrawnLinesChange }) => {
+  const [explainTrade, setExplainTrade] = useState<StrategyLabTradeRecord | null>(null);
+  const [overfitReport, setOverfitReport] = useState<any>(null);
+  const [overfitLoading, setOverfitLoading] = useState(false);
+  const [translateLoading, setTranslateLoading] = useState(false);
+  const [watchLoading, setWatchLoading] = useState(false);
+
   const alpha = useMemo(() => {
     if (!result?.equity?.length) return null;
     const last = result.equity[result.equity.length - 1];
     const first = result.equity[0];
     if (!first || !last) return null;
     const stratRet = first.value ? last.value / first.value - 1 : 0;
-    if (first.benchmark === null || first.benchmark === undefined || last.benchmark === null || last.benchmark === undefined) {
+    if (
+      first.benchmark === null ||
+      first.benchmark === undefined ||
+      last.benchmark === null ||
+      last.benchmark === undefined
+    ) {
       return null;
     }
     const benchRet = first.benchmark ? last.benchmark / first.benchmark - 1 : 0;
@@ -53,6 +78,10 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
   }
 
   if (result.status === 'failed') {
+    const human = humanizeError(result.error || '', result.error_traceback || '');
+    const isDataMissing = /行情数据缺失|FileNotFoundError|qlib data path|No such file/i.test(
+      `${result.error || ''}\n${result.error_traceback || ''}`,
+    );
     return (
       <Card>
         <Alert
@@ -61,11 +90,38 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
           message={`回测失败 (run_id=${result.run_id})`}
           description={
             <>
-              <Paragraph copyable={{ text: result.error || '' }}>
-                {result.error || 'Unknown error'}
-              </Paragraph>
+              <Paragraph strong style={{ marginBottom: 4 }}>{human.title}</Paragraph>
+              {human.hint && (
+                <Paragraph style={{ marginBottom: 8, color: '#475569' }}>{human.hint}</Paragraph>
+              )}
+              {isDataMissing && (
+                <Paragraph style={{ marginBottom: 8 }}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={() => {
+                      window.location.hash = '#/admin/data-management';
+                    }}
+                  >
+                    去数据平台同步
+                  </Button>
+                  <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                    管理员可在「数据平台」页一键拉取目标市场行情。
+                  </Text>
+                </Paragraph>
+              )}
+              <Paragraph copyable={{ text: result.error || '' }}>{result.error || 'Unknown error'}</Paragraph>
               {result.error_traceback && (
-                <pre style={{ fontSize: 11, maxHeight: 240, overflow: 'auto', background: '#222', color: '#eee', padding: 8 }}>
+                <pre
+                  style={{
+                    fontSize: 11,
+                    maxHeight: 240,
+                    overflow: 'auto',
+                    background: '#222',
+                    color: '#eee',
+                    padding: 8,
+                  }}
+                >
                   {result.error_traceback}
                 </pre>
               )}
@@ -75,6 +131,56 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
       </Card>
     );
   }
+
+  const handleOverfitCheck = async () => {
+    if (!code) {
+      message.warning('未提供脚本代码，无法运行 4 关卡检测');
+      return;
+    }
+    setOverfitLoading(true);
+    try {
+      const report = await strategyLabService.runOverfitCheck(code);
+      setOverfitReport(report);
+    } catch (e: any) {
+      message.error(`4 关卡检测失败: ${e?.response?.data?.detail || e?.message || e}`);
+    } finally {
+      setOverfitLoading(false);
+    }
+  };
+
+  const handleConvertTemplate = async () => {
+    if (!code) {
+      message.warning('未提供脚本代码，无法转模板');
+      return;
+    }
+    setTranslateLoading(true);
+    try {
+      const out = await strategyLabService.translateToTemplate(code);
+      message.success(`已转换为模板：${out.strategy_name}（可在策略向导中查看）`);
+    } catch (e: any) {
+      message.error(`转模板失败: ${e?.response?.data?.detail || e?.message || e}`);
+    } finally {
+      setTranslateLoading(false);
+    }
+  };
+
+  const handleAddWatch = async () => {
+    if (!code) {
+      message.warning('未提供脚本代码，无法加入扫描');
+      return;
+    }
+    const name = window.prompt('为该策略起一个名字（出现在 Dashboard 信号卡上）：', '我的实验室策略');
+    if (!name) return;
+    setWatchLoading(true);
+    try {
+      const out = await strategyLabService.addWatch(code, name);
+      message.success(`已加入每日扫描（sha=${out.script_sha.slice(0, 8)}…）`);
+    } catch (e: any) {
+      message.error(`加入失败: ${e?.response?.data?.detail || e?.message || e}`);
+    } finally {
+      setWatchLoading(false);
+    }
+  };
 
   return (
     <Card
@@ -91,8 +197,38 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
           </Text>
         </span>
       }
+      extra={
+        <Space size="small">
+          <Button
+            size="small"
+            loading={overfitLoading}
+            disabled={!code}
+            onClick={handleOverfitCheck}
+          >
+            4 关卡检测
+          </Button>
+          <Button
+            size="small"
+            loading={watchLoading}
+            disabled={!code}
+            onClick={handleAddWatch}
+          >
+            加入每日扫描
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            loading={translateLoading}
+            disabled={!code}
+            onClick={handleConvertTemplate}
+          >
+            转模板
+          </Button>
+        </Space>
+      }
       bodyStyle={{ paddingTop: 12 }}
     >
+      <ScoreCard result={result} overfit={overfitReport} />
       <KpiCards
         metrics={result.metrics}
         extras={{
@@ -107,8 +243,50 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
         items={[
           {
             key: 'equity',
-            label: `净值曲线 (${result.equity.length})`,
-            children: <EquityChart equity={result.equity} height={300} />,
+            label: `净值曲线 (${result.equity.length})${prevResult ? ' · vs 上一版' : ''}`,
+            children: (
+              <>
+                {prevResult && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                    message={
+                      <Space size="small">
+                        <span>对比基线：上一次回测</span>
+                        <Tag color="orange">
+                          Δ累计收益 {(((result.metrics.cum_return ?? 0) - (prevResult.metrics.cum_return ?? 0)) * 100).toFixed(2)}%
+                        </Tag>
+                        <Tag color={result.metrics.sharpe >= prevResult.metrics.sharpe ? 'green' : 'red'}>
+                          ΔSharpe {(result.metrics.sharpe - prevResult.metrics.sharpe).toFixed(2)}
+                        </Tag>
+                        {onClearPrev && (
+                          <Button size="small" type="link" onClick={onClearPrev}>清除对比</Button>
+                        )}
+                      </Space>
+                    }
+                  />
+                )}
+                <EquityChart
+                  equity={result.equity}
+                  prevEquity={prevResult?.equity ?? null}
+                  prevLabel="上一版"
+                  height={300}
+                />
+              </>
+            ),
+          },
+          {
+            key: 'kline',
+            label: 'K 线 ▲▼',
+            children: (
+              <StrategyLabKlineView
+                result={result}
+                onMarkerClick={setExplainTrade}
+                drawnLines={drawnLines}
+                onDrawnLinesChange={onDrawnLinesChange}
+              />
+            ),
           },
           {
             key: 'monthly',
@@ -116,54 +294,61 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
             children: <MonthlyReturnsHeatmap equity={result.equity} />,
           },
           {
+            key: 'yearly',
+            label: '年度统计',
+            children: <YearlyStats equity={result.equity} />,
+          },
+          {
             key: 'trades',
             label: `成交 (${result.trades.length})`,
-            children: <TradeTable trades={result.trades} />,
+            children: <TradeTable trades={result.trades} onExplain={setExplainTrade} />,
           },
           {
             key: 'positions',
             label: `末日持仓 (${result.positions.length})`,
-            children: result.positions.length === 0 ? (
-              <Empty description="末日空仓" />
-            ) : (
-              <Table
-                size="small"
-                rowKey={(r) => r.symbol}
-                pagination={false}
-                dataSource={result.positions}
-                columns={[
-                  { title: '代码', dataIndex: 'symbol' },
-                  { title: '数量', dataIndex: 'qty' },
-                  { title: '成本', dataIndex: 'cost', render: (v: number) => fmt(v, 0) },
-                  { title: '市值', dataIndex: 'market_value', render: (v: number) => fmt(v, 0) },
-                  { title: '盈亏%', dataIndex: 'pnl_pct', render: (v: number) => fmtPct(v) },
-                ]}
-              />
-            ),
+            children:
+              result.positions.length === 0 ? (
+                <Empty description="末日空仓" />
+              ) : (
+                <Table
+                  size="small"
+                  rowKey={(r) => r.symbol}
+                  pagination={false}
+                  dataSource={result.positions}
+                  columns={[
+                    { title: '代码', dataIndex: 'symbol' },
+                    { title: '数量', dataIndex: 'qty' },
+                    { title: '成本', dataIndex: 'cost', render: (v: number) => fmt(v, 0) },
+                    { title: '市值', dataIndex: 'market_value', render: (v: number) => fmt(v, 0) },
+                    { title: '盈亏%', dataIndex: 'pnl_pct', render: (v: number) => fmtPct(v) },
+                  ]}
+                />
+              ),
           },
           {
             key: 'logs',
             label: `日志 (${result.logs.length})`,
-            children: result.logs.length === 0 ? (
-              <Empty description="无日志" />
-            ) : (
-              <pre
-                style={{
-                  fontSize: 11,
-                  background: '#1e1e1e',
-                  color: '#d4d4d4',
-                  padding: 12,
-                  borderRadius: 4,
-                  maxHeight: 240,
-                  overflow: 'auto',
-                  margin: 0,
-                }}
-              >
-                {result.logs
-                  .map((l) => `[${l.level.toUpperCase()}] ${l.ts || ''} ${l.msg}`)
-                  .join('\n')}
-              </pre>
-            ),
+            children:
+              result.logs.length === 0 ? (
+                <Empty description="无日志" />
+              ) : (
+                <pre
+                  style={{
+                    fontSize: 11,
+                    background: '#1e1e1e',
+                    color: '#d4d4d4',
+                    padding: 12,
+                    borderRadius: 4,
+                    maxHeight: 240,
+                    overflow: 'auto',
+                    margin: 0,
+                  }}
+                >
+                  {result.logs
+                    .map((l) => `[${l.level.toUpperCase()}] ${l.ts || ''} ${l.msg}`)
+                    .join('\n')}
+                </pre>
+              ),
           },
           ...(result.warnings.length > 0
             ? [
@@ -178,7 +363,9 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
                       description={
                         <ul style={{ margin: 0, paddingLeft: 20 }}>
                           {result.warnings.map((w, i) => (
-                            <li key={i} style={{ fontSize: 12 }}>{w}</li>
+                            <li key={i} style={{ fontSize: 12 }}>
+                              {w}
+                            </li>
                           ))}
                         </ul>
                       }
@@ -189,11 +376,16 @@ export const StrategyLabResultPanel: React.FC<Props> = ({ result, loading }) => 
             : []),
         ]}
       />
+
+      <WhyExplainerModal trade={explainTrade} onClose={() => setExplainTrade(null)} />
     </Card>
   );
 };
 
-const TradeTable: React.FC<{ trades: StrategyLabTradeRecord[] }> = ({ trades }) => {
+const TradeTable: React.FC<{
+  trades: StrategyLabTradeRecord[];
+  onExplain?: (t: StrategyLabTradeRecord) => void;
+}> = ({ trades, onExplain }) => {
   if (!trades.length) return <Empty description="无成交" />;
   return (
     <Table
@@ -209,9 +401,7 @@ const TradeTable: React.FC<{ trades: StrategyLabTradeRecord[] }> = ({ trades }) 
           title: '方向',
           dataIndex: 'direction',
           width: 70,
-          render: (v: string) => (
-            <Tag color={v === 'BUY' ? 'red' : 'green'}>{v}</Tag>
-          ),
+          render: (v: string) => <Tag color={v === 'BUY' ? 'red' : 'green'}>{v}</Tag>,
         },
         { title: '价格', dataIndex: 'price', width: 80, render: (v: number) => fmt(v, 2) },
         { title: '数量', dataIndex: 'qty', width: 80 },
@@ -220,11 +410,26 @@ const TradeTable: React.FC<{ trades: StrategyLabTradeRecord[] }> = ({ trades }) 
           dataIndex: 'pnl',
           width: 80,
           render: (v: number | null) =>
-            v === null || v === undefined ? '—' : (
+            v === null || v === undefined ? (
+              '—'
+            ) : (
               <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>{fmt(v, 0)}</span>
             ),
         },
         { title: '原因', dataIndex: 'reason', ellipsis: true },
+        ...(onExplain
+          ? [
+              {
+                title: '',
+                width: 60,
+                render: (_: any, t: StrategyLabTradeRecord) => (
+                  <Button size="small" type="link" onClick={() => onExplain(t)}>
+                    Why
+                  </Button>
+                ),
+              },
+            ]
+          : []),
       ]}
     />
   );

@@ -6,6 +6,7 @@ import {
   Layers,
   CircleUserRound,
   FlaskConical,
+  FlaskRound,
   LayoutDashboard,
   LineChart,
   Orbit,
@@ -38,6 +39,7 @@ export const FloatingNavBar: React.FC<FloatingNavBarProps> = ({ current, onChang
     { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
     { id: 'strategy', label: '智能策略', icon: LineChart },
     { id: 'ai-ide', label: 'AI-IDE', icon: SquareTerminal },
+    { id: 'strategy-lab', label: '策略实验室', icon: FlaskRound },
     { id: 'backtest', label: '回测中心', icon: FlaskConical },
     { id: 'agent', label: 'QuantBot', icon: Orbit },
     { id: 'model-training', label: '模型训练', icon: Layers },
@@ -56,7 +58,7 @@ export const FloatingNavBar: React.FC<FloatingNavBarProps> = ({ current, onChang
   }
 
   const groupedNavItems: NavItemConfig[][] = [
-    navItems.filter((item) => ['dashboard', 'strategy', 'ai-ide', 'backtest', 'agent'].includes(item.id)),
+    navItems.filter((item) => ['dashboard', 'strategy', 'ai-ide', 'strategy-lab', 'backtest', 'agent'].includes(item.id)),
     navItems.filter((item) => ['model-training', 'model-registry', 'research', 'trading', 'rss-news', 'alpha-research', 'trading-agents', 'daily-analysis'].includes(item.id)),
     navItems.filter((item) => ['profile', 'admin'].includes(item.id))
   ].filter((group) => group.length > 0);

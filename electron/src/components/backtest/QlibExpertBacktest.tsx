@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import Editor from '@monaco-editor/react';
 import { Play, RefreshCw, Code2, Settings2, BarChart3, Info, AlertCircle, Upload, Cloud, CalendarRange } from 'lucide-react';
 
@@ -272,18 +273,26 @@ export const QlibExpertBacktest: React.FC = () => {
   }, [currentMarket]);
 
   return (
-    <div className="flex h-full bg-white overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="flex h-full bg-white overflow-hidden rounded-2xl border border-gray-200 shadow-sm"
+    >
       {/* 左侧：代码编辑区 */}
       <div className="w-1/2 flex flex-col border-r border-gray-200">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <div className="flex items-center gap-2">
-            <Code2 className="w-4 h-4 text-indigo-500" />
-            <span className="text-sm font-bold text-gray-700">Python 策略编辑器</span>
+            <span className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center"><Code2 className="w-4 h-4 text-indigo-600" /></span>
+            <div>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Expert Mode</p>
+              <span className="text-lg font-bold text-slate-800 tracking-tight">Python 策略编辑器</span>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded flex items-center gap-1 hover:bg-gray-50 transition-colors"
+              className="text-[10px] bg-white border border-gray-200 px-3 py-1.5 rounded-xl flex items-center gap-1 hover:bg-gray-50 transition-colors"
             >
               <Upload className="w-3 h-3" /> 导入文件
             </button>
@@ -297,7 +306,7 @@ export const QlibExpertBacktest: React.FC = () => {
             <button
               onClick={handleOpenSaveModal}
               disabled={isSaving}
-              className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-1 rounded flex items-center gap-1 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+              className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-3 py-1.5 rounded-xl flex items-center gap-1 hover:bg-indigo-100 transition-colors disabled:opacity-50"
             >
               <Cloud className="w-3 h-3" />
               保存到个人中心
@@ -327,8 +336,12 @@ export const QlibExpertBacktest: React.FC = () => {
       <div className="w-1/2 flex flex-col overflow-hidden bg-gray-50/30">
         {/* 控制面板 */}
         <div className="p-6 border-b border-gray-200 bg-white space-y-6">
-          <div className="flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[11px] text-indigo-700">
-            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Execution Setup</p>
+            <h3 className="text-lg font-bold text-slate-800 tracking-tight">专家回测参数</h3>
+          </div>
+          <div className="flex items-start gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[11px] text-indigo-700 shadow-sm">
+            <span className="w-7 h-7 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0"><Info className="w-3.5 h-3.5 text-indigo-600" /></span>
             <span>
               口径：前端显式参数优先，后端会自动补全与兼容修复；若要跨入口保持一致，请显式传入
               <code className="mx-1 rounded bg-white/70 px-1 py-0.5 font-mono text-[10px]">initial_capital</code>
@@ -404,7 +417,7 @@ export const QlibExpertBacktest: React.FC = () => {
             <button
               onClick={() => handleRun()}
               disabled={isRunning}
-              className="mt-5 px-8 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
+              className="mt-5 px-8 py-2 bg-gradient-to-br from-blue-500 to-purple-500 text-white rounded-xl font-bold hover:shadow-lg transition-shadow flex items-center gap-2 shadow-sm disabled:opacity-50"
             >
               {isRunning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
               执行代码
@@ -455,7 +468,12 @@ export const QlibExpertBacktest: React.FC = () => {
       {/* 保存策略模态框 */}
       {showSaveModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.25 }}
+            className="bg-white rounded-2xl border border-gray-200 shadow-2xl w-full max-w-md overflow-hidden"
+          >
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-indigo-50/30">
               <div className="flex items-center gap-2">
                 <Cloud className="w-5 h-5 text-indigo-600" />
@@ -514,10 +532,10 @@ export const QlibExpertBacktest: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
 

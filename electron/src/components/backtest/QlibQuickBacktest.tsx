@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import {
   Play, RefreshCw, BarChart3, Settings2, Info, AlertCircle, Copy, Check, ExternalLink, CalendarRange, Cpu
 } from 'lucide-react';
@@ -485,26 +486,47 @@ export const QlibQuickBacktest: React.FC = () => {
   ]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="flex flex-col h-full bg-slate-50 overflow-hidden"
+    >
       <div className="flex-1 flex flex-col xl:flex-row overflow-hidden">
         {/* 左侧配置栏 */}
         <div className="w-full xl:w-[520px] xl:min-w-[480px] xl:max-w-[560px] xl:border-r border-gray-200 bg-white/95 overflow-y-auto custom-scrollbar p-6 space-y-7 flex flex-col h-full">
 
-          <div className="p-4 rounded-2xl border bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100 flex items-start gap-3">
-            <Info className="w-4 h-4 mt-0.5 text-blue-500" />
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.05 }}
+            className="p-4 rounded-2xl border bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100 flex items-start gap-3 shadow-sm"
+          >
+            <div className="w-9 h-9 rounded-2xl bg-blue-500/10 flex items-center justify-center shrink-0">
+              <Info className="w-4 h-4 text-blue-600" />
+            </div>
             <div>
-              <div className="text-sm font-bold text-blue-900">标准参数模式</div>
-              <div className="text-xs text-gray-600 leading-relaxed mt-1">
+              <div className="text-[11px] font-semibold text-blue-500 uppercase tracking-wider mb-1">快速回测</div>
+              <div className="text-lg font-bold text-slate-800 tracking-tight">标准参数模式</div>
+              <div className="text-xs text-slate-500 leading-relaxed mt-1">
                 默认使用标准 Top-K 选股模板；前端显式参数优先，后端会自动做补全与兼容修复，适合快速验证截面信号的盈利表现。
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* 模型选择 + 详情 */}
-          <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-5">
-            <h3 className="flex items-center gap-2 font-bold text-gray-800 text-base">
-              <Cpu className="w-4 h-4 text-gray-400" /> 选择模型
-            </h3>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.1 }}
+            className="space-y-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+          >
+            <div>
+              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Signal Model</div>
+              <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 tracking-tight">
+                <span className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center"><Cpu className="w-4 h-4 text-indigo-600" /></span> 选择模型
+              </h3>
+            </div>
             <p className="text-xs text-gray-500 -mt-1">
               选择训练好的 ML 模型，其预测分数将作为策略信号（signal=&lt;PRED&gt;）
             </p>
@@ -706,19 +728,34 @@ export const QlibQuickBacktest: React.FC = () => {
                 </div>
               );
             })()}
-          </div>
+          </motion.div>
 
-          <StrategyPicker
-            onStrategySelected={handleStrategySelected}
-            hideUpload={true}
-            initialStrategy={strategyInfo}
-          />
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.15 }}
+            className="rounded-2xl border border-gray-200 bg-white p-1 shadow-sm"
+          >
+            <StrategyPicker
+              onStrategySelected={handleStrategySelected}
+              hideUpload={true}
+              initialStrategy={strategyInfo}
+            />
+          </motion.div>
 
-          <div className="space-y-5 rounded-2xl border border-gray-200 bg-white p-5">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.2 }}
+            className="space-y-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+          >
             <div className="flex items-start justify-between gap-3">
-              <h3 className="flex items-center gap-2 font-bold text-gray-800 text-base">
-                <Settings2 className="w-4 h-4 text-gray-400" /> 基础配置
-              </h3>
+              <div>
+                <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Run Setup</div>
+                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 tracking-tight">
+                  <span className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center"><Settings2 className="w-4 h-4 text-blue-600" /></span> 基础配置
+                </h3>
+              </div>
               <div
                 className="relative flex items-center gap-2 shrink-0"
                 onMouseEnter={() => {
@@ -870,14 +907,21 @@ export const QlibQuickBacktest: React.FC = () => {
                 </select>
               </div>
             </div>
-          </div>
+          </motion.div>
 
-          <QlibStrategyConfigurator
-            strategyType={strategyType as QlibStrategyType}
-            params={strategyParams}
-            onChange={setStrategyParams}
-            strategyCode={strategyInfo?.code}
-          />
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.25 }}
+            className="rounded-2xl border border-gray-200 bg-white p-1 shadow-sm"
+          >
+            <QlibStrategyConfigurator
+              strategyType={strategyType as QlibStrategyType}
+              params={strategyParams}
+              onChange={setStrategyParams}
+              strategyCode={strategyInfo?.code}
+            />
+          </motion.div>
 
           {error && (
             <div className="bg-red-50 border border-red-200 p-5 rounded-2xl shadow-sm">
@@ -924,21 +968,34 @@ export const QlibQuickBacktest: React.FC = () => {
 
         {/* 右侧展示区 */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 bg-slate-50">
-          {isRunning ? (
-            <div className="flex flex-col items-center justify-center h-full">
-              <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <div className="text-lg font-bold text-gray-800">{progressMessage} {progress.toFixed(0)}%</div>
-            </div>
-          ) : result ? (
-            <QlibResultDisplay result={result} fallbackConfig={lastConfig} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-400">
-              <div className="text-center">
-                <BarChart3 className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                <p>配置参数后点击"立即执行回测"</p>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.1 }}
+            className="min-h-full bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden"
+          >
+            {isRunning ? (
+              <div className="flex flex-col items-center justify-center min-h-[520px]">
+                <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <div className="text-lg font-bold text-slate-800 tracking-tight tabular-nums">{progressMessage} {progress.toFixed(0)}%</div>
               </div>
-            </div>
-          )}
+            ) : result ? (
+              <div className="p-4">
+                <QlibResultDisplay result={result} fallbackConfig={lastConfig} />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center min-h-[520px] text-gray-400">
+                <div className="text-center">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+                    <BarChart3 className="h-10 w-10 text-blue-500 opacity-70" />
+                  </div>
+                  <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Backtest Output</div>
+                  <p className="text-lg font-bold text-slate-800 tracking-tight">配置参数后点击"立即执行回测"</p>
+                  <p className="text-xs text-slate-500 mt-1">结果、权益曲线和风险指标将在这里展示</p>
+                </div>
+              </div>
+            )}
+          </motion.div>
         </div>
       </div>
       {showErrorLog && (
@@ -954,6 +1011,6 @@ export const QlibQuickBacktest: React.FC = () => {
           }}
         />
       )}
-    </div>
+    </motion.div>
   );
 };

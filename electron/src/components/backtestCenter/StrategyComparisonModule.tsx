@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { motion } from 'framer-motion';
 import { BacktestComparison } from '../backtest/BacktestComparison';
 import { useBacktestCenterStore } from '../../stores/backtestCenterStore';
 import { authService } from '../../features/auth/services/authService';
@@ -17,13 +18,18 @@ export const StrategyComparisonModule: React.FC = () => {
 
   return (
     <div className="h-full p-6">
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6"
+      >
         <BacktestComparison
           userId={userId}
           defaultBacktest1={selectedBacktests[0]}
           defaultBacktest2={selectedBacktests[1]}
         />
-      </div>
+      </motion.div>
     </div>
   );
 };

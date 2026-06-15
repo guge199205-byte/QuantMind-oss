@@ -136,6 +136,7 @@ class Context:
             "_broker",
             "_now_index",
             "_dirty",
+            "_drawn_lines",
             "stats",
         }
     )
@@ -159,6 +160,7 @@ class Context:
         object.__setattr__(self, "_broker", None)
         object.__setattr__(self, "_now_index", 0)
         object.__setattr__(self, "_dirty", False)
+        object.__setattr__(self, "_drawn_lines", {})
         object.__setattr__(self, "stats", StatsView())
 
     # ------------------------------------------------------------------
@@ -512,6 +514,32 @@ class Context:
                 "ts": self._today.isoformat() if self._today is not None else None,
             }
         )
+
+    def drawn_line(self, name: str, default: float | None = None) -> float | None:
+        """Read a price-level line drawn on the K-line UI.
+
+        Returns the latest price the user dropped on the chart for ``name``,
+        or ``default`` if the user has not drawn one. The runner injects values
+        via the request body (key: ``drawn_lines``); for backtests run without
+        the UI this method always returns ``default``.
+
+        Example:
+            stop = ctx.drawn_line('stop_loss', default=0.0)
+            if stop and price < stop:
+                ctx.sell(symbol, qty=100, reason='manual stop')
+        """
+        if not isinstance(name, str) or not name:
+            return default
+        v = self._drawn_lines.get(name)
+        if v is None:
+            return default
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return default
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
 
     # ------------------------------------------------------------------
     # Helpers — wired by runner; safe stubs in tests

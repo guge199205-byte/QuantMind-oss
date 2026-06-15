@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 
 def _build_user_globals() -> dict[str, Any]:
     """Sanitize globals dict the user script will exec into."""
+    # The AST checker has already gated which modules the script may import.
+    # At runtime ``import numpy`` (etc.) still calls ``__builtins__.__import__``,
+    # so we must expose a constrained version — otherwise every script that
+    # imports a whitelisted package crashes with "ImportError: __import__ not
+    # found".
+    from .ast_checker import ALLOWED_MODULES
+
+    _real_import = __import__
+
+    def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+        top = (name or "").split(".")[0]
+        if top not in ALLOWED_MODULES:
+            raise ImportError(f"module '{name}' is not in the strategy sandbox whitelist")
+        return _real_import(name, globals, locals, fromlist, level)
+
     safe_builtins: dict[str, Any] = {
         # Core types
         "abs": abs, "all": all, "any": any, "bool": bool, "bytes": bytes,
@@ -40,11 +55,14 @@ def _build_user_globals() -> dict[str, Any]:
         "oct": oct, "ord": ord, "pow": pow, "print": print, "range": range,
         "repr": repr, "reversed": reversed, "round": round, "set": set,
         "slice": slice, "sorted": sorted, "str": str, "sum": sum, "tuple": tuple,
-        "type": type, "zip": zip,
+        "type": type, "zip": zip, "hasattr": hasattr, "getattr": getattr, "setattr": setattr,
+        # Whitelisted import — gated to ALLOWED_MODULES
+        "__import__": _safe_import,
         # Exceptions user code may catch
         "Exception": Exception, "ValueError": ValueError, "KeyError": KeyError,
         "TypeError": TypeError, "RuntimeError": RuntimeError,
         "ZeroDivisionError": ZeroDivisionError, "IndexError": IndexError,
+        "ImportError": ImportError, "ArithmeticError": ArithmeticError,
         "True": True, "False": False, "None": None,
         "__name__": "__strategy__",
     }
@@ -56,6 +74,7 @@ def run_request(req: dict[str, Any]) -> int:
     code: str = req["code"]
     params: dict[str, Any] = req.get("params") or {}
     qlib_data_path: str | None = req.get("qlib_data_path")
+    drawn_lines: dict[str, Any] = req.get("drawn_lines") or {}
 
     publisher = ProgressPublisher(run_id=run_id)
     publisher.set_status(RunStatus.running, started_at=time.time())
@@ -75,6 +94,17 @@ def run_request(req: dict[str, Any]) -> int:
                 ctx.set_param(k, v)
             except Exception:
                 pass
+
+        if isinstance(drawn_lines, dict):
+            normalized: dict[str, float] = {}
+            for k, v in drawn_lines.items():
+                if not isinstance(k, str) or not k:
+                    continue
+                try:
+                    normalized[k] = float(v)
+                except (TypeError, ValueError):
+                    continue
+            ctx._drawn_lines = normalized
 
         publisher.publish(Phase.setup, 5.0, "executing script body")
         user_globals = _build_user_globals()

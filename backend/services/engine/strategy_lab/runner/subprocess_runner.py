@@ -46,6 +46,7 @@ class RunRequest:
     options: dict[str, Any] = field(default_factory=dict)
     user_id: str | None = None
     qlib_data_path: str | None = None
+    drawn_lines: dict[str, float] = field(default_factory=dict)
     run_id: str = ""
 
     def __post_init__(self) -> None:
@@ -93,6 +94,7 @@ async def submit_run(req: RunRequest, *, timeout_sec: int | None = None) -> str:
         "code": req.code,
         "params": req.params,
         "qlib_data_path": req.qlib_data_path,
+        "drawn_lines": req.drawn_lines or {},
     }
     timeout = timeout_sec or req.options.get("timeout_sec") or DEFAULT_TIMEOUT_SEC
 
@@ -112,6 +114,7 @@ async def run_sync(req: RunRequest, *, timeout_sec: int | None = None) -> RunRes
         "code": req.code,
         "params": req.params,
         "qlib_data_path": req.qlib_data_path,
+        "drawn_lines": req.drawn_lines or {},
     }
     timeout = timeout_sec or req.options.get("timeout_sec") or DEFAULT_TIMEOUT_SEC
 

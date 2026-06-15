@@ -131,6 +131,7 @@ export default function App() {
       'alpha-research': '/alpha-research',
       'trading-agents': '/trading-agents',
       'daily-analysis': '/daily-analysis',
+      'strategy-lab': '/strategy-lab',
       'profile': '/user-center',
       'admin': '/admin',
     };
@@ -176,6 +177,8 @@ export default function App() {
       dispatch(setCurrentTab('rss-news' as DashboardTab));
     } else if (location.pathname.startsWith('/alpha-research')) {
       dispatch(setCurrentTab('alpha-research' as DashboardTab));
+    } else if (location.pathname.startsWith('/strategy-lab')) {
+      dispatch(setCurrentTab('strategy-lab' as DashboardTab));
     } else if (location.pathname.startsWith('/admin')) {
       dispatch(setCurrentTab('admin' as DashboardTab));
     } else if (location.pathname === '/') {

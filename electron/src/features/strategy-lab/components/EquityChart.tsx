@@ -28,6 +28,9 @@ import type { StrategyLabEquityPoint } from '../types';
 interface Props {
   equity: StrategyLabEquityPoint[];
   height?: number;
+  /** Optional baseline series — rendered as dashed orange line for vs comparison. */
+  prevEquity?: StrategyLabEquityPoint[] | null;
+  prevLabel?: string;
 }
 
 interface ChartRow {
@@ -35,12 +38,26 @@ interface ChartRow {
   strategy: number;
   benchmark: number | null;
   drawdown: number;
+  prev: number | null;
 }
 
-const buildChartData = (equity: StrategyLabEquityPoint[]): ChartRow[] => {
+const buildChartData = (
+  equity: StrategyLabEquityPoint[],
+  prev?: StrategyLabEquityPoint[] | null,
+): ChartRow[] => {
   if (!equity.length) return [];
   const base = equity[0]?.value ?? 1;
   const benchBase = equity[0]?.benchmark ?? null;
+
+  // Normalize prev curve and build a date-indexed map for alignment.
+  const prevMap = new Map<string, number>();
+  if (prev && prev.length > 0) {
+    const prevBase = prev[0]?.value ?? 1;
+    for (const p of prev) {
+      if (prevBase) prevMap.set(p.date, p.value / prevBase);
+    }
+  }
+
   let peak = -Infinity;
   return equity.map((p) => {
     const norm = base ? p.value / base : 0;
@@ -51,13 +68,15 @@ const buildChartData = (equity: StrategyLabEquityPoint[]): ChartRow[] => {
       strategy: norm,
       benchmark: benchBase && p.benchmark ? p.benchmark / benchBase : null,
       drawdown: dd,
+      prev: prevMap.has(p.date) ? prevMap.get(p.date)! : null,
     };
   });
 };
 
-export const EquityChart: React.FC<Props> = ({ equity, height = 280 }) => {
-  const data = useMemo(() => buildChartData(equity), [equity]);
+export const EquityChart: React.FC<Props> = ({ equity, height = 280, prevEquity, prevLabel = '上一版' }) => {
+  const data = useMemo(() => buildChartData(equity, prevEquity), [equity, prevEquity]);
   const hasBench = useMemo(() => data.some((d) => d.benchmark !== null), [data]);
+  const hasPrev = useMemo(() => data.some((d) => d.prev !== null), [data]);
 
   if (data.length === 0) {
     return <Empty description="无净值数据" />;
@@ -115,6 +134,19 @@ export const EquityChart: React.FC<Props> = ({ equity, height = 280 }) => {
               name="基准"
               stroke="#888"
               strokeDasharray="4 4"
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
+          {hasPrev && (
+            <Line
+              yAxisId="value"
+              type="monotone"
+              dataKey="prev"
+              name={prevLabel}
+              stroke="#fa8c16"
+              strokeDasharray="6 4"
+              strokeWidth={2}
               dot={false}
               isAnimationActive={false}
             />

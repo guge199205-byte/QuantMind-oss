@@ -50,6 +50,61 @@ export const strategyLabService = {
     return (await client.get(`/run/${runId}/result`)) as unknown as StrategyLabRunResult;
   },
 
+  /** Day 11-12: 4-gate overfit detection report. */
+  async runOverfitCheck(code: string, params?: Record<string, unknown>): Promise<{
+    gate1?: { passed: boolean; score: number; note: string };
+    gate2?: { passed: boolean; score: number; note: string };
+    gate3?: { passed: boolean; score: number; note: string };
+    gate4?: { passed: boolean; score: number; note: string };
+    total_score: number;
+    warnings: string[];
+  }> {
+    return (await client.post('/overfit-check', { code, params: params || {} })) as any;
+  },
+
+  /** Day 15: Translate SDK script → strategy template; returns saved strategy_name + id. */
+  async translateToTemplate(code: string): Promise<{
+    strategy_name: string;
+    strategy_id: string;
+    template: Record<string, unknown>;
+  }> {
+    return (await client.post('/translate', { code })) as any;
+  },
+
+  /** Day 16: Watch list management. */
+  async addWatch(code: string, name: string): Promise<{ script_sha: string; registered: boolean }> {
+    return (await client.post('/watch', { code, name })) as any;
+  },
+
+  async listWatch(): Promise<{ items: Array<{ script_sha: string; name: string; registered_at: string }> }> {
+    return (await client.get('/watch')) as any;
+  },
+
+  async removeWatch(scriptSha: string): Promise<{ script_sha: string; registered: boolean }> {
+    return (await client.delete(`/watch/${scriptSha}`)) as any;
+  },
+
+  async fetchSignals(): Promise<{
+    generated_at: string | null;
+    signals: Array<{
+      strategy: string;
+      script_sha: string;
+      symbol: string;
+      direction: 'BUY' | 'SELL';
+      price?: number;
+      qty?: number;
+      reason?: string;
+      date: string;
+    }>;
+    summary?: { watched: number; ok: number; failed: number; with_signal: number };
+  }> {
+    return (await client.get('/signals')) as any;
+  },
+
+  async runScanNow(lookbackDays = 7): Promise<{ generated_at: string; signals: any[]; summary: any }> {
+    return (await client.post('/scan/run-now', null, { params: { lookback_days: lookbackDays } })) as any;
+  },
+
   /**
    * SSE poller — Server-Sent Events with token auth via query param fallback.
    * Returns a cleanup function. The browser EventSource cannot set Authorization

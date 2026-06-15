@@ -14,6 +14,7 @@ import { StockSearch } from '../components/StockSearch';
 import { FieldBrowser } from '../components/FieldBrowser';
 import { SectorExplorer } from '../components/SectorExplorer';
 import { MarketOverview } from '../components/MarketOverview';
+import StrategyLabSignalCard from '../components/StrategyLabSignalCard';
 import { dataDashboardService, KlineItem } from '../services/dataDashboardService';
 import { researchService } from '../../../services/researchService';
 
@@ -177,6 +178,11 @@ const DashboardPage: React.FC = () => {
             {/* Market Overview */}
             <div style={{ marginBottom: 16 }}>
                 <MarketOverview market={market} />
+            </div>
+
+            {/* Strategy Lab daily scan signal card */}
+            <div style={{ marginBottom: 16 }}>
+                <StrategyLabSignalCard />
             </div>
 
             {/* Main content: Watchlist sidebar + K-line chart */}

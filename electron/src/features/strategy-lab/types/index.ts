@@ -92,5 +92,6 @@ export interface StrategyLabRunRequest {
   params?: Record<string, unknown>;
   options?: Record<string, unknown>;
   qlib_data_path?: string | null;
+  drawn_lines?: Record<string, number>;
   timeout_sec?: number | null;
 }

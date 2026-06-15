@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layout, List, Button, Tag, Space, message, Progress, Tooltip, Typography, Card } from 'antd';
-import { PlayCircleOutlined, StopOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Layout, Button, Tag, Space, message, Progress, Tooltip, Typography, Collapse, Input } from 'antd';
+import { PlayCircleOutlined, StopOutlined, FileTextOutlined, RobotOutlined, SearchOutlined } from '@ant-design/icons';
+import { motion } from 'framer-motion';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { strategyLabService } from '../services/strategyLabService';
-import { STRATEGY_LAB_SNIPPETS } from '../components/snippets';
+import { STRATEGY_LAB_SNIPPETS, SNIPPETS_BY_CATEGORY, CATEGORY_LABELS, type SnippetCategory } from '../components/snippets';
 import type {
   StrategyLabPhase,
   StrategyLabRunResult,
 } from '../types';
 import StrategyLabResultPanel from '../components/StrategyLabResultPanel';
+import StrategyLabAiDrawer from '../components/StrategyLabAiDrawer';
+import StrategyLabShell from '../components/StrategyLabShell';
 
-const { Sider, Content } = Layout;
+const { Content } = Layout;
 const { Title, Text } = Typography;
 
 const phaseLabel: Record<StrategyLabPhase, string> = {
@@ -32,9 +35,13 @@ const StrategyLabPage: React.FC = () => {
   const [phase, setPhase] = useState<StrategyLabPhase>('queued');
   const [phaseMsg, setPhaseMsg] = useState('');
   const [result, setResult] = useState<StrategyLabRunResult | null>(null);
+  const [prevResult, setPrevResult] = useState<StrategyLabRunResult | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const cancelPollRef = useRef<null | (() => void)>(null);
   const editorRef = useRef<any>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [snippetQuery, setSnippetQuery] = useState('');
+  const [drawnLines, setDrawnLines] = useState<Record<string, number>>({});
 
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
@@ -63,13 +70,17 @@ const StrategyLabPage: React.FC = () => {
       return;
     }
     setRunning(true);
+    // Stash previous successful run as the comparison baseline before kicking off a new one.
+    if (result?.status === 'success') {
+      setPrevResult(result);
+    }
     setResult(null);
     setPct(2);
     setPhase('queued');
     setPhaseMsg('提交中…');
 
     try {
-      const submitResp = await strategyLabService.submit({ code });
+      const submitResp = await strategyLabService.submit({ code, drawn_lines: drawnLines });
       setRunId(submitResp.run_id);
       setPhaseMsg(`run_id=${submitResp.run_id.slice(0, 8)}…`);
 
@@ -105,7 +116,7 @@ const StrategyLabPage: React.FC = () => {
       const detail = err?.response?.data?.detail || err?.message || '提交失败';
       message.error(`提交失败: ${detail}`);
     }
-  }, [code, running, stopPolling]);
+  }, [code, running, stopPolling, drawnLines]);
 
   const handleStop = useCallback(() => {
     stopPolling();
@@ -116,113 +127,206 @@ const StrategyLabPage: React.FC = () => {
     message.info('已停止状态轮询（后端任务仍可能运行至完成）');
   }, [stopPolling]);
 
-  const sider = useMemo(
-    () => (
-      <Sider width={260} theme="light" style={{ borderRight: '1px solid #eee', padding: 12 }}>
+  const sider = useMemo(() => {
+    const q = snippetQuery.trim().toLowerCase();
+    const matches = (s: { title: string; description: string; id: string }) =>
+      !q || s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.id.toLowerCase().includes(q);
+
+    const renderSnippetItem = (item: typeof STRATEGY_LAB_SNIPPETS[0]) => (
+      <div
+        key={item.id}
+        onClick={() => handleSnippetSelect(item.id)}
+        style={{
+          cursor: 'pointer',
+          padding: '6px 8px',
+          marginBottom: 2,
+          background: activeSnippet === item.id ? '#e6f4ff' : 'transparent',
+          borderRadius: 4,
+          border: activeSnippet === item.id ? '1px solid #7dd3fc' : '1px solid transparent',
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 500 }}>{item.title}</div>
+        <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>{item.description}</div>
+      </div>
+    );
+
+    const cats: SnippetCategory[] = ['basic', 'trend', 'reversal', 'timing', 'volume', 'cross', 'factor'];
+    const items = cats.flatMap((cat) => {
+      const list = SNIPPETS_BY_CATEGORY[cat].filter(matches);
+      if (list.length === 0) return [];
+      return [
+        {
+          key: cat,
+          label: (
+            <span style={{ fontSize: 12 }}>
+              {CATEGORY_LABELS[cat]} <Tag style={{ fontSize: 10, marginLeft: 4 }}>{list.length}</Tag>
+            </span>
+          ),
+          children: <div>{list.map(renderSnippetItem)}</div>,
+        },
+      ];
+    });
+
+    return (
+      <div style={{ height: '100%', overflowY: 'auto' }}>
         <Title level={5} style={{ marginBottom: 8 }}>
-          <FileTextOutlined /> 示例策略
+          <FileTextOutlined /> 示例策略 <Tag color="blue" style={{ fontSize: 10 }}>{STRATEGY_LAB_SNIPPETS.length}</Tag>
         </Title>
-        <List
-          dataSource={STRATEGY_LAB_SNIPPETS}
-          renderItem={(item) => (
-            <List.Item
-              onClick={() => handleSnippetSelect(item.id)}
-              style={{
-                cursor: 'pointer',
-                padding: '8px 4px',
-                background: activeSnippet === item.id ? '#e6f4ff' : 'transparent',
-                borderRadius: 6,
-              }}
-            >
-              <List.Item.Meta
-                title={<span style={{ fontSize: 13 }}>{item.title}</span>}
-                description={<Text type="secondary" style={{ fontSize: 11 }}>{item.description}</Text>}
-              />
-            </List.Item>
-          )}
+        <Input
+          allowClear
+          size="small"
+          placeholder="搜索示例…"
+          prefix={<SearchOutlined />}
+          value={snippetQuery}
+          onChange={(e) => setSnippetQuery(e.target.value)}
+          style={{ marginBottom: 8 }}
         />
+        <Collapse
+          size="small"
+          ghost
+          defaultActiveKey={q ? cats : ['basic', 'trend']}
+          activeKey={q ? cats : undefined}
+          items={items}
+        />
+        {items.length === 0 && (
+          <Text type="secondary" style={{ fontSize: 11 }}>没有匹配的示例</Text>
+        )}
         <div style={{ marginTop: 16, fontSize: 11, color: '#888' }}>
-          <p>更多示例与 AI 助手将在后续 Sprint 上线。</p>
-          <p>当前支持 SDK 接口：<code>ctx.universe / ctx.start / ctx.end / ctx.cash</code>，
-          策略钩子：<code>setup / on_bar / on_universe / on_finish</code>。</p>
+          <p>示例覆盖 7 个类别（基础 / 趋势 / 反转 / 择时 / 量价 / 横截面 / 多因子）。</p>
+          <p>SDK：<code>ctx.universe / start / end / cash</code>，钩子：<code>setup / on_bar / on_universe</code>。</p>
         </div>
-      </Sider>
-    ),
-    [activeSnippet, handleSnippetSelect],
-  );
+      </div>
+    );
+  }, [activeSnippet, handleSnippetSelect, snippetQuery]);
 
   return (
-    <Layout style={{ height: 'calc(100vh - 60px)', background: '#fafafa' }}>
-      {sider}
-      <Layout>
-        <Content style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Card
-            size="small"
-            bodyStyle={{ padding: 8 }}
-            title={
-              <Space>
-                <span>策略实验室</span>
-                <Tag color="blue">Sprint 1 · Day 3</Tag>
-                {runId && <Tag>run_id: {runId.slice(0, 8)}…</Tag>}
-              </Space>
-            }
-            extra={
-              <Space>
-                {!running ? (
-                  <Tooltip title="提交策略到引擎子进程并轮询结果">
-                    <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun}>
-                      运行
-                    </Button>
-                  </Tooltip>
-                ) : (
-                  <Button danger icon={<StopOutlined />} onClick={handleStop}>
-                    停止
-                  </Button>
-                )}
-              </Space>
-            }
+    <StrategyLabShell
+      activeLabel="脚本编辑器"
+      contentKey={running ? 'lab-running' : result ? 'lab-result' : 'lab-idle'}
+      rightActions={
+        <Space size="small">
+          <Button icon={<RobotOutlined />} onClick={() => setAiOpen(true)} className="!rounded-xl">
+            AI 助手
+          </Button>
+          {!running ? (
+            <Tooltip title="提交策略到引擎子进程并轮询结果">
+              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} className="!rounded-xl">
+                运行
+              </Button>
+            </Tooltip>
+          ) : (
+            <Button danger icon={<StopOutlined />} onClick={handleStop} className="!rounded-xl">
+              停止
+            </Button>
+          )}
+        </Space>
+      }
+    >
+      <Layout style={{ height: '100%', background: 'transparent' }} hasSider>
+        <div style={{ width: 260, marginRight: 12 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="bg-white border border-gray-200 rounded-2xl shadow-sm h-full overflow-hidden"
           >
-            {(running || pct > 0) && (
-              <Space style={{ width: '100%' }} direction="vertical" size={2}>
-                <Progress percent={pct} status={running ? 'active' : 'normal'} size="small" showInfo />
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  阶段: {phaseLabel[phase] || phase} — {phaseMsg}
-                </Text>
-              </Space>
-            )}
-          </Card>
-
-          <div style={{ flex: 1, display: 'flex', gap: 12, minHeight: 0 }}>
-            <Card
-              size="small"
-              title="编辑器"
-              bodyStyle={{ padding: 0, height: '100%' }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-            >
-              <Editor
-                height="100%"
-                language="python"
-                theme="vs-dark"
-                value={code}
-                onChange={(v) => setCode(v ?? '')}
-                onMount={handleEditorMount}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  scrollBeyondLastLine: false,
-                  tabSize: 4,
-                  wordWrap: 'on',
-                }}
-              />
-            </Card>
-
-            <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
-              <StrategyLabResultPanel result={result} loading={running} />
+            <div style={{ padding: 12, height: '100%', overflowY: 'auto' }}>
+              {sider}
             </div>
-          </div>
-        </Content>
+          </motion.div>
+        </div>
+        <Layout style={{ background: 'transparent' }}>
+          <Content style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: 0.05 }}
+              className="bg-white border border-gray-200 rounded-2xl shadow-sm px-4 py-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Space size="small" wrap>
+                  <span className="text-sm font-semibold text-slate-700 tracking-tight">策略运行</span>
+                  <Tag color="blue" className="!rounded-full !text-[11px]">Sprint 1 · Day 19</Tag>
+                  {runId && <Tag className="!rounded-full !text-[11px]">run_id: {runId.slice(0, 8)}…</Tag>}
+                </Space>
+                <Text type="secondary" className="!text-[11px]">
+                  使用 Python SDK · 子进程沙箱 · Redis 进度
+                </Text>
+              </div>
+              {(running || pct > 0) && (
+                <div className="mt-2">
+                  <Progress
+                    percent={pct}
+                    status={running ? 'active' : 'normal'}
+                    size="small"
+                    showInfo
+                    strokeColor={{ from: '#3b82f6', to: '#8b5cf6' }}
+                  />
+                  <Text type="secondary" className="!text-[11px]">
+                    阶段: {phaseLabel[phase] || phase} — {phaseMsg}
+                  </Text>
+                </div>
+              )}
+            </motion.div>
+
+            <div style={{ flex: 1, display: 'flex', gap: 12, minHeight: 0 }}>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: 0.1 }}
+                className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden"
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}
+              >
+                <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-600 tracking-tight">编辑器</span>
+                  <Text type="secondary" className="!text-[11px]">Python · Monaco · {code.split('\n').length} lines</Text>
+                </div>
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <Editor
+                    height="100%"
+                    language="python"
+                    theme="vs-dark"
+                    value={code}
+                    onChange={(v) => setCode(v ?? '')}
+                    onMount={handleEditorMount}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      fontFamily: 'JetBrains Mono, Menlo, Consolas, monospace',
+                      scrollBeyondLastLine: false,
+                      tabSize: 4,
+                      wordWrap: 'on',
+                      smoothScrolling: true,
+                      cursorSmoothCaretAnimation: 'on',
+                    }}
+                  />
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: 0.15 }}
+                style={{ flex: 1, minWidth: 0, overflow: 'auto' }}
+              >
+                <StrategyLabResultPanel result={result} loading={running} code={code} prevResult={prevResult} onClearPrev={() => setPrevResult(null)} drawnLines={drawnLines} onDrawnLinesChange={setDrawnLines} />
+              </motion.div>
+            </div>
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
+      <StrategyLabAiDrawer
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        code={code}
+        lastError={
+          result?.status === 'failed'
+            ? { message: result.error || '', traceback: result.error_traceback || '' }
+            : null
+        }
+        onApplyCode={(newCode) => setCode(newCode)}
+      />
+    </StrategyLabShell>
   );
 };
 

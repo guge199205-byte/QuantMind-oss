@@ -114,6 +114,14 @@ if DAILY_SYNC_ENABLED:
         "kwargs": {"market": "A", "incremental": True, "calibrate": True},
     }
 
+# Strategy Lab daily scan — runs after the data sync settles (Day 16)
+if os.getenv("STRATEGY_LAB_SCAN_ENABLED", "true").lower() == "true":
+    beat_schedule["strategy-lab-daily-scan"] = {
+        "task": "engine.tasks.strategy_lab_daily_scan",
+        "schedule": crontab(minute="30", hour="18", day_of_week="1-5"),
+        "kwargs": {"lookback_days": 7},
+    }
+
 celery_app.conf.update(
     # 序列化
     task_serializer="json",

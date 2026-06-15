@@ -31,12 +31,17 @@ export const BacktestHistoryModule: React.FC = () => {
 
   return (
     <div className="h-full p-4">
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4"
+      >
         <BacktestHistory
           userId={userId}
           onViewDetail={(backtest) => setSelectedBacktest(backtest)}
         />
-      </div>
+      </motion.div>
 
       <AnimatePresence>
         {selectedBacktest && (
@@ -209,7 +214,8 @@ const BacktestDetailModal: React.FC<BacktestDetailModalProps> = ({
         <div className="sticky top-0 z-10 bg-white border-b border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-1">回测详情</h2>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Backtest Detail</p>
+              <h2 className="text-lg font-bold text-slate-800 tracking-tight mb-1">回测详情</h2>
               <p className="text-sm text-gray-600">
                 {strategyName} | {detailStartDate} ~ {detailEndDate}
               </p>
@@ -241,14 +247,14 @@ const BacktestDetailModal: React.FC<BacktestDetailModalProps> = ({
 
           {backtest.equity_curve && backtest.equity_curve.length > 0 && (
             <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">权益曲线</h3>
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight mb-4">权益曲线</h3>
               <ReactECharts option={equityCurveOption} style={{ height: '280px' }} />
             </div>
           )}
 
           {backtest.drawdown_curve && backtest.drawdown_curve.length > 0 && (
             <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">回撤曲线</h3>
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight mb-4">回撤曲线</h3>
               <ReactECharts option={drawdownOption} style={{ height: '280px' }} />
             </div>
           )}

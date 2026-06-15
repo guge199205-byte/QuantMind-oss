@@ -155,14 +155,20 @@ export const StrategyManagementModule: React.FC = () => {
     };
 
     return (
-        <div className="h-full flex flex-col bg-white rounded-2xl shadow-sm">
+        <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="h-full flex flex-col bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+        >
             <div className="px-6 py-4 border-b border-gray-200">
                 <div className="flex items-center justify-between mb-4">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-800">策略管理</h2>
+                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Strategy Library</p>
+                        <h2 className="text-lg font-bold text-slate-800 tracking-tight">策略管理</h2>
                         <p className="text-sm text-gray-500">管理策略生命周期：草稿 → 仓库 → 实盘</p>
                     </div>
-                    <button onClick={loadStrategies} className="p-2 hover:bg-gray-100 rounded-xl">
+                    <button onClick={loadStrategies} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
                         <RefreshCw className={`w-5 h-5 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
                     </button>
                 </div>
@@ -182,7 +188,7 @@ export const StrategyManagementModule: React.FC = () => {
                             <button
                                 key={f}
                                 onClick={() => setFilter(f)}
-                                className={`px-4 py-2 rounded-xl text-sm font-medium ${filter === f ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+                                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${filter === f ? 'bg-gradient-to-br from-blue-500 to-purple-500 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                             >
                                 {f === 'all' ? '全部' : f === 'draft' ? '草稿' : f === 'repository' ? '仓库' : '实盘'}
                             </button>
@@ -202,11 +208,17 @@ export const StrategyManagementModule: React.FC = () => {
                 ) : (
                     <div className="grid grid-cols-1 gap-4">
                         {filteredStrategies.map((strategy) => (
-                            <motion.div key={strategy.id} layout className="p-4 border border-gray-200 rounded-2xl hover:shadow-md transition-shadow">
+                            <motion.div
+                                key={strategy.id}
+                                layout
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.995 }}
+                                className="p-4 border border-gray-200 rounded-2xl hover:shadow-md transition-shadow bg-white"
+                            >
                                 <div className="flex items-start justify-between mb-3">
                                     <div className="flex-1">
                                         <div className="flex items-center gap-3 mb-2">
-                                            <h3 className="text-lg font-semibold text-gray-800">{strategy.name}</h3>
+                                            <h3 className="text-sm font-semibold text-slate-700 tracking-tight">{strategy.name}</h3>
                                             {getStatusBadge(strategy.status)}
                                         </div>
                                         <div className="text-xs text-gray-500">
@@ -242,6 +254,6 @@ export const StrategyManagementModule: React.FC = () => {
             >
                 <p>确定要永久删除策略 "{selectedStrategy?.name}" 吗？</p>
             </Modal>
-        </div>
+        </motion.div>
     );
 };
