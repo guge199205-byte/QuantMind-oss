@@ -258,6 +258,10 @@ class SimpleSignal(Signal):
     def _align_instrument_case(self, series: pd.Series) -> pd.Series:
         """
         对齐 pred 信号股票代码大小写，避免与 qlib 数据集代码风格不一致导致 0 成交。
+        支持的转换：
+        - 纯数字 → SH/SZ/BJ 前缀格式 (e.g. 600036 → SH600036)
+        - 后缀格式 → 前缀格式 (e.g. 600036.SH → SH600036)
+        - 大小写对齐
         """
         try:
             if not isinstance(series.index, pd.MultiIndex):
@@ -277,23 +281,32 @@ class SimpleSignal(Signal):
             qlib_set = set(map(str, qlib_instruments))
             pred_set = set(map(str, inst_values))
 
-            def to_qlib_code(code: str) -> str:
-                code_u = str(code or "").strip().upper()
-                if len(code_u) == 8 and code_u[:2] in {"SH", "SZ", "BJ"}:
-                    return code_u
-                if len(code_u) == 9 and "." in code_u:
-                    left, right = code_u.split(".", 1)
-                    if len(left) == 6 and right in {"SH", "SZ", "BJ"}:
-                        return right + left
-                if len(code_u) == 6 and code_u.isdigit():
-                    if code_u.startswith(("6", "9")):
-                        return "SH" + code_u
-                    if code_u.startswith(("0", "2", "3")):
-                        return "SZ" + code_u
-                    if code_u.startswith(("4", "8")):
-                        return "BJ" + code_u
-                return code_u
+            # 快速检查：如果重叠已经很高，直接返回
+            raw_overlap = len(pred_set & qlib_set)
+            if raw_overlap >= len(pred_set) * 0.5:
+                return series
 
+            def to_qlib_code(code: str) -> str:
+                code_str = str(code or "").strip().upper()
+                # 已经是 SH/SZ/BJ 前缀格式
+                if len(code_str) == 8 and code_str[:2] in {"SH", "SZ", "BJ"}:
+                    return code_str
+                # 后缀格式: 600036.SH → SH600036
+                if "." in code_str:
+                    parts = code_str.split(".")
+                    if len(parts) == 2 and len(parts[0]) == 6 and parts[0].isdigit():
+                        return parts[1] + parts[0]
+                # 纯6位数字: 600036 → SH600036
+                if code_str.isdigit() and len(code_str) == 6:
+                    if code_str.startswith(("6", "9")):
+                        return "SH" + code_str
+                    if code_str.startswith(("0", "2", "3")):
+                        return "SZ" + code_str
+                    if code_str.startswith(("4", "8")):
+                        return "BJ" + code_str
+                return code_str
+
+            # 尝试各种转换策略，选重叠率最高的
             candidates = [
                 ("raw", lambda s: str(s)),
                 ("lower", lambda s: str(s).lower()),
@@ -303,7 +316,7 @@ class SimpleSignal(Signal):
             ]
 
             best_name = "raw"
-            best_overlap = -1
+            best_overlap = raw_overlap
             for name, fn in candidates:
                 mapped_set = {fn(v) for v in pred_set}
                 overlap = len(mapped_set & qlib_set)
@@ -311,7 +324,6 @@ class SimpleSignal(Signal):
                     best_name = name
                     best_overlap = overlap
 
-            raw_overlap = len(pred_set & qlib_set)
             if best_overlap <= raw_overlap:
                 return series
 

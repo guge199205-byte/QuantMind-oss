@@ -1010,6 +1010,76 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                     "pred_path": pred_path,
                 }
 
+    @staticmethod
+    def _infer_backtest_market(request: "QlibBacktestRequest") -> str:
+        """从回测请求中推断目标市场（CN/HK/US/CRYPTO）。"""
+        # 1. 从 qlib_provider_uri 或 qlib_region 推断
+        provider_uri = str(getattr(request, "qlib_provider_uri", "") or "").lower()
+        region = str(getattr(request, "qlib_region", "") or "").lower()
+        if "hk_data" in provider_uri or region == "hk":
+            return "HK"
+        if "us_data" in provider_uri or region == "us":
+            return "US"
+        if "crypto_data" in provider_uri or region == "crypto":
+            return "CRYPTO"
+        # 2. 从 benchmark 推断
+        benchmark = str(getattr(request, "benchmark_symbol", "") or "").upper()
+        if "HSI" in benchmark or "HSCEI" in benchmark or "HSTECH" in benchmark:
+            return "HK"
+        if "SPX" in benchmark or "NDX" in benchmark or "DJI" in benchmark:
+            return "US"
+        if "BTC" in benchmark or "ETH" in benchmark:
+            return "CRYPTO"
+        # 3. 从 universe 路径推断
+        universe = str(getattr(request, "universe", "") or "").lower()
+        if "hk" in universe:
+            return "HK"
+        if "us" in universe:
+            return "US"
+        if "crypto" in universe:
+            return "CRYPTO"
+        # 默认 A 股
+        return "CN"
+
+    @staticmethod
+    def _infer_model_market(model: dict) -> str:
+        """从模型元数据中推断市场（CN/HK/US/CRYPTO）。"""
+        meta = model.get("metadata_json") or {}
+        if isinstance(meta, str):
+            try:
+                import json
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        # 1. 从 metadata_json.context.market 推断
+        context = meta.get("context") or {}
+        if isinstance(context, dict):
+            market = str(context.get("market") or "").upper().strip()
+            if market in ("HK", "HONG_KONG", "港股"):
+                return "HK"
+            if market in ("US", "美股"):
+                return "US"
+            if market in ("CRYPTO", "加密"):
+                return "CRYPTO"
+            if market in ("CN", "A_SHARE", "A股", "CHINA"):
+                return "CN"
+        # 2. 从 benchmark 推断
+        benchmark = str(context.get("benchmark") or "").upper()
+        if "HSI" in benchmark:
+            return "HK"
+        if "SPX" in benchmark or "NDX" in benchmark:
+            return "US"
+        # 3. 从 model_id 推断（如包含 HK/US/CRYPTO）
+        model_id = str(model.get("model_id") or "").upper()
+        if "_HK" in model_id:
+            return "HK"
+        if "_US" in model_id:
+            return "US"
+        if "_CRYPTO" in model_id:
+            return "CRYPTO"
+        # 无法确定时返回空字符串，表示不限制
+        return ""
+
     async def _try_swap_to_covering_model(
         self,
         request: "QlibBacktestRequest",
@@ -1038,8 +1108,15 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                 key=lambda m: str(m.get("updated_at") or ""), reverse=True
             )
 
+            # 确定当前回测的目标市场
+            request_market = self._infer_backtest_market(request)
+
             for m in models:
                 if str(m.get("status") or "") not in ("ready", "active"):
+                    continue
+                # 排除市场不匹配的模型（港股模型不能跑 A 股回测等）
+                model_market = self._infer_model_market(m)
+                if model_market and request_market and model_market != request_market:
                     continue
                 storage_path = str(m.get("storage_path") or "")
                 model_id = str(m.get("model_id") or "")
