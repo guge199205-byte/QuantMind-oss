@@ -242,7 +242,9 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
             # --- Pool File Resolution [END] ---
 
             task_log.info(
-                "signal_raw", "原始signal配置", signal=request.strategy_params.signal
+                "signal_raw", "原始signal配置", signal=request.strategy_params.signal,
+                model_id=getattr(request, "model_id", None),
+                strategy_id=getattr(request, "strategy_id", None),
             )
             signal_data, signal_meta = await self._build_signal_data(request)
 
@@ -256,13 +258,42 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                 request_start_ts = pd.Timestamp(request.start_date)
                 request_end_ts = pd.Timestamp(request.end_date)
 
-                # 信号数据完全不覆盖回测区间 → 给出友好提示
+                # 信号数据完全不覆盖回测区间 → 尝试自动切换到覆盖该区间的模型
                 if signal_ts < request_start_ts:
-                    raise ValueError(
-                        f"回测区间 {request.start_date}~{request.end_date} 超出预测信号数据范围"
-                        f"（信号最晚日期 {max_signal_date}）。"
-                        f"请将回测起始日期调整至 {max_signal_date} 之前，或训练/选择覆盖该区间的模型。"
+                    original_model_id = getattr(request, "model_id", None)
+                    task_log.warning(
+                        "signal_data_out_of_range",
+                        "当前模型信号不覆盖回测区间，尝试自动切换模型",
+                        current_max_signal_date=max_signal_date,
+                        requested_start=request.start_date,
+                        current_model_id=original_model_id,
                     )
+                    # 尝试查找覆盖回测起始日期的模型
+                    swapped = await self._try_swap_to_covering_model(
+                        request, request_start_ts
+                    )
+                    if swapped:
+                        # 重新构建信号数据
+                        signal_data, signal_meta = await self._build_signal_data(request)
+                        new_max = signal_meta.get("max_signal_date")
+                        task_log.info(
+                            "model_auto_swapped",
+                            "已自动切换到覆盖回测区间的模型",
+                            old_model_id=original_model_id,
+                            new_model_id=getattr(request, "model_id", None),
+                            new_max_signal_date=new_max,
+                        )
+                        # 更新 signal_ts
+                        if new_max:
+                            signal_ts = pd.Timestamp(new_max)
+                    else:
+                        raise ValueError(
+                            f"当前模型信号最晚日期为 {max_signal_date}，"
+                            f"不覆盖回测起始日期 {request.start_date}，"
+                            f"且未找到覆盖该区间的其他模型。"
+                            f"请将回测起始日期调整至 {max_signal_date} 之前，"
+                            f"或训练/选择覆盖该区间的模型。"
+                        )
 
                 # 信号数据部分覆盖：自动截断回测终点到信号最大日期
                 # 后续的日期自适应校准会进一步处理，这里先确保 rows_in_range > 0
@@ -978,6 +1009,117 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                     "fallback_reason": "pred_pkl_load_failed",
                     "pred_path": pred_path,
                 }
+
+    async def _try_swap_to_covering_model(
+        self,
+        request: "QlibBacktestRequest",
+        target_start_ts: pd.Timestamp,
+    ) -> bool:
+        """
+        当前模型的 pred.pkl 不覆盖回测起始日期时，自动在用户的所有可用模型中
+        查找 pred.pkl 覆盖目标日期的模型，找到后更新 request.model_id。
+        返回 True 表示已切换，False 表示未找到。
+        """
+        import pickle as _pickle
+
+        try:
+            from backend.shared.model_registry import model_registry_service
+
+            tenant_id = str(request.tenant_id or "default")
+            user_id = str(request.user_id or "").strip()
+            if not user_id:
+                return False
+
+            models = await model_registry_service.list_models(
+                tenant_id=tenant_id, user_id=user_id, include_archived=False
+            )
+            # 按更新时间降序，优先选最新的模型
+            models.sort(
+                key=lambda m: str(m.get("updated_at") or ""), reverse=True
+            )
+
+            for m in models:
+                if str(m.get("status") or "") not in ("ready", "active"):
+                    continue
+                storage_path = str(m.get("storage_path") or "")
+                model_id = str(m.get("model_id") or "")
+                if not storage_path:
+                    continue
+                # 检查 pred.pkl
+                pred_path = Path(storage_path) / "pred.pkl"
+                if not pred_path.exists():
+                    pred_path = Path(storage_path) / "pred.parquet"
+                if not pred_path.exists():
+                    continue
+                # 快速读取 pred 最大日期（只读 index，不加载全量数据）
+                try:
+                    if str(pred_path).endswith(".parquet"):
+                        import pyarrow.parquet as pq
+
+                        pf = pq.ParquetFile(str(pred_path))
+                        # 从 footer metadata 中读取 datetime 列统计
+                        schema_names = list(pf.schema_arrow.names)
+                        td_idx = -1
+                        for i, n in enumerate(schema_names):
+                            if n == "datetime":
+                                td_idx = i
+                                break
+                        if td_idx < 0:
+                            continue
+                        md = pf.metadata
+                        max_date = None
+                        for rg in range(md.num_row_groups):
+                            col = md.row_group(rg).column(td_idx)
+                            stats = col.statistics
+                            if stats and stats.has_min_max:
+                                from datetime import date as _date
+
+                                v = stats.max
+                                if isinstance(v, bytes):
+                                    v = v.decode()
+                                try:
+                                    d = pd.Timestamp(str(v)[:10])
+                                    if max_date is None or d > max_date:
+                                        max_date = d
+                                except Exception:
+                                    continue
+                        if max_date is not None and max_date >= target_start_ts:
+                            request.model_id = model_id
+                            task_logger.info(
+                                "auto_swap_model",
+                                "自动切换到覆盖回测区间的模型",
+                                old_model_id=getattr(request, "_original_model_id", None),
+                                new_model_id=model_id,
+                                pred_max_date=str(max_date.date()),
+                            )
+                            return True
+                    else:
+                        # pickle: 只读 index 的 datetime level
+                        with open(pred_path, "rb") as f:
+                            pred = _pickle.load(f)
+                        if hasattr(pred, "index") and len(pred.index) > 0:
+                            dates = pred.index.get_level_values("datetime")
+                            max_date = pd.Timestamp(dates.max())
+                            if max_date >= target_start_ts:
+                                request.model_id = model_id
+                                task_logger.info(
+                                    "auto_swap_model",
+                                    "自动切换到覆盖回测区间的模型",
+                                    new_model_id=model_id,
+                                    pred_max_date=str(max_date.date()),
+                                )
+                                return True
+                except Exception:
+                    continue
+
+            return False
+        except Exception as exc:
+            task_logger.warning(
+                "swap_model_failed",
+                "自动切换模型失败",
+                error=str(exc),
+            )
+            return False
 
     async def _resolve_pred_path_from_model_registry(
         self,
