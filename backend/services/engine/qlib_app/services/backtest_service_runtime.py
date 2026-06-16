@@ -308,6 +308,18 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                     request.end_date = str(signal_ts.date())
             # --- 信号日期预截断 [END] ---
 
+            # 调试：打印质量预检前的关键参数
+            task_log.info(
+                "pre_quality_check_debug",
+                "质量预检前参数",
+                rows_in_range=signal_meta.get("rows_in_range"),
+                date_count=signal_meta.get("date_count"),
+                instrument_count=signal_meta.get("instrument_count"),
+                max_signal_date=signal_meta.get("max_signal_date"),
+                request_start_date=request.start_date,
+                request_end_date=request.end_date,
+                signal_source=signal_meta.get("source"),
+            )
             self._enforce_signal_quality(signal_meta, request=request)
             is_dataframe = isinstance(signal_data, (pd.DataFrame, pd.Series))
             task_log.info(
