@@ -245,6 +245,38 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                 "signal_raw", "原始signal配置", signal=request.strategy_params.signal
             )
             signal_data, signal_meta = await self._build_signal_data(request)
+
+            # --- 信号日期预截断 [START] ---
+            # 在质量预检之前，先用信号数据的日期范围截断回测区间。
+            # 这样当 pred.pkl 数据不覆盖回测部分区间时，不会因 rows_in_range=0 直接报错，
+            # 而是自动截断到数据可用范围后再做质量检查。
+            max_signal_date = signal_meta.get("max_signal_date")
+            if max_signal_date:
+                signal_ts = pd.Timestamp(max_signal_date)
+                request_start_ts = pd.Timestamp(request.start_date)
+                request_end_ts = pd.Timestamp(request.end_date)
+
+                # 信号数据完全不覆盖回测区间 → 给出友好提示
+                if signal_ts < request_start_ts:
+                    raise ValueError(
+                        f"回测区间 {request.start_date}~{request.end_date} 超出预测信号数据范围"
+                        f"（信号最晚日期 {max_signal_date}）。"
+                        f"请将回测起始日期调整至 {max_signal_date} 之前，或训练/选择覆盖该区间的模型。"
+                    )
+
+                # 信号数据部分覆盖：自动截断回测终点到信号最大日期
+                # 后续的日期自适应校准会进一步处理，这里先确保 rows_in_range > 0
+                if signal_ts < request_end_ts:
+                    task_log.warning(
+                        "signal_end_date_truncated",
+                        "信号数据不覆盖回测终点，已截断回测区间到信号最大日期",
+                        original_end=request.end_date,
+                        truncated_end=str(signal_ts.date()),
+                        signal_max_date=max_signal_date,
+                    )
+                    request.end_date = str(signal_ts.date())
+            # --- 信号日期预截断 [END] ---
+
             self._enforce_signal_quality(signal_meta, request=request)
             is_dataframe = isinstance(signal_data, (pd.DataFrame, pd.Series))
             task_log.info(

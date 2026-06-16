@@ -5,9 +5,9 @@ export const BACKTEST_CONFIG = {
   QLIB: {
     PROVIDER_URI: 'db/qlib_data',
     REGION: 'cn',
-    // 数据锁定范围 (2016-2025)
+    // 数据锁定范围 (2016-2026)
     DATA_START: '2016-01-01',
-    DATA_END: '2025-12-31',
+    DATA_END: '2026-06-30',
     // 默认回测范围 (2025年)
     DEFAULT_START: '2025-01-01',
     DEFAULT_END: '2025-12-31',
